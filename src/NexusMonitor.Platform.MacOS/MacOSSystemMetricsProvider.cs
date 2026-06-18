@@ -13,15 +13,27 @@ internal static partial class LibSystem
 {
     // Cache mach_host_self() — each call leaks a Mach port; 65536 limit would crash at 2s intervals
     public static readonly int HostSelf = mach_host_self();
+
+    // mach_task_self_ is a DATA export (the cached task-self Mach port), NOT a function —
+    // `mach_task_self()` is a C macro that reads this global. P/Invoking it as a function
+    // and calling it jumps into a data address and bus-errors (EXC_BAD_ACCESS /
+    // KERN_PROTECTION_FAILURE). Read the symbol's value once and cache it (it never
+    // changes for the lifetime of the process).
+    public static readonly int TaskSelf = ReadTaskSelfPort();
+
+    private static int ReadTaskSelfPort()
+    {
+        var handle = NativeLibrary.Load("libSystem.B.dylib");
+        var addr   = NativeLibrary.GetExport(handle, "mach_task_self_");
+        return Marshal.ReadInt32(addr);   // mach_port_t is a 32-bit unsigned int
+    }
+
     [LibraryImport("libSystem.B.dylib", StringMarshalling = StringMarshalling.Utf8)]
     public static partial int sysctlbyname(
         string name, [Out] byte[] oldp, ref nuint oldlenp, nint newp, nuint newlen);
 
     [DllImport("libSystem.B.dylib")]
     public static extern int mach_host_self();
-
-    [DllImport("libSystem.B.dylib")]
-    public static extern int mach_task_self_();
 
     [DllImport("libSystem.B.dylib")]
     public static extern int host_processor_info(
@@ -370,7 +382,7 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
 
             // Free the Mach-allocated buffer
             LibSystem.vm_deallocate(
-                LibSystem.mach_task_self_(),
+                LibSystem.TaskSelf,
                 infoPtr,
                 (nint)(infoCnt * 4));
 
