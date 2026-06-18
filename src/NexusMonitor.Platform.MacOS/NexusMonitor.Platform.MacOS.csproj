@@ -1,8 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <!-- Only use the macos TFM when actually running on macOS -->
-    <TargetFramework Condition="$([MSBuild]::IsOSPlatform('osx'))">net8.0-macos</TargetFramework>
-    <TargetFramework Condition="!$([MSBuild]::IsOSPlatform('osx'))">net8.0</TargetFramework>
+    <!-- Pure P/Invoke (libSystem/sysctl/Mach) — no managed ObjC bindings, so plain net8.0
+         on every host. The net8.0-macos TFM is deliberately avoided: its Microsoft.macOS
+         ObjC runtime SIGBUSes at startup on macOS 26 (Tahoe) / Apple Silicon. -->
+    <TargetFramework>net8.0</TargetFramework>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>NexusMonitor.Platform.MacOS</AssemblyName>
     <RootNamespace>NexusMonitor.Platform.MacOS</RootNamespace>
