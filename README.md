@@ -208,7 +208,7 @@ dotnet run --project src/NexusMonitor.UI/NexusMonitor.UI.csproj --framework net8
 #### macOS
 
 ```bash
-dotnet run --project src/NexusMonitor.UI/NexusMonitor.UI.csproj --framework net8.0-macos
+dotnet run --project src/NexusMonitor.UI/NexusMonitor.UI.csproj
 ```
 
 > **Gatekeeper:** If macOS blocks an unsigned binary, right-click → Open, or run:

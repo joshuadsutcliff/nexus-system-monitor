@@ -4,9 +4,11 @@
     <OutputType Condition="$([MSBuild]::IsOSPlatform('windows'))">WinExe</OutputType>
     <OutputType Condition="!$([MSBuild]::IsOSPlatform('windows'))">Exe</OutputType>
     <!-- Single TFM per host OS so dotnet run needs no -f flag.
-         CI pipelines for macOS/Linux should override with -f net8.0-macos or -f net8.0 -->
+         macOS uses plain net8.0 (like Linux): Avalonia renders the identical UI via its own
+         native backend, and the macOS platform layer is pure P/Invoke. The net8.0-macos TFM
+         is avoided because its Microsoft.macOS ObjC runtime SIGBUSes on macOS 26 (Tahoe). -->
     <TargetFramework Condition="$([MSBuild]::IsOSPlatform('windows'))">net8.0-windows10.0.17763.0</TargetFramework>
-    <TargetFramework Condition="$([MSBuild]::IsOSPlatform('osx'))">net8.0-macos</TargetFramework>
+    <TargetFramework Condition="$([MSBuild]::IsOSPlatform('osx'))">net8.0</TargetFramework>
     <TargetFramework Condition="$([MSBuild]::IsOSPlatform('linux'))">net8.0</TargetFramework>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <AssemblyName>NexusMonitor</AssemblyName>
@@ -22,17 +24,12 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\nexus-icon.ico</ApplicationIcon>
   </PropertyGroup>
-  <PropertyGroup Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0-macos'))">
+  <!-- MACOS define is keyed to the host OS (not the TFM) since macOS now builds as net8.0 -->
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('osx'))">
     <DefineConstants>$(DefineConstants);MACOS</DefineConstants>
-    <!-- Required by macOS SDK to generate a valid .app bundle identifier -->
-    <ApplicationId>com.brass458.nexus-monitor</ApplicationId>
   </PropertyGroup>
-  <!-- macOS: copy .icns into Contents/Resources/ so macOS can find the icon via CFBundleIconFile -->
-  <ItemGroup Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0-macos'))">
-    <BundleResource Include="Assets/nexus-icon.icns">
-      <LogicalName>nexus-icon.icns</LogicalName>
-    </BundleResource>
-  </ItemGroup>
+  <!-- macOS .icns is copied into Contents/Resources/ by create-app-bundle.sh at packaging time.
+       No BundleResource here — that was for the net8.0-macos workload which is no longer used. -->
   <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0'
     AND !$([MSBuild]::IsOSPlatform('windows'))
     AND !$([MSBuild]::IsOSPlatform('osx'))">

@@ -93,10 +93,17 @@ public partial class MainWindow : Window
             // Shimmer timer is started only if glass is enabled (via SetGlassActive).
             // SettingsViewModel.ApplyBackdropMode calls SetGlassActive after settings load.
 
-            // On macOS, add left padding to the titlebar content so it clears the
-            // native traffic light buttons (~80px wide including their left inset).
+            // On macOS, restore the native traffic-light buttons and pad the titlebar
+            // content to clear them. The window XAML sets ExtendClientAreaChromeHints=
+            // NoChrome for the custom Windows-style caption buttons; on macOS that also
+            // suppresses the native traffic lights, leaving no window controls at all.
+            // PreferSystemChrome keeps the close/minimize/zoom buttons over the extended
+            // client area (the custom buttons are hidden in ApplyMacOSTitleBarPadding).
             if (OperatingSystem.IsMacOS())
+            {
+                ExtendClientAreaChromeHints = Avalonia.Platform.ExtendClientAreaChromeHints.PreferSystemChrome;
                 ApplyMacOSTitleBarPadding();
+            }
 
             // On Linux, some compositors (e.g. wlroots/Sway, KWin on X11) do not honour
             // ExtendClientAreaChromeHints=NoChrome and lose resize handling entirely.

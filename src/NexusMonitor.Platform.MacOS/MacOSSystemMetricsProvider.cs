@@ -12,27 +12,41 @@ namespace NexusMonitor.Platform.MacOS;
 internal static partial class LibSystem
 {
     // Cache mach_host_self() — each call leaks a Mach port; 65536 limit would crash at 2s intervals
-    public static readonly int HostSelf = mach_host_self();
+    public static readonly uint HostSelf = mach_host_self();
+
+    // mach_task_self_ is a DATA export (the cached task-self Mach port), NOT a function —
+    // `mach_task_self()` is a C macro that reads this global. P/Invoking it as a function
+    // and calling it jumps into a data address and bus-errors (EXC_BAD_ACCESS /
+    // KERN_PROTECTION_FAILURE). Read the symbol's value once and cache it (it never
+    // changes for the lifetime of the process).
+    public static readonly uint TaskSelf = ReadTaskSelfPort();
+
+    private static uint ReadTaskSelfPort()
+    {
+        var handle = NativeLibrary.Load("libSystem.B.dylib");
+        var addr   = NativeLibrary.GetExport(handle, "mach_task_self_");
+        return (uint)Marshal.ReadInt32(addr);   // mach_port_t is a 32-bit unsigned int
+    }
+
     [LibraryImport("libSystem.B.dylib", StringMarshalling = StringMarshalling.Utf8)]
     public static partial int sysctlbyname(
         string name, [Out] byte[] oldp, ref nuint oldlenp, nint newp, nuint newlen);
 
+    // mach_port_t / natural_t / mach_msg_type_number_t are all 32-bit *unsigned* int.
+    // vm_address_t / vm_size_t are pointer-width unsigned (nuint) on LP64 macOS.
     [DllImport("libSystem.B.dylib")]
-    public static extern int mach_host_self();
-
-    [DllImport("libSystem.B.dylib")]
-    public static extern int mach_task_self_();
+    public static extern uint mach_host_self();
 
     [DllImport("libSystem.B.dylib")]
     public static extern int host_processor_info(
-        int host,
+        uint host,
         int flavor,
-        out int processorCount,
+        out uint processorCount,
         out nint processorInfo,
-        out int processorInfoCount);
+        out uint processorInfoCount);
 
     [DllImport("libSystem.B.dylib")]
-    public static extern int vm_deallocate(int task, nint address, nint size);
+    public static extern int vm_deallocate(uint task, nuint address, nuint size);
 
 }
 
@@ -315,12 +329,14 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
             var result = LibSystem.host_processor_info(
                 host,
                 ProcessorCpuLoadInfo,
-                out int cpuCount,
+                out uint cpuCountRaw,
                 out nint infoPtr,
-                out int infoCnt);
+                out uint infoCnt);
 
-            if (result != 0 || infoPtr == nint.Zero || cpuCount <= 0)
+            if (result != 0 || infoPtr == nint.Zero || cpuCountRaw == 0)
                 return [];
+
+            int cpuCount = (int)cpuCountRaw;
 
             // infoCnt = cpuCount * CpuStateMax (4 uint32 per CPU)
             var corePercents = new double[cpuCount];
@@ -370,9 +386,9 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
 
             // Free the Mach-allocated buffer
             LibSystem.vm_deallocate(
-                LibSystem.mach_task_self_(),
-                infoPtr,
-                (nint)(infoCnt * 4));
+                LibSystem.TaskSelf,
+                (nuint)infoPtr,
+                (nuint)((ulong)infoCnt * 4u));
 
             var grandTotal = (double)(totalUser + totalSys + totalIdle + totalNice);
             totalPercent = grandTotal > 0
