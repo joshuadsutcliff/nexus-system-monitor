@@ -28,12 +28,8 @@
   <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('osx'))">
     <DefineConstants>$(DefineConstants);MACOS</DefineConstants>
   </PropertyGroup>
-  <!-- macOS: copy .icns into Contents/Resources/ so macOS can find the icon via CFBundleIconFile -->
-  <ItemGroup Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0-macos'))">
-    <BundleResource Include="Assets/nexus-icon.icns">
-      <LogicalName>nexus-icon.icns</LogicalName>
-    </BundleResource>
-  </ItemGroup>
+  <!-- macOS .icns is copied into Contents/Resources/ by create-app-bundle.sh at packaging time.
+       No BundleResource here — that was for the net8.0-macos workload which is no longer used. -->
   <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0'
     AND !$([MSBuild]::IsOSPlatform('windows'))
     AND !$([MSBuild]::IsOSPlatform('osx'))">

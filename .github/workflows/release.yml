@@ -30,10 +30,6 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Install macOS workload
-        if: runner.os == 'macOS'
-        run: dotnet workload install macos
-
       - name: Restore
         run: dotnet restore NexusMonitor.sln
 
@@ -156,9 +152,6 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
-
-      - name: Install macOS workload
-        run: dotnet workload install macos
 
       - name: Extract version from tag
         id: ver
