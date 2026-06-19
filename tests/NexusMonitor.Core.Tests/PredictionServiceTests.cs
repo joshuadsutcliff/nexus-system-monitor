@@ -145,8 +145,8 @@ public class PredictionServiceTests
         var diskPred = emitted!.Single(p => p.Resource == "Disk");
         diskPred.Confidence.Should().BeGreaterThan(0.9, "a perfectly linear trend should have R² close to 1");
         diskPred.DepletionEstimate.Should().NotBeNull();
-        diskPred.DepletionEstimate!.Value.Should().BeAfter(DateTimeOffset.UtcNow,
-            "depletion should be in the future");
+        diskPred.DepletionEstimate!.Value.Should().BeAfter(new DateTimeOffset(FixedNow),
+            "depletion should be in the future relative to the service's (fixed) evaluation time");
 
         svc.Dispose();
     }
