@@ -9,6 +9,7 @@
 
   <UserControl.Resources>
     <conv:CpuHeatBrushConverter x:Key="CpuHeat"/>
+    <conv:MacOsUnavailableConverter x:Key="MacOsNa"/>
   </UserControl.Resources>
 
   <UserControl.Styles>
@@ -436,7 +437,7 @@
                         BorderBrush="{DynamicResource GlassBorderBrush}" BorderThickness="1"
                         CornerRadius="{StaticResource CornerMD}">
                   <StackPanel HorizontalAlignment="Center">
-                    <TextBlock Text="{Binding TempC, StringFormat='{}{0:F0}°C'}" FontSize="{DynamicResource NxFont14}" FontWeight="SemiBold"
+                    <TextBlock Text="{Binding TempC, Converter={StaticResource MacOsNa}, ConverterParameter='{}{0:F0}°C'}" FontSize="{DynamicResource NxFont14}" FontWeight="SemiBold"
                                Foreground="{StaticResource ColorWarningBrush}" HorizontalAlignment="Center"/>
                     <TextBlock Text="Temperature" FontSize="{DynamicResource NxFont10}"
                                Foreground="{DynamicResource TextTertiaryBrush}" HorizontalAlignment="Center"/>
@@ -564,7 +565,7 @@
                   <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,6">
                     <TextBlock Grid.Column="0" Text="Handles"
                                FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                    <TextBlock Grid.Column="1" Text="{Binding HandleCount}"
+                    <TextBlock Grid.Column="1" Text="{Binding HandleCount, Converter={StaticResource MacOsNa}}"
                                FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextPrimaryBrush}"
                                HorizontalAlignment="Right"/>
                   </Grid>
@@ -727,7 +728,7 @@
                     <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,6">
                       <TextBlock Grid.Column="0" Text="Paged pool"
                                  FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                      <TextBlock Grid.Column="1" Text="{Binding PagedPoolGb, StringFormat='{}{0:F2} GB'}"
+                      <TextBlock Grid.Column="1" Text="{Binding PagedPoolGb, Converter={StaticResource MacOsNa}, ConverterParameter='{}{0:F2} GB'}"
                                  FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextPrimaryBrush}"
                                  HorizontalAlignment="Right"/>
                     </Grid>
@@ -735,7 +736,7 @@
                     <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,0">
                       <TextBlock Grid.Column="0" Text="Non-paged pool"
                                  FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                      <TextBlock Grid.Column="1" Text="{Binding NonPagedPoolGb, StringFormat='{}{0:F2} GB'}"
+                      <TextBlock Grid.Column="1" Text="{Binding NonPagedPoolGb, Converter={StaticResource MacOsNa}, ConverterParameter='{}{0:F2} GB'}"
                                  FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextPrimaryBrush}"
                                  HorizontalAlignment="Right"/>
                     </Grid>
@@ -1222,7 +1223,7 @@
                         BorderBrush="{DynamicResource GlassBorderBrush}" BorderThickness="1"
                         CornerRadius="{StaticResource CornerMD}">
                   <StackPanel HorizontalAlignment="Center">
-                    <TextBlock Text="{Binding UsagePercent, StringFormat='{}{0:F1}%'}" FontSize="22" FontWeight="Bold"
+                    <TextBlock Text="{Binding UsagePercent, Converter={StaticResource MacOsNa}, ConverterParameter='{}{0:F1}%'}" FontSize="22" FontWeight="Bold"
                                Foreground="{StaticResource ColorWarningBrush}" HorizontalAlignment="Center"/>
                     <TextBlock Text="GPU" FontSize="{DynamicResource NxFont10}"
                                Foreground="{DynamicResource TextTertiaryBrush}" HorizontalAlignment="Center"/>
@@ -1235,7 +1236,7 @@
                   <StackPanel HorizontalAlignment="Center">
                     <TextBlock FontSize="{DynamicResource NxFont13}" FontWeight="SemiBold"
                                Foreground="{DynamicResource TextPrimaryBrush}" HorizontalAlignment="Center">
-                      <Run Text="{Binding DedicatedUsedGb, StringFormat='{}{0:F1}'}"/>
+                      <Run Text="{Binding DedicatedUsedGb, Converter={StaticResource MacOsNa}, ConverterParameter='{}{0:F1}'}"/>
                       <Run Text="/" FontSize="{DynamicResource NxFont10}"/>
                       <Run Text="{Binding DedicatedTotalGb, StringFormat='{}{0:F0}'}"/>
                       <Run Text=" GB" FontSize="{DynamicResource NxFont10}"/>
@@ -1260,7 +1261,7 @@
                         BorderBrush="{DynamicResource GlassBorderBrush}" BorderThickness="1"
                         CornerRadius="{StaticResource CornerMD}">
                   <StackPanel HorizontalAlignment="Center">
-                    <TextBlock Text="{Binding TempC, StringFormat='{}{0:F0}°C'}" FontSize="22" FontWeight="Bold"
+                    <TextBlock Text="{Binding TempC, Converter={StaticResource MacOsNa}, ConverterParameter='{}{0:F0}°C'}" FontSize="22" FontWeight="Bold"
                                Foreground="{StaticResource ColorWarningBrush}" HorizontalAlignment="Center"/>
                     <TextBlock Text="Temp" FontSize="{DynamicResource NxFont10}"
                                Foreground="{DynamicResource TextTertiaryBrush}" HorizontalAlignment="Center"/>
@@ -1283,7 +1284,7 @@
                                Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8" VerticalAlignment="Center"/>
                     <ProgressBar Grid.Row="0" Grid.Column="1" Value="{Binding Engine3DPercent}"
                                  Minimum="0" Maximum="100" Height="6" Margin="0,0,8,8" VerticalAlignment="Center"/>
-                    <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding Engine3DPercent, StringFormat='{}{0:F0}%'}"
+                    <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding Engine3DPercent, Converter={StaticResource MacOsNa}, ConverterParameter='{}{0:F0}%'}"
                                FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextPrimaryBrush}"
                                HorizontalAlignment="Right" Margin="0,0,0,8" VerticalAlignment="Center"/>
 
@@ -1292,7 +1293,7 @@
                                Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8" VerticalAlignment="Center"/>
                     <ProgressBar Grid.Row="1" Grid.Column="1" Value="{Binding EngineCopyPercent}"
                                  Minimum="0" Maximum="100" Height="6" Margin="0,0,8,8" VerticalAlignment="Center"/>
-                    <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding EngineCopyPercent, StringFormat='{}{0:F0}%'}"
+                    <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding EngineCopyPercent, Converter={StaticResource MacOsNa}, ConverterParameter='{}{0:F0}%'}"
                                FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextPrimaryBrush}"
                                HorizontalAlignment="Right" Margin="0,0,0,8" VerticalAlignment="Center"/>
 
@@ -1301,7 +1302,7 @@
                                Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8" VerticalAlignment="Center"/>
                     <ProgressBar Grid.Row="2" Grid.Column="1" Value="{Binding EngineDecodePercent}"
                                  Minimum="0" Maximum="100" Height="6" Margin="0,0,8,8" VerticalAlignment="Center"/>
-                    <TextBlock Grid.Row="2" Grid.Column="2" Text="{Binding EngineDecodePercent, StringFormat='{}{0:F0}%'}"
+                    <TextBlock Grid.Row="2" Grid.Column="2" Text="{Binding EngineDecodePercent, Converter={StaticResource MacOsNa}, ConverterParameter='{}{0:F0}%'}"
                                FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextPrimaryBrush}"
                                HorizontalAlignment="Right" Margin="0,0,0,8" VerticalAlignment="Center"/>
 
@@ -1310,7 +1311,7 @@
                                Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,0" VerticalAlignment="Center"/>
                     <ProgressBar Grid.Row="3" Grid.Column="1" Value="{Binding EngineEncodePercent}"
                                  Minimum="0" Maximum="100" Height="6" Margin="0,0,8,0" VerticalAlignment="Center"/>
-                    <TextBlock Grid.Row="3" Grid.Column="2" Text="{Binding EngineEncodePercent, StringFormat='{}{0:F0}%'}"
+                    <TextBlock Grid.Row="3" Grid.Column="2" Text="{Binding EngineEncodePercent, Converter={StaticResource MacOsNa}, ConverterParameter='{}{0:F0}%'}"
                                FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextPrimaryBrush}"
                                HorizontalAlignment="Right" VerticalAlignment="Center"/>
                   </Grid>
