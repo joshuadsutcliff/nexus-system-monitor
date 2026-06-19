@@ -191,9 +191,13 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
     {
         if (string.IsNullOrEmpty(s)) return 0;
         var parts = s.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length < 2 || !long.TryParse(parts[0], out var value)) return 0;
-        return parts[1].Equals("GB", StringComparison.OrdinalIgnoreCase) ? value * 1_073_741_824L
-             : parts[1].Equals("MB", StringComparison.OrdinalIgnoreCase) ? value * 1_048_576L
+        if (parts.Length < 2) return 0;
+        // Use double.Parse so "499.96 GB" is not truncated to 499 GB (integer parse bug fix)
+        if (!double.TryParse(parts[0], System.Globalization.NumberStyles.Float,
+                             System.Globalization.CultureInfo.InvariantCulture, out var value)) return 0;
+        return parts[1].Equals("TB", StringComparison.OrdinalIgnoreCase) ? (long)Math.Round(value * 1_099_511_627_776.0)
+             : parts[1].Equals("GB", StringComparison.OrdinalIgnoreCase) ? (long)Math.Round(value * 1_073_741_824.0)
+             : parts[1].Equals("MB", StringComparison.OrdinalIgnoreCase) ? (long)Math.Round(value * 1_048_576.0)
              : 0;
     }
 
@@ -261,12 +265,60 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
     }
 
     // ── Memory via sysctl (no subprocess) ─────────────────────────────────────
+
+    // RAM slot info (speed, slots, form factor) never changes at runtime — read once.
+    // Populated lazily on first ReadMemory() call.  On Apple Silicon system_profiler
+    // SPMemoryDataType may return empty; fields stay at defaults (0 / "") if so.
+    private int    _cachedMemSpeedMhz;
+    private int    _cachedMemSlotsUsed;
+    private string _cachedMemFormFactor = string.Empty;
+    private bool   _ramSlotCachePopulated;
+
+    private void EnsureRamSlotCache()
+    {
+        if (_ramSlotCachePopulated) return;
+        _ramSlotCachePopulated = true;
+        try
+        {
+            var json = RunCommand("system_profiler", "SPMemoryDataType -json");
+            if (string.IsNullOrEmpty(json)) return;
+
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("SPMemoryDataType", out var memArray)) return;
+
+            int slotsFound = 0;
+            foreach (var bank in memArray.EnumerateArray())
+            {
+                var itemsProp = bank.TryGetProperty("_items", out var it)  ? it
+                              : bank.TryGetProperty("Items",  out var it2) ? it2
+                              : default;
+                if (itemsProp.ValueKind != System.Text.Json.JsonValueKind.Array) continue;
+
+                foreach (var slot in itemsProp.EnumerateArray())
+                {
+                    slotsFound++;
+                    if (_cachedMemSpeedMhz == 0)
+                    {
+                        var speedStr = slot.TryGetProperty("dimm_speed", out var sp) ? sp.GetString() ?? "" : "";
+                        int.TryParse(speedStr.Replace(" MHz", "").Trim(), out _cachedMemSpeedMhz);
+                    }
+                    if (string.IsNullOrEmpty(_cachedMemFormFactor))
+                        _cachedMemFormFactor = slot.TryGetProperty("dimm_type", out var t) ? t.GetString() ?? "" : "";
+                }
+            }
+            _cachedMemSlotsUsed = slotsFound;
+        }
+        catch { /* leave at defaults */ }
+    }
+
     private MemoryMetrics ReadMemory()
     {
         // All page counts available directly via sysctl — no vm_stat subprocess needed
         var freePages      = (long)(uint)SysctlInt("vm.page_free_count");
         var specPages      = (long)(uint)SysctlInt("vm.page_speculative_count");
         var inactPages     = (long)(uint)SysctlInt("vm.page_inactive_count");
+        var wiredPages     = (long)(uint)SysctlInt("vm.page_wire_count");
+        var activePages    = (long)(uint)SysctlInt("vm.page_active_count");
 
         // Available = free + speculative (pages that can be reclaimed instantly)
         var availableBytes = (freePages + specPages) * _pageSize;
@@ -276,16 +328,35 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
             ? Math.Max(0L, _totalMemBytes - availableBytes)
             : 0L;
 
+        // CompressedBytes: vm.compressor_page_count is absent on some macOS versions;
+        // fall back to 0 gracefully (SysctlInt returns 0 on unknown key).
+        var compressorPages = (long)(uint)SysctlInt("vm.compressor_page_count");
+        var compressedBytes = compressorPages * _pageSize;
+
+        // CommitTotal approximation: wired + active + inactive pages.
+        // CommitLimit: total installed RAM (hw.memsize).
+        // macOS has no Windows-style commit charge; these are approximations only.
+        var commitTotalBytes = (wiredPages + activePages + inactPages) * _pageSize;
+        var commitLimitBytes = _totalMemBytes;
+
+        // Populate RAM slot cache once (system_profiler SPMemoryDataType).
+        // On Apple Silicon this may return empty — fields stay at defaults.
+        EnsureRamSlotCache();
+
         return new MemoryMetrics
         {
             TotalBytes          = _totalMemBytes,
             AvailableBytes      = availableBytes,
             UsedBytes           = usedBytes,
             CachedBytes         = cachedBytes,
-            PagedPoolBytes      = 0,
-            NonPagedPoolBytes   = 0,
-            CommitTotalBytes    = 0,
-            CommitLimitBytes    = 0,
+            PagedPoolBytes      = 0,   // no macOS equivalent
+            NonPagedPoolBytes   = 0,   // no macOS equivalent
+            CommitTotalBytes    = commitTotalBytes,  // approximation: wired+active+inactive pages
+            CommitLimitBytes    = commitLimitBytes,  // approximation: total installed RAM
+            CompressedBytes     = compressedBytes,   // vm.compressor_page_count × pageSize (0 if unavailable)
+            SpeedMhz            = _cachedMemSpeedMhz,
+            SlotsUsed           = _cachedMemSlotsUsed,
+            FormFactor          = _cachedMemFormFactor,
         };
     }
 
@@ -308,15 +379,29 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
         if (corePercents.Length == 0)
             totalPercent = ReadTotalCpuFromTop();
 
+        // L1/L2/L3 cache sizes via sysctl.  hw.l3cachesize is absent on Apple Silicon — returns 0.
+        var l1CacheBytes = SysctlLong("hw.l1icachesize");
+        var l2CacheBytes = SysctlLong("hw.l2cachesize");
+        var l3CacheBytes = SysctlLong("hw.l3cachesize");   // 0 on Apple Silicon (key absent)
+
+        // kern.num_threads: system-wide thread count.  Returns 0 if sysctl key unavailable.
+        var threadCount = SysctlInt("kern.num_threads");
+
         return new CpuMetrics
         {
             TotalPercent       = totalPercent,
             CorePercents       = corePercents,
             FrequencyMhz       = freqMhz,
-            TemperatureCelsius = 0,
+            TemperatureCelsius = 0,   // no public macOS API
             LogicalCores       = _logicalCores,
             PhysicalCores      = _physicalCores,
             ModelName          = _cpuModel,
+            Sockets            = 1,   // always one package on Mac
+            L1CacheBytes       = l1CacheBytes,
+            L2CacheBytes       = l2CacheBytes,
+            L3CacheBytes       = l3CacheBytes,
+            ProcessCount       = System.Diagnostics.Process.GetProcesses().Length,
+            ThreadCount        = threadCount,
         };
     }
 
@@ -489,6 +574,7 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
                     ReadBytesPerSec  = readRate,
                     WriteBytesPerSec = writeRate,
                     ActivePercent    = 0,
+                    IsSystemDisk     = mountPoint == "/",
                 });
             }
         }
@@ -619,6 +705,41 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
                         ipv6 = ua.Address.ToString();
                 }
 
+                // DNS suffix
+                string dnsSuffix = string.Empty;
+                try { dnsSuffix = nic.GetIPProperties().DnsSuffix ?? string.Empty; } catch { }
+
+                // MAC address formatted with colons (e.g. "A1:B2:C3:D4:E5:F6")
+                string macAddress = string.Empty;
+                try
+                {
+                    var raw = nic.GetPhysicalAddress().ToString(); // "A1B2C3D4E5F6"
+                    if (raw.Length == 12)
+                    {
+                        macAddress = string.Create(17, raw, static (span, src) =>
+                        {
+                            for (int i = 0, j = 0; i < 12; i += 2, j += 3)
+                            {
+                                span[j]     = src[i];
+                                span[j + 1] = src[i + 1];
+                                if (j + 2 < 17) span[j + 2] = ':';
+                            }
+                        });
+                    }
+                }
+                catch { }
+
+                // Connection type heuristic
+                string connectionType = nic.NetworkInterfaceType switch
+                {
+                    NetworkInterfaceType.Wireless80211 => "Wi-Fi",
+                    NetworkInterfaceType.Ethernet      => "Ethernet",
+                    _ => nic.Name.StartsWith("utun",  StringComparison.OrdinalIgnoreCase) ||
+                         nic.Name.StartsWith("ipsec", StringComparison.OrdinalIgnoreCase)
+                         ? "VPN"
+                         : nic.NetworkInterfaceType.ToString()
+                };
+
                 result.Add(new NetworkAdapterMetrics
                 {
                     Name             = nic.Name,
@@ -633,6 +754,9 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
                     IPv6Address      = ipv6,
                     LinkSpeedBps     = nic.Speed,
                     AdapterType      = nic.NetworkInterfaceType.ToString(),
+                    DnsSuffix        = dnsSuffix,
+                    MacAddress       = macAddress,
+                    ConnectionType   = connectionType,
                 });
             }
         }
