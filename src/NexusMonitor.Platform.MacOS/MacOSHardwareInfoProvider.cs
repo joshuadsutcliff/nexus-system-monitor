@@ -27,6 +27,10 @@ public sealed class MacOSHardwareInfoProvider
 
         if (physCores <= 0) physCores = logCores;
 
+        // CPU Stepping: sysctl machdep.cpu.stepping (Intel only; returns 0/empty on Apple Silicon)
+        var steppingVal = SysctlInt("machdep.cpu.stepping");
+        var stepping    = steppingVal > 0 ? steppingVal.ToString() : string.Empty;
+
         var cpu = new CpuHardwareInfo(
             Name:          cpuName.Length > 0 ? cpuName : model,
             Architecture:  RuntimeInformation.OSArchitecture.ToString(),
@@ -36,11 +40,13 @@ public sealed class MacOSHardwareInfoProvider
             L3CacheKB:     (int)(SysctlLong("hw.l3cachesize") / 1024),
             MaxClockMhz:   maxFreqMhz,
             Socket:        model,
-            Stepping:      string.Empty);
+            Stepping:      stepping);
 
         var gpus    = ReadGpus();
         var storage = ReadStorage();
         var ramSlots= ReadRamSlots();
+
+        var biosVersion = ReadBiosVersion();
 
         return new SystemHardwareInfo(
             Hostname:                Environment.MachineName,
@@ -49,7 +55,7 @@ public sealed class MacOSHardwareInfoProvider
             OsArchitecture:          RuntimeInformation.OSArchitecture.ToString(),
             Uptime:                  uptime,
             BiosVendor:              "Apple",
-            BiosVersion:             string.Empty,
+            BiosVersion:             biosVersion,
             MotherboardManufacturer: "Apple",
             MotherboardModel:        model,
             Cpu:                     cpu,
@@ -84,6 +90,41 @@ public sealed class MacOSHardwareInfoProvider
         var buf = new byte[8];
         return LibSystem.sysctlbyname(name, buf, ref size, nint.Zero, 0) == 0
             ? BitConverter.ToInt64(buf, 0) : 0L;
+    }
+
+    // ── BIOS / firmware version ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Reads the firmware version from system_profiler SPHardwareDataType -json.
+    /// Prefers boot_rom_version; falls back to firmware_version if present.
+    /// Returns empty string if unavailable.
+    /// </summary>
+    private static string ReadBiosVersion()
+    {
+        try
+        {
+            var json = RunCommand("system_profiler", "SPHardwareDataType -json");
+            if (string.IsNullOrEmpty(json)) return string.Empty;
+
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("SPHardwareDataType", out var hwArray)) return string.Empty;
+
+            foreach (var hw in hwArray.EnumerateArray())
+            {
+                if (hw.TryGetProperty("boot_rom_version", out var brv))
+                {
+                    var v = brv.GetString() ?? string.Empty;
+                    if (!string.IsNullOrWhiteSpace(v)) return v.Trim();
+                }
+                if (hw.TryGetProperty("firmware_version", out var fv))
+                {
+                    var v = fv.GetString() ?? string.Empty;
+                    if (!string.IsNullOrWhiteSpace(v)) return v.Trim();
+                }
+            }
+        }
+        catch { }
+        return string.Empty;
     }
 
     // ── Uptime ────────────────────────────────────────────────────────────────
@@ -140,15 +181,26 @@ public sealed class MacOSHardwareInfoProvider
         return result;
     }
 
-    /// <summary>Parses strings like "4096 MB" or "8 GB" into bytes.</summary>
+    /// <summary>
+    /// Parses strings like "4096 MB", "8 GB", or "499.96 GB" into bytes.
+    /// Uses double.Parse so fractional values (e.g. "499.96 GB") are not truncated.
+    /// Also handles TB and pure-number JSON inputs (treated as bytes directly).
+    /// </summary>
     private static long ParseVramString(string s)
     {
         if (string.IsNullOrEmpty(s)) return 0;
         var parts = s.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length < 2) return 0;
-        if (!long.TryParse(parts[0], out var value)) return 0;
-        return parts[1].Equals("GB", StringComparison.OrdinalIgnoreCase) ? value * 1_073_741_824L
-             : parts[1].Equals("MB", StringComparison.OrdinalIgnoreCase) ? value * 1_048_576L
+        // Pure number with no unit suffix → treat as bytes (JSON number passed as string)
+        if (parts.Length == 1)
+        {
+            return long.TryParse(parts[0], out var raw) ? raw : 0;
+        }
+        // Use double so "499.96 GB" is not truncated to 499 GB
+        if (!double.TryParse(parts[0], System.Globalization.NumberStyles.Float,
+                             System.Globalization.CultureInfo.InvariantCulture, out var value)) return 0;
+        return parts[1].Equals("TB", StringComparison.OrdinalIgnoreCase) ? (long)Math.Round(value * 1_099_511_627_776.0)
+             : parts[1].Equals("GB", StringComparison.OrdinalIgnoreCase) ? (long)Math.Round(value * 1_073_741_824.0)
+             : parts[1].Equals("MB", StringComparison.OrdinalIgnoreCase) ? (long)Math.Round(value * 1_048_576.0)
              : 0;
     }
 
