@@ -8,7 +8,6 @@
   <a href="https://github.com/joshuadsutcliff/nexus-system-monitor/releases/latest"><img src="https://img.shields.io/github/v/release/joshuadsutcliff/nexus-system-monitor?label=latest" alt="Latest Release"></a>
   <a href="https://github.com/joshuadsutcliff/nexus-system-monitor/releases/latest"><img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="Platforms"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
-  <a href="https://github.com/sponsors/brass458"><img src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?logo=github" alt="Sponsor"></a>
 </p>
 
 **One tool. Every platform. Complete system visibility.**
@@ -566,20 +565,6 @@ Early-access testing on macOS and Linux is open. See **[TESTING.md](TESTING.md)*
 Report bugs and feedback at: https://github.com/joshuadsutcliff/nexus-system-monitor/issues
 
 For detailed project documentation — feature inventory, architecture, gap analysis, and roadmap — see [`docs/`](docs/index.md).
-
----
-
-## Sponsorship
-
-Nexus System Monitor is free and open source. If you find it useful, consider sponsoring development:
-
-| Tier | Monthly | Perks |
-|------|---------|-------|
-| Supporter | $3/mo | Name in the README supporters list |
-| Backer | $10/mo | Name + priority responses on GitHub issues |
-| Champion | $25/mo | Above + vote on the feature roadmap |
-
-**[Sponsor on GitHub →](https://github.com/sponsors/brass458)**
 
 ---
 
