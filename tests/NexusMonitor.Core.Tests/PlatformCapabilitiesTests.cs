@@ -26,6 +26,7 @@ public class MockPlatformCapabilitiesTests
     [Fact] public void SupportsPowerPlan_IsTrue() => _sut.SupportsPowerPlan.Should().BeTrue();
     [Fact] public void OpenLocationMenuLabel_IsOpenFileLocation() => _sut.OpenLocationMenuLabel.Should().Be("Open File Location");
     [Fact] public void SupportsDirectX_IsTrue() => _sut.SupportsDirectX.Should().BeTrue();
+    [Fact] public void SupportsStartupToggle_IsTrue() => _sut.SupportsStartupToggle.Should().BeTrue();
 }
 
 public class PlatformCapabilitiesContractTests

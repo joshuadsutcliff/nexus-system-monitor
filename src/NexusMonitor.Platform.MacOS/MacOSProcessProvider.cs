@@ -355,6 +355,14 @@ public sealed class MacOSProcessProvider : IProcessProvider, IDisposable
             setpriority(PRIO_PROCESS, (uint)pid, nice);
         }, ct);
 
+    // NOTE (2026-07-04 capability-flag audit): the six tuning no-ops below (affinity, I/O
+    // priority, memory priority, working-set trim, efficiency mode, CPU sets) are all
+    // correctly gated off via IPlatformCapabilities on macOS — SupportsCpuAffinity,
+    // SupportsIoPriority, SupportsMemoryPriority, SupportsTrimMemory and SupportsEfficiencyMode
+    // are all false in MacOSPlatformCapabilities, and SetCpuSetsAsync isn't wired to any UI
+    // control at all (Windows-only feature today). None of these are reachable through the
+    // UI, so leaving them as silent no-ops here is safe. Left as-is; do not flip any of the
+    // above flags to true without a real implementation behind them.
     // macOS does not support CPU affinity — no-op
     public Task SetAffinityAsync(int pid, long affinityMask, CancellationToken ct = default) =>
         Task.CompletedTask;

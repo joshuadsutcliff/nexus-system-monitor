@@ -52,7 +52,16 @@ internal sealed class S6Backend : ILinuxInitBackend
 
     public void SetStartType(string name, ServiceStartType startType)
     {
-        // s6-rc doesn't have a simple enable/disable — no-op for now
+        // KNOWN GAP (flagged in 2026-07-04 capability-flag audit): s6-rc has no simple
+        // persistent enable/disable primitive, unlike the other five ILinuxInitBackend
+        // implementations (Systemd/OpenRc/Dinit/SysVinit/Runit), which all genuinely apply
+        // the change. IPlatformCapabilities.SupportsServiceStartupType is a per-platform (not
+        // per-init-backend) flag and is unconditionally true on Linux, so the Services tab's
+        // startup-type submenu is shown even when s6-rc is the detected backend, where this
+        // call silently does nothing. A correct fix needs a per-backend capability signal
+        // rather than a single Linux-wide flag — left as a documented gap rather than
+        // guessed at, since flipping the platform-wide flag would hide a working feature for
+        // the systemd/OpenRC/Dinit/SysVinit/Runit majority.
     }
 
     private static void Run(string cmd, string args)

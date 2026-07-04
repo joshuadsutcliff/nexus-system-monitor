@@ -39,6 +39,7 @@
                 Classes="nx-btn"
                 Command="{Binding ToggleEnabledCommand}"
                 IsEnabled="{Binding SelectedItem, Converter={x:Static ObjectConverters.IsNotNull}}"
+                IsVisible="{Binding Platform.SupportsStartupToggle}"
                 ToolTip.Tip="Enable or disable selected startup item">
           <TextBlock Text="Toggle" FontSize="{DynamicResource NxFont12}"/>
         </Button>
@@ -51,6 +52,20 @@
                  Width="260"
                  VerticalAlignment="Center"/>
       </DockPanel>
+    </Border>
+
+    <!-- macOS note — Enable/Disable toggle isn't wired up on this platform -->
+    <Border DockPanel.Dock="Top"
+            Padding="16,6"
+            IsVisible="{Binding !Platform.SupportsStartupToggle}"
+            Background="{DynamicResource BgSecondaryBrush}"
+            BorderBrush="{DynamicResource BorderSubtleBrush}"
+            BorderThickness="0,0,0,1">
+      <TextBlock FontSize="{DynamicResource NxFont10}" Foreground="{DynamicResource TextTertiaryBrush}">
+        <Run Text="Note: "/>
+        <Run Text="Enable/disable not yet supported on macOS."
+             Foreground="{DynamicResource TextTertiaryBrush}"/>
+      </TextBlock>
     </Border>
 
     <!-- Status bar -->
@@ -98,8 +113,10 @@
                 ScrollViewer.HorizontalScrollBarVisibility="Auto">
         <DataGrid.ContextMenu>
           <ContextMenu>
-            <MenuItem Header="Enable"             Command="{Binding EnableItemCommand}"/>
-            <MenuItem Header="Disable"            Command="{Binding DisableItemCommand}"/>
+            <MenuItem Header="Enable"             Command="{Binding EnableItemCommand}"
+                      IsVisible="{Binding Platform.SupportsStartupToggle}"/>
+            <MenuItem Header="Disable"            Command="{Binding DisableItemCommand}"
+                      IsVisible="{Binding Platform.SupportsStartupToggle}"/>
             <Separator/>
             <MenuItem Header="{Binding Platform.OpenLocationMenuLabel}" Command="{Binding OpenFileLocationCommand}"/>
             <MenuItem Header="Open Registry Key"  Command="{Binding OpenRegistryKeyCommand}"
