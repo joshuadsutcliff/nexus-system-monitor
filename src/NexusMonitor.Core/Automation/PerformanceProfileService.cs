@@ -1,6 +1,7 @@
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Reactive.Threading.Tasks;
+using NexusMonitor.Core.Reactive;
 using Microsoft.Extensions.Logging;
 using NexusMonitor.Core.Abstractions;
 using NexusMonitor.Core.Gaming;
@@ -93,6 +94,8 @@ public sealed class PerformanceProfileService : IDisposable
         // -- Polling loop — apply to new processes every 2 s -----------------
         _pollingSubscription = _processProvider
             .GetProcessStream(TimeSpan.FromSeconds(1))
+            .RetryWithBackoff(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30),
+                onError: ex => _logger.LogWarning(ex, "PerformanceProfileService process stream faulted; retrying with backoff"))
             .Sample(TimeSpan.FromSeconds(2))
             .Subscribe(processes => { _ = ApplyProfileAsync(profile, processes); });
 

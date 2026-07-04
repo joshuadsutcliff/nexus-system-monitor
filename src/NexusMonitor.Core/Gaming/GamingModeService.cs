@@ -1,6 +1,7 @@
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using Microsoft.Extensions.Logging;
+using NexusMonitor.Core.Reactive;
 using NexusMonitor.Core.Abstractions;
 using NexusMonitor.Core.Models;
 
@@ -88,6 +89,8 @@ public sealed class GamingModeService : IDisposable
         string capturedGameProcess = gameProcessName ?? _settings.GamingModeGameProcess;
         _pollingSubscription = _processProvider
             .GetProcessStream(TimeSpan.FromSeconds(1))
+            .RetryWithBackoff(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30),
+                onError: ex => _logger.LogWarning(ex, "GamingModeService process stream faulted; retrying with backoff"))
             .Sample(TimeSpan.FromSeconds(2))
             .Subscribe(
                 processes => { _ = ThrottleBackgroundProcessesAsync(capturedGameProcess, processes); },

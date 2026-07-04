@@ -1,6 +1,7 @@
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using Microsoft.Extensions.Logging;
+using NexusMonitor.Core.Reactive;
 using NexusMonitor.Core.Abstractions;
 using NexusMonitor.Core.Models;
 
@@ -54,6 +55,8 @@ public sealed class MemoryLeakDetectionService : IDisposable
             30, 120);
 
         _subscription = _processProvider.GetProcessStream(TimeSpan.FromSeconds(TickIntervalSeconds))
+            .RetryWithBackoff(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30),
+                onError: ex => _logger.LogWarning(ex, "MemoryLeakDetectionService process stream faulted; retrying with backoff"))
             .Subscribe(processes => OnTick(processes, bufferSize),
                 ex => _logger.LogError(ex, "Process stream faulted — memory leak detection stopped"));
     }

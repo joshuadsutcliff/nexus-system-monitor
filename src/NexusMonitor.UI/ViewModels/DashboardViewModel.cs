@@ -20,11 +20,15 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
     private readonly AppSettings                _settings;
     private IDisposable?                        _subscription;
     private IDisposable?                        _predictionsSubscription;
+    private IDisposable?                        _staleSubscription;
     private readonly HashSet<string>            _dismissedResources = new();
     private SystemHealthSnapshot?               _latestSnapshot;
     private int                                 _consumerTickCounter;
 
     // ── Overall health ────────────────────────────────────────────────────────
+
+    // True when the health pipeline has stalled (no snapshot for > 3× the interval).
+    [ObservableProperty] private bool _isDataStale;
 
     [ObservableProperty] private double _overallScore = 100;
     [ObservableProperty] private string _overallLabel = "Excellent";
@@ -75,6 +79,10 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
         _subscription = _healthService.HealthStream
             .ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(ApplySnapshot);
+
+        _staleSubscription = _healthService.IsStaleStream
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(stale => IsDataStale = stale);
 
         if (predictionService != null)
         {
@@ -237,6 +245,8 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
         _subscription = null;
         _predictionsSubscription?.Dispose();
         _predictionsSubscription = null;
+        _staleSubscription?.Dispose();
+        _staleSubscription = null;
     }
 }
 

@@ -1,8 +1,10 @@
+using System.Reactive.Concurrency;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using Microsoft.Extensions.Logging;
 using NexusMonitor.Core.Abstractions;
 using NexusMonitor.Core.Models;
+using NexusMonitor.Core.Reactive;
 
 namespace NexusMonitor.Core.Health;
 
@@ -16,11 +18,25 @@ public sealed class SystemHealthService : IDisposable
     private readonly IProcessProvider       _processes;
     private readonly AppSettings            _settings;
     private readonly ILogger<SystemHealthService> _logger;
+    private readonly IScheduler             _scheduler;
+
+    private static readonly TimeSpan RetryInitialDelay = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan RetryMaxDelay     = TimeSpan.FromSeconds(30);
 
     private readonly BehaviorSubject<SystemHealthSnapshot> _subject =
         new(new SystemHealthSnapshot());
 
+    // Staleness signal for the UI: true when no snapshot has arrived for > 3× the interval.
+    private readonly BehaviorSubject<bool> _isStaleSubject = new(false);
+
+    // Latest process list, fed by the (decoupled) process stream. Read on every metrics
+    // tick. If the process stream stalls/faults, this simply retains its last value so
+    // health snapshots keep ticking with last-known (or empty) process data.
+    private volatile IReadOnlyList<ProcessInfo> _latestProcesses = Array.Empty<ProcessInfo>();
+
     private IDisposable? _subscription;
+    private IDisposable? _processSubscription;
+    private IDisposable? _staleSubscription;
 
     // Rolling history for trend computation (60 samples ≈ 2 min at 2s interval)
     private const int HistorySize = 60;
@@ -34,16 +50,25 @@ public sealed class SystemHealthService : IDisposable
     public IObservable<SystemHealthSnapshot> HealthStream => _subject.AsObservable();
     public SystemHealthSnapshot Current => _subject.Value;
 
+    /// <summary>
+    /// Emits <c>true</c> when no health snapshot has been produced for more than 3× the
+    /// configured metrics interval (i.e. the pipeline has stalled), and <c>false</c> while
+    /// snapshots are flowing. A cheap signal the UI can bind to surface a "data stale" state.
+    /// </summary>
+    public IObservable<bool> IsStaleStream => _isStaleSubject.DistinctUntilChanged();
+
     public SystemHealthService(
         ISystemMetricsProvider metrics,
         IProcessProvider       processes,
         AppSettings            settings,
-        ILogger<SystemHealthService>? logger = null)
+        ILogger<SystemHealthService>? logger = null,
+        IScheduler?            scheduler = null)
     {
         _metrics   = metrics;
         _processes = processes;
         _settings  = settings;
         _logger    = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<SystemHealthService>.Instance;
+        _scheduler = scheduler ?? Scheduler.Default;
     }
 
     public void Start(TimeSpan interval)
@@ -54,17 +79,46 @@ public sealed class SystemHealthService : IDisposable
         var metricsObs  = _metrics.GetMetricsStream(interval);
         var processObs  = _processes.GetProcessStream(interval);
 
-        _subscription = metricsObs
-            .CombineLatest(processObs, (m, p) => (Metrics: m, Processes: p))
+        // Process stream is DECOUPLED from the health cadence: it only feeds the
+        // latest-known process list. If it goes silent, stalls (e.g. a D-state /proc read),
+        // or faults, health snapshots keep ticking off the metrics stream using the
+        // last-known (or empty) process data — the pipeline can no longer stall on it.
+        _processSubscription = processObs
+            .RetryWithBackoff(RetryInitialDelay, RetryMaxDelay, _scheduler,
+                ex => _logger.LogWarning(ex, "SystemHealthService process stream faulted; retrying with backoff"))
             .Subscribe(
-                data => Update(data.Metrics, data.Processes),
-                ex => { _logger.LogError(ex, "SystemHealthService stream faulted"); });
+                p => _latestProcesses = p,
+                ex => _logger.LogError(ex, "SystemHealthService process stream terminated"));
+
+        // Metrics stream drives the health cadence. Resilience wrapper resubscribes on a
+        // provider fault instead of letting the pipeline die silently.
+        _subscription = metricsObs
+            .RetryWithBackoff(RetryInitialDelay, RetryMaxDelay, _scheduler,
+                ex => _logger.LogWarning(ex, "SystemHealthService metrics stream faulted; retrying with backoff"))
+            .Subscribe(
+                m => Update(m, _latestProcesses),
+                ex => _logger.LogError(ex, "SystemHealthService metrics stream terminated"));
+
+        // Staleness signal: emit false whenever a snapshot arrives, then true if no further
+        // snapshot appears within 3× the interval. Switch() cancels the pending "true" as
+        // soon as the next snapshot arrives. All timing runs on the injectable scheduler.
+        var staleThreshold = TimeSpan.FromTicks(interval.Ticks * 3);
+        _staleSubscription = _subject
+            .Select(_ => Observable.Return(false)
+                .Concat(Observable.Timer(staleThreshold, _scheduler).Select(_ => true)))
+            .Switch()
+            .DistinctUntilChanged()
+            .Subscribe(stale => _isStaleSubject.OnNext(stale));
     }
 
     public void Stop()
     {
         _subscription?.Dispose();
         _subscription = null;
+        _processSubscription?.Dispose();
+        _processSubscription = null;
+        _staleSubscription?.Dispose();
+        _staleSubscription = null;
     }
 
     private void Update(SystemMetrics m, IReadOnlyList<ProcessInfo> processes)
@@ -190,5 +244,6 @@ public sealed class SystemHealthService : IDisposable
     {
         Stop();
         _subject.Dispose();
+        _isStaleSubject.Dispose();
     }
 }

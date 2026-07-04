@@ -1,6 +1,7 @@
 using System.Reactive.Linq;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using NexusMonitor.Core.Reactive;
 using NexusMonitor.Core.Abstractions;
 using NexusMonitor.Core.Models;
 
@@ -55,6 +56,8 @@ public sealed class IdleSaverService : IDisposable
         _running = true;
         _subscription = _processProvider
             .GetProcessStream(TimeSpan.FromSeconds(2))
+            .RetryWithBackoff(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30),
+                onError: ex => _logger.LogWarning(ex, "IdleSaverService process stream faulted; retrying with backoff"))
             .Subscribe(OnTick, ex =>
             {
                 _logger.LogError(ex, "IdleSaverService stream faulted");

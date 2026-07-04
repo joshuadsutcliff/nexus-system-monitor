@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using NexusMonitor.Core.Abstractions;
+using NexusMonitor.Core.Reactive;
 using NexusMonitor.Core.Health;
 using NexusMonitor.Core.Models;
 
@@ -70,10 +71,14 @@ public sealed class MetricsStore : IMetricsReader, IEventWriter, IDisposable
 
         _metricsSub = _metricsProvider
             .GetMetricsStream(interval)
+            .RetryWithBackoff(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30),
+                onError: ex => _logger.LogWarning(ex, "MetricsStore metrics stream faulted; retrying with backoff"))
             .Subscribe(OnMetricsTick);
 
         _processSub = _processProvider
             .GetProcessStream(interval)
+            .RetryWithBackoff(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30),
+                onError: ex => _logger.LogWarning(ex, "MetricsStore process stream faulted; retrying with backoff"))
             .Subscribe(procs => OnProcessTick(procs));
 
         if (_config.RecordNetworkSnapshots)

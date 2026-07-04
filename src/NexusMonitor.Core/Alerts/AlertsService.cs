@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using NexusMonitor.Core.Abstractions;
 using NexusMonitor.Core.Automation;
 using NexusMonitor.Core.Models;
+using NexusMonitor.Core.Reactive;
 using NexusMonitor.Core.Services;
 
 namespace NexusMonitor.Core.Alerts;
@@ -54,6 +55,8 @@ public sealed class AlertsService : IDisposable
         _running = true;
         _subscription = _metrics
             .GetMetricsStream(TimeSpan.FromSeconds(2))
+            .RetryWithBackoff(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30),
+                onError: ex => _logger.LogWarning(ex, "AlertsService metrics stream faulted; retrying with backoff"))
             .Subscribe(OnTick, ex =>
             {
                 _logger.LogError(ex, "AlertsService stream faulted");
