@@ -26,6 +26,26 @@ public static class PageLayoutEngine
         return page.WithWidgets(ResolveCollisions(widgets, pinnedId: clamped.InstanceId));
     }
 
+    /// <summary>Moves a widget to the target rect (clamped). The mover is pinned; anything it
+    /// now overlaps pushes down. Unknown ids return the page unchanged (same instance).</summary>
+    public static PageLayout MoveWidget(PageLayout page, Guid instanceId, GridRect target)
+    {
+        var existing = page.FindWidget(instanceId);
+        if (existing is null) return page;
+
+        var moved = existing with { Rect = target.ClampTo(page.GridColumns) };
+        var widgets = page.Widgets
+            .Select(w => w.InstanceId == instanceId ? moved : w)
+            .ToList();
+        return page.WithWidgets(ResolveCollisions(widgets, pinnedId: instanceId));
+    }
+
+    /// <summary>Removes a widget. Remaining widgets keep their positions (compaction is separate/explicit).</summary>
+    public static PageLayout RemoveWidget(PageLayout page, Guid instanceId) =>
+        page.FindWidget(instanceId) is null
+            ? page
+            : page.WithWidgets(page.Widgets.Where(w => w.InstanceId != instanceId).ToList());
+
     /// <summary>Push-down resolution: while any widget overlaps the pinned/settled set, move the
     /// topmost-leftmost offender down to just below whatever it overlaps. Deterministic and terminating
     /// (rows only ever increase; the grid is unbounded downward).</summary>
