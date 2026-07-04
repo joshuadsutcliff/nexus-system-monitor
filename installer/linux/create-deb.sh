@@ -2,24 +2,32 @@
 # create-deb.sh — Build a Debian/Ubuntu .deb package from dotnet publish output
 #
 # Usage:
-#   bash installer/linux/create-deb.sh <version> [output-dir]
+#   bash installer/linux/create-deb.sh <version> [output-dir] [cli-publish-dir]
 #
-#   version    : semver string, e.g. 0.1.0
-#   output-dir : directory for the .deb (default: dist/)
+#   version          : semver string, e.g. 0.1.0
+#   output-dir       : directory for the .deb (default: dist/)
+#   cli-publish-dir  : optional path to the published linux-x64 CLI output
+#                       (the dir containing the "nexus" binary). When given
+#                       (and "nexus" exists there), it is bundled into the
+#                       package as /usr/lib/nexus-monitor/cli/nexus with a
+#                       /usr/bin/nexus symlink. Omit to preserve the exact
+#                       previous package contents (UI app only).
 #
 # Requires: dpkg-deb (available on Ubuntu/Debian runners natively)
 # Note: Only x64 (amd64) — arm64 users use the tar.gz portable.
 
 set -euo pipefail
 
-VERSION="${1:?Usage: $0 <version> [output-dir]}"
+VERSION="${1:?Usage: $0 <version> [output-dir] [cli-publish-dir]}"
 OUTDIR="${2:-dist}"
+CLI_PUBLISH_DIR="${3:-}"
 
 PUBLISH_DIR="src/NexusMonitor.UI/publish/linux-x64"
 PKG_NAME="nexus-monitor"
 PKG_DIR="${OUTDIR}/${PKG_NAME}_${VERSION}_amd64"
 DEB_OUT="${OUTDIR}/NexusMonitor-Linux-${VERSION}.deb"
 INSTALL_DIR="${PKG_DIR}/usr/lib/nexus-monitor"
+CLI_INSTALL_DIR="${INSTALL_DIR}/cli"
 
 # ── Validate publish output ──────────────────────────────────────────────────
 if [[ ! -f "${PUBLISH_DIR}/NexusMonitor" ]]; then
@@ -52,6 +60,20 @@ chmod +x "${INSTALL_DIR}/NexusMonitor"
 
 # Symlink in /usr/bin
 ln -s "/usr/lib/nexus-monitor/NexusMonitor" "${PKG_DIR}/usr/bin/nexus-monitor"
+
+# ── Bundle the CLI (optional, backward-compatible) ───────────────────────────
+if [[ -n "${CLI_PUBLISH_DIR}" ]]; then
+  if [[ -f "${CLI_PUBLISH_DIR}/nexus" ]]; then
+    echo "→ Bundling CLI from ${CLI_PUBLISH_DIR} ..."
+    mkdir -p "${CLI_INSTALL_DIR}"
+    cp -R "${CLI_PUBLISH_DIR}/." "${CLI_INSTALL_DIR}/"
+    chmod +x "${CLI_INSTALL_DIR}/nexus"
+    ln -s "/usr/lib/nexus-monitor/cli/nexus" "${PKG_DIR}/usr/bin/nexus"
+    echo "  ✓ CLI bundled: /usr/lib/nexus-monitor/cli/nexus (symlinked as /usr/bin/nexus)"
+  else
+    echo "Warning: CLI publish output not found at ${CLI_PUBLISH_DIR}/nexus — .deb will not include the CLI." >&2
+  fi
+fi
 
 # .desktop file
 cat > "${PKG_DIR}/usr/share/applications/nexus-monitor.desktop" << 'EOF'

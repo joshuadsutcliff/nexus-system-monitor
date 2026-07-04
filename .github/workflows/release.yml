@@ -13,6 +13,21 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Code signing (optional, secrets-gated)
+#   Windows (build-windows) and macOS (build-macos) below contain OPTIONAL
+#   signing/notarization steps guarded by `if: env.<SECRET_NAME> != ''`.
+#   Each guard env is mapped from a repo secret at the job level (GitHub
+#   Actions does not allow `if: secrets.X != ''` directly).
+#
+#   If the relevant secrets are NOT configured, every guarded step is
+#   skipped and the pipeline produces byte-for-byte the same unsigned /
+#   ad-hoc-signed artifacts it does today.
+#
+#   Full provisioning checklist (what to buy, how to export certs, exact
+#   secret names/formats): see docs/signing-setup.md
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Job: build-test
 #   Runs the full test suite on all 3 platforms.
 #   All publish jobs depend on this passing.
@@ -54,6 +69,10 @@ jobs:
   build-windows:
     needs: build-test
     runs-on: windows-latest
+    env:
+      # Secrets-gated Authenticode signing — see docs/signing-setup.md
+      WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+      WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -90,6 +109,38 @@ jobs:
           -p:PublishProfile=cli-win-arm64
           -p:Version=${{ steps.ver.outputs.VERSION }}
 
+      # Optional: sign the UI + CLI binaries before they're zipped/installed.
+      # No-op (skipped entirely) when WINDOWS_CERT_PFX_BASE64 is unset.
+      - name: Sign Windows binaries (Authenticode)
+        if: env.WINDOWS_CERT_PFX_BASE64 != ''
+        shell: pwsh
+        run: |
+          $pfxPath = Join-Path $env:RUNNER_TEMP "windows-cert.pfx"
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:WINDOWS_CERT_PFX_BASE64))
+
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $signtool) {
+            throw "signtool.exe not found on this runner image."
+          }
+          Write-Host "Using signtool: $($signtool.FullName)"
+
+          $targets = @(
+            "src/NexusMonitor.UI/publish/win-x64/NexusMonitor.exe",
+            "src/NexusMonitor.UI/publish/win-arm64/NexusMonitor.exe",
+            "src/NexusMonitor.CLI/publish/cli-win-x64/nexus.exe",
+            "src/NexusMonitor.CLI/publish/cli-win-arm64/nexus.exe"
+          )
+
+          foreach ($target in $targets) {
+            Write-Host "  → Signing $target ..."
+            & $signtool.FullName sign /f $pfxPath /p $env:WINDOWS_CERT_PASSWORD `
+              /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $target
+            if ($LASTEXITCODE -ne 0) { throw "signtool failed on $target" }
+          }
+
+          Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
+
       - name: Create portable ZIP archives
         shell: pwsh
         run: |
@@ -124,13 +175,46 @@ jobs:
           & $isccPath installer\windows\NexusMonitor.iss `
             /DAppVersion=$v /DAppArch=x64 `
             "/DPublishDir=..\..\src\NexusMonitor.UI\publish\win-x64" `
+            "/DCliPublishDir=..\..\src\NexusMonitor.CLI\publish\cli-win-x64" `
             /DOutputDir=..\..\dist `
             "/DOutputFilename=NexusMonitor-Windows-Installer-$v"
           & $isccPath installer\windows\NexusMonitor.iss `
             /DAppVersion=$v /DAppArch=arm64 `
             "/DPublishDir=..\..\src\NexusMonitor.UI\publish\win-arm64" `
+            "/DCliPublishDir=..\..\src\NexusMonitor.CLI\publish\cli-win-arm64" `
             /DOutputDir=..\..\dist `
             "/DOutputFilename=NexusMonitor-Windows-ARM-Installer-$v"
+
+      # Optional: sign the packaged installer EXEs too (Authenticode covers the
+      # installer wrapper itself, separate from the binaries signed inside it).
+      # No-op (skipped entirely) when WINDOWS_CERT_PFX_BASE64 is unset.
+      - name: Sign Windows installers (Authenticode)
+        if: env.WINDOWS_CERT_PFX_BASE64 != ''
+        shell: pwsh
+        run: |
+          $v = "${{ steps.ver.outputs.VERSION }}"
+          $pfxPath = Join-Path $env:RUNNER_TEMP "windows-cert.pfx"
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:WINDOWS_CERT_PFX_BASE64))
+
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $signtool) {
+            throw "signtool.exe not found on this runner image."
+          }
+
+          $installers = @(
+            "dist/NexusMonitor-Windows-Installer-$v.exe",
+            "dist/NexusMonitor-Windows-ARM-Installer-$v.exe"
+          )
+
+          foreach ($target in $installers) {
+            Write-Host "  → Signing $target ..."
+            & $signtool.FullName sign /f $pfxPath /p $env:WINDOWS_CERT_PASSWORD `
+              /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $target
+            if ($LASTEXITCODE -ne 0) { throw "signtool failed on $target" }
+          }
+
+          Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -146,6 +230,13 @@ jobs:
   build-macos:
     needs: build-test
     runs-on: macos-latest
+    env:
+      # Secrets-gated Developer ID signing + notarization — see docs/signing-setup.md
+      MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+      MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -189,16 +280,74 @@ jobs:
           echo "=== osx-arm64 ===" && find src/NexusMonitor.UI/publish/osx-arm64 -maxdepth 3 2>/dev/null | head -30 || echo "(not found)"
           echo "=== osx-x64 ===" && find src/NexusMonitor.UI/publish/osx-x64 -maxdepth 3 2>/dev/null | head -30 || echo "(not found)"
 
+      # Optional: import the Developer ID Application cert into a throwaway
+      # keychain and resolve CODESIGN_IDENTITY from it. When unset, this step
+      # (and everything gated on it) is skipped, and create-app-bundle.sh
+      # falls back to its default ad-hoc ("-") signing, exactly as today.
+      - name: Import signing certificate
+        if: env.MACOS_CERT_P12_BASE64 != ''
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
+
+          echo "$MACOS_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN_PATH" -P "$MACOS_CERT_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | sed 's/"//g')
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep -o '"Developer ID Application:[^"]*"' | head -1 | tr -d '"')
+          if [[ -z "$IDENTITY" ]]; then
+            echo "::error::No 'Developer ID Application' identity found in the imported certificate."
+            exit 1
+          fi
+          echo "Resolved signing identity: $IDENTITY"
+          echo "CODESIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          echo "SIGNING_KEYCHAIN=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
       - name: Build .dmg and .tar.gz packages
         run: |
           mkdir -p dist
-          bash installer/macos/create-app-bundle.sh osx-arm64 ${{ steps.ver.outputs.VERSION }} dist
-          bash installer/macos/create-app-bundle.sh osx-x64 ${{ steps.ver.outputs.VERSION }} dist
+          bash installer/macos/create-app-bundle.sh osx-arm64 ${{ steps.ver.outputs.VERSION }} dist src/NexusMonitor.CLI/publish/cli-osx-arm64/nexus
+          bash installer/macos/create-app-bundle.sh osx-x64 ${{ steps.ver.outputs.VERSION }} dist src/NexusMonitor.CLI/publish/cli-osx-x64/nexus
           V="${{ steps.ver.outputs.VERSION }}"
           tar -czf "dist/NexusCLI-MacOS-${V}.tar.gz" \
             -C src/NexusMonitor.CLI/publish/cli-osx-arm64 .
           tar -czf "dist/NexusCLI-MacOS-Intel-${V}.tar.gz" \
             -C src/NexusMonitor.CLI/publish/cli-osx-x64 .
+
+      # Optional: notarize + staple the DMGs. Requires both the Developer ID
+      # cert (for signing, above) and Apple ID credentials (for notarytool).
+      # No-op (skipped entirely) when these secrets are unset — DMGs remain
+      # ad-hoc signed and unnotarized, exactly as today.
+      - name: Notarize and staple DMGs
+        if: env.MACOS_CERT_P12_BASE64 != '' && env.APPLE_ID != '' && env.APPLE_APP_PASSWORD != '' && env.APPLE_TEAM_ID != ''
+        run: |
+          V="${{ steps.ver.outputs.VERSION }}"
+          for DMG in "dist/NexusMonitor-MacOS-${V}.dmg" "dist/NexusMonitor-MacOS-Intel-${V}.dmg"; do
+            echo "→ Submitting $DMG for notarization ..."
+            xcrun notarytool submit "$DMG" \
+              --apple-id "$APPLE_ID" \
+              --team-id "$APPLE_TEAM_ID" \
+              --password "$APPLE_APP_PASSWORD" \
+              --wait
+            echo "→ Stapling $DMG ..."
+            xcrun stapler staple "$DMG"
+          done
+
+      # Always run (even if a prior step failed) so the throwaway keychain
+      # never lingers on the runner. No-op when signing wasn't configured.
+      - name: Clean up signing keychain
+        if: always() && env.MACOS_CERT_P12_BASE64 != ''
+        run: |
+          if [[ -n "${SIGNING_KEYCHAIN:-}" && -f "${SIGNING_KEYCHAIN}" ]]; then
+            security delete-keychain "${SIGNING_KEYCHAIN}" || true
+          fi
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
@@ -266,7 +415,7 @@ jobs:
         run: bash installer/linux/create-appimage.sh ${{ steps.ver.outputs.VERSION }} dist
 
       - name: Build .deb (x64)
-        run: bash installer/linux/create-deb.sh ${{ steps.ver.outputs.VERSION }} dist
+        run: bash installer/linux/create-deb.sh ${{ steps.ver.outputs.VERSION }} dist src/NexusMonitor.CLI/publish/cli-linux-x64
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
