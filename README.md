@@ -157,6 +157,31 @@ All tabs show real data on all three platforms. Windows has the deepest detail l
 - **Gaming Mode** power plan switching on macOS may require `sudo` (pmset restriction). Process throttling works without elevation.
 - **ProBalance** on Linux under Wayland without a compositor that supports `xdotool` will treat all background processes equally (no foreground window detection). Fully functional on X11 and macOS.
 
+### Platform support matrix
+
+The table above is a summary; feature-level support varies more than "Full" implies. This matrix reflects what each platform provider actually does, not just what the tab looks like:
+
+| Feature group | Windows | Linux | macOS |
+|---|---|---|---|
+| Process kill / suspend-resume / priority | ✅ | ✅ | ✅ |
+| CPU affinity | ✅ | ✅ | ❌ |
+| CPU sets | ✅ | ❌ (no kernel equivalent) | ❌ (no equivalent) |
+| I/O priority | ✅ | ❌ stubbed no-op — `ioprio_set` not wired up (`LinuxProcessProvider.SetIoPriorityAsync`); the capability flag reports `true` but the call is inert | ❌ |
+| Memory priority / trim working set / Efficiency Mode (EcoQoS) | ✅ | ❌ | ❌ |
+| Handle enumeration / memory map viewer | ✅ | ❌ | ❌ |
+| Process dump (`CreateDump`) | ✅ | ❌ | ❌ |
+| Registry viewer / registry-key startup entries | ✅ | ❌ | ❌ |
+| DirectX version info | ✅ | ❌ | ❌ |
+| Services: list / start / stop / restart | ✅ (SCM) | ✅ (init-system backends: systemd, SysVinit, OpenRC, Dinit, Runit, S6) | ✅ (`launchctl`) |
+| Services: startup-type change | ✅ | ✅ | ❌ |
+| Power plans | ✅ (full) | ✅ (full, `powerprofilesctl` / `scaling_governor`) | ⚠️ Limited — `pmset` toggles Low Power Mode / sleep settings; may silently no-op without `sudo` |
+| Per-connection network throughput | ✅ (`GetPerTcpConnectionEStats`; auto-hides on NICs that error, e.g. TSO/RSC) | ❌ | ❌ |
+| Startup items: list | ✅ | ✅ | ✅ |
+| Startup items: enable / disable | ✅ | ✅ | ❌ (listing only — modifying LaunchAgent plists needs elevation, not yet implemented) |
+| Temperature / fan sensors | ✅ Strongest — LibreHardwareMonitor (CPU + GPU) | ✅ `hwmon` (coretemp/k10temp/zenpower) → `thermal_zone*` fallback | ⚠️ Limited — no public API for CPU/GPU temperature; reports `0`/N/A |
+
+✅ = fully supported · ⚠️ = partial/limited · ❌ = not supported on this platform
+
 ---
 
 ## Quick Start
@@ -468,7 +493,9 @@ nexus alerts watch
 
 ## Performance
 
-Nexus is designed to be a monitoring tool, not a monitoring problem. Measured on a mid-range Linux desktop (AMD Ryzen 5, 16 GB RAM):
+Nexus is a native .NET 8 / Avalonia application, not an Electron/Chromium shell — that's the honest baseline for comparison, and it's worth being precise about who it is and isn't lighter than.
+
+Measured on a mid-range **Linux** desktop (AMD Ryzen 5, 16 GB RAM), single instance, default 1 s poll interval — Windows and macOS numbers vary with platform-specific providers (e.g. LibreHardwareMonitor on Windows) and haven't been separately profiled:
 
 | Metric | Idle | Active polling |
 |--------|------|---------------|
@@ -476,7 +503,9 @@ Nexus is designed to be a monitoring tool, not a monitoring problem. Measured on
 | RAM footprint | ~100 MB | 100–150 MB |
 | Disk I/O | Negligible | Negligible |
 
-**How it stays lean:**
+**Fair comparison:** Nexus is *not* lighter than your OS's built-in task manager — Windows Task Manager and macOS Activity Monitor typically idle around **40–80 MB**, and a cross-platform GUI with SQLite persistence, Rx pipelines, and live charting isn't going to beat a first-party OS component at its own game. The realistic comparison set is other **cross-platform, Electron/Chromium-class monitoring tools**, which commonly idle in the **200–500 MB** range — that's where Nexus's native .NET/Avalonia stack has a real, measurable advantage.
+
+**How it stays lean relative to that comparison set:**
 - Metrics are polled on configurable intervals (default 1 s), not continuously
 - SQLite WAL mode with tiered retention — hot metrics in memory, historical data batched to disk
 - Platform providers cache hardware-invariant data (CPU model, memory slots) at startup
