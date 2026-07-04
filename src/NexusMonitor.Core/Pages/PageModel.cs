@@ -19,10 +19,13 @@ public sealed record PageLayout(
     int GridColumns,
     IReadOnlyList<WidgetInstance> Widgets)
 {
+    /// <summary>The standard column count for new pages.</summary>
     public const int DefaultGridColumns = 12;
 
+    /// <summary>Returns a copy with the widget list replaced.</summary>
     public PageLayout WithWidgets(IReadOnlyList<WidgetInstance> widgets) => this with { Widgets = widgets };
 
+    /// <summary>Returns the widget with the given id, or null.</summary>
     public WidgetInstance? FindWidget(Guid instanceId)
     {
         foreach (var w in Widgets)
