@@ -48,6 +48,48 @@ internal static partial class LibSystem
     [DllImport("libSystem.B.dylib")]
     public static extern int vm_deallocate(uint task, nuint address, nuint size);
 
+    // host_statistics64(HOST_VM_INFO64) — the stable, version-independent way to read page
+    // counts (active/inactive/wired/compressed/purgeable). The equivalent sysctl OIDs
+    // (vm.page_active_count, vm.page_wire_count, vm.page_inactive_count,
+    // vm.compressor_page_count) do not exist on this OS (confirmed via `sysctl`: "unknown
+    // oid") — sysctlbyname fails and SysctlInt() silently returns 0 for all four, so a
+    // formula built on them always saw wired/active/inactive/compressed as 0.
+    [DllImport("libSystem.B.dylib")]
+    public static extern int host_statistics64(
+        uint host, int flavor, out VmStatistics64 hostInfo, ref uint hostInfoCount);
+
+}
+
+// Mirrors XNU's vm_statistics64_data_t (mach/vm_statistics.h). Field order/widths matter —
+// natural_t is a 32-bit uint, the counters below it are 64-bit; this layout is part of the
+// stable Mach host_statistics64() ABI used by vm_stat/Activity Monitor/top.
+[StructLayout(LayoutKind.Sequential)]
+internal struct VmStatistics64
+{
+    public uint  FreeCount;
+    public uint  ActiveCount;
+    public uint  InactiveCount;
+    public uint  WireCount;
+    public ulong ZeroFillCount;
+    public ulong Reactivations;
+    public ulong Pageins;
+    public ulong Pageouts;
+    public ulong Faults;
+    public ulong CowFaults;
+    public ulong Lookups;
+    public ulong Hits;
+    public ulong Purges;
+    public uint  PurgeableCount;
+    public uint  SpeculativeCount;
+    public ulong Decompressions;
+    public ulong Compressions;
+    public ulong Swapins;
+    public ulong Swapouts;
+    public uint  CompressorPageCount;
+    public uint  ThrottledCount;
+    public uint  ExternalPageCount;
+    public uint  InternalPageCount;
+    public ulong TotalUncompressedPagesInCompressor;
 }
 
 public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDisposable
@@ -59,6 +101,9 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
     private const int CpuStateSys          = 1;
     private const int CpuStateIdle         = 2;
     private const int CpuStateNice         = 3;
+
+    // HOST_VM_INFO64 flavor for host_statistics64() (mach/host_info.h)
+    private const int HostVmInfo64 = 4;
 
     // ── sysctl helpers ─────────────────────────────────────────────────────────
     private static string SysctlString(string name)
@@ -136,6 +181,11 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
     private Dictionary<string, (long readBytes, long writeBytes)> _cachedIoregStats = new();
     private DateTime _ioregCacheTime = DateTime.MinValue;
     private static readonly TimeSpan IoregCacheDuration = TimeSpan.FromSeconds(10);
+
+    // df -k cache — real per-volume "used" bytes (see ReadDisks()); refresh every 10 seconds
+    private Dictionary<string, long> _cachedDfUsedBytes = new(StringComparer.Ordinal);
+    private DateTime _dfCacheTime = DateTime.MinValue;
+    private static readonly TimeSpan DfCacheDuration = TimeSpan.FromSeconds(10);
 
     public MacOSSystemMetricsProvider()
     {
@@ -319,30 +369,37 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
 
     private MemoryMetrics ReadMemory()
     {
-        // All page counts available directly via sysctl — no vm_stat subprocess needed
-        var freePages      = (long)(uint)SysctlInt("vm.page_free_count");
-        var specPages      = (long)(uint)SysctlInt("vm.page_speculative_count");
-        var inactPages     = (long)(uint)SysctlInt("vm.page_inactive_count");
-        var wiredPages     = (long)(uint)SysctlInt("vm.page_wire_count");
-        var activePages    = (long)(uint)SysctlInt("vm.page_active_count");
+        // Page counts via host_statistics64(HOST_VM_INFO64) — see the P/Invoke declaration
+        // above for why sysctl can't be used for these four counters on this OS.
+        var vmStats = ReadVmStatistics64();
 
-        // Available = free + speculative (pages that can be reclaimed instantly)
-        var availableBytes = (freePages + specPages) * _pageSize;
-        var cachedBytes    = inactPages * _pageSize;
+        var activePages     = (long)vmStats.ActiveCount;
+        var inactivePages   = (long)vmStats.InactiveCount;
+        var wiredPages      = (long)vmStats.WireCount;
+        var purgeablePages  = (long)vmStats.PurgeableCount;
+        var compressorPages = (long)vmStats.CompressorPageCount;
 
-        var usedBytes = _totalMemBytes > 0
-            ? Math.Max(0L, _totalMemBytes - availableBytes)
-            : 0L;
+        // Activity-Monitor-style "memory used": active + wired + compressed, minus
+        // purgeable (purgeable pages are reclaimable on demand — the API surfaces them
+        // separately, so they're excluded rather than counted as "used"). Cleanly
+        // isolating file-backed pages further would require an active/inactive-scoped
+        // internal/external split that HOST_VM_INFO64 doesn't provide (its
+        // internal/external counts span active+inactive+wired together), so that
+        // refinement isn't applied.
+        var usedBytes = Math.Max(0L, (activePages + wiredPages + compressorPages - purgeablePages) * _pageSize);
+        if (_totalMemBytes > 0 && usedBytes > _totalMemBytes) usedBytes = _totalMemBytes;
 
-        // CompressedBytes: vm.compressor_page_count is absent on some macOS versions;
-        // fall back to 0 gracefully (SysctlInt returns 0 on unknown key).
-        var compressorPages = (long)(uint)SysctlInt("vm.compressor_page_count");
+        // Available = total − used, so the two stay internally consistent.
+        var availableBytes = Math.Max(0L, _totalMemBytes - usedBytes);
+        var cachedBytes     = inactivePages * _pageSize;
         var compressedBytes = compressorPages * _pageSize;
 
         // CommitTotal approximation: wired + active + inactive pages.
         // CommitLimit: total installed RAM (hw.memsize).
         // macOS has no Windows-style commit charge; these are approximations only.
-        var commitTotalBytes = (wiredPages + activePages + inactPages) * _pageSize;
+        // (Previously always 0 — wired/active/inactive were read via the nonexistent
+        // sysctl OIDs above and silently defaulted to 0.)
+        var commitTotalBytes = (wiredPages + activePages + inactivePages) * _pageSize;
         var commitLimitBytes = _totalMemBytes;
 
         // Populate RAM slot cache once (system_profiler SPMemoryDataType).
@@ -359,11 +416,22 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
             NonPagedPoolBytes   = 0,   // no macOS equivalent
             CommitTotalBytes    = commitTotalBytes,  // approximation: wired+active+inactive pages
             CommitLimitBytes    = commitLimitBytes,  // approximation: total installed RAM
-            CompressedBytes     = compressedBytes,   // vm.compressor_page_count × pageSize (0 if unavailable)
+            CompressedBytes     = compressedBytes,   // compressor_page_count × pageSize
             SpeedMhz            = _cachedMemSpeedMhz,
             SlotsUsed           = _cachedMemSlotsUsed,
             FormFactor          = _cachedMemFormFactor,
         };
+    }
+
+    /// <summary>
+    /// Reads current VM page counts via host_statistics64(HOST_VM_INFO64). Returns a
+    /// zeroed struct if the Mach call fails (mirrors the old sysctl-failure fallback of 0).
+    /// </summary>
+    private static VmStatistics64 ReadVmStatistics64()
+    {
+        var count = (uint)(Marshal.SizeOf<VmStatistics64>() / sizeof(uint));
+        var result = LibSystem.host_statistics64(LibSystem.HostSelf, HostVmInfo64, out var stats, ref count);
+        return result == 0 ? stats : default;
     }
 
     // ── CPU via host_processor_info (per-core) + top for total ────────────────
@@ -525,7 +593,7 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
             value = v;
     }
 
-    // ── Disks via DriveInfo + statvfs (no df subprocess) + cached ioreg ─────────
+    // ── Disks via DriveInfo + statvfs, cached ioreg (I/O rates) + cached df (real used) ──
     private IReadOnlyList<DiskMetrics> ReadDisks()
     {
         var result  = new List<DiskMetrics>();
@@ -541,19 +609,70 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
             _ioregCacheTime   = now;
         }
 
+        // `df -k` gives each mounted volume's real "used" bytes. On APFS, sibling volumes
+        // in the same container (e.g. "/" and "/System/Volumes/Data") share f_blocks /
+        // f_bavail at the statfs level — the same numbers DriveInfo.TotalSize /
+        // AvailableFreeSpace read — so Total-minus-AvailableFreeSpace collapses to the
+        // *container-wide* figure for every sibling volume and can't recover a given
+        // volume's own usage (confirmed: os.statvfs("/") and os.statvfs("/System/Volumes/
+        // Data") return byte-identical f_blocks/f_bavail on this machine). Only `df`
+        // (backed by APFS's ATTR_VOL_SPACEUSED) exposes the real per-volume figure.
+        if (now - _dfCacheTime > DfCacheDuration)
+        {
+            _cachedDfUsedBytes = ReadDfUsedBytesByMount();
+            _dfCacheTime       = now;
+        }
+
         // DriveInfo.GetDrives() uses getmntinfo() internally on macOS — no subprocess needed
         try
         {
-            int index = 0;
+            // First pass: candidate real volumes, filtering out pseudo filesystems and
+            // APFS-internal special-role volumes that aren't meaningful "disks" to a user.
+            var candidates = new List<DriveInfo>();
             foreach (var drive in DriveInfo.GetDrives())
             {
-                if (drive.DriveType is DriveType.Network or DriveType.NoRootDirectory or DriveType.CDRom)
-                    continue;
+                if (drive.DriveType is DriveType.Network or DriveType.NoRootDirectory
+                                     or DriveType.CDRom  or DriveType.Ram)
+                    continue;   // Ram excludes devfs ("/dev") — a tiny always-100%-full pseudo-fs
                 if (!drive.IsReady) continue;
 
                 var mountPoint = drive.RootDirectory.FullName;
+
+                // Skip APFS-internal special-role volumes (Preboot, VM, Update, xarts,
+                // iSCPreboot, Hardware, ...): not user-meaningful disks, and on the boot
+                // container their capacity already overlaps "/" / "/System/Volumes/Data".
+                if (mountPoint.StartsWith("/System/Volumes/", StringComparison.Ordinal) &&
+                    !mountPoint.Equals("/System/Volumes/Data", StringComparison.Ordinal) &&
+                    !mountPoint.StartsWith("/System/Volumes/Data/", StringComparison.Ordinal))
+                    continue;
+
+                candidates.Add(drive);
+            }
+
+            // Dedupe the boot container's sealed System snapshot ("/") against the
+            // writable Data volume it's paired with on every modern macOS install (the
+            // Signed System Volume split) — getmntinfo() reports the same container twice.
+            // Keep the Data entry: it carries the real, user-meaningful usage.
+            var hasDataVolume = candidates.Any(d =>
+                d.RootDirectory.FullName.Equals("/System/Volumes/Data", StringComparison.Ordinal));
+            if (hasDataVolume)
+                candidates.RemoveAll(d => d.RootDirectory.FullName == "/");
+
+            int index = 0;
+            foreach (var drive in candidates)
+            {
+                var mountPoint   = drive.RootDirectory.FullName;
+                var isSystemDisk = mountPoint is "/" or "/System/Volumes/Data";
+
+                long freeBytes  = drive.AvailableFreeSpace;   // f_bavail semantics — real writable space
                 long totalBytes = drive.TotalSize;
-                long freeBytes  = drive.AvailableFreeSpace;
+
+                // Derive Total from df's real Used + our real Free, so the Core-computed
+                // UsedPercent = (Total-Free)/Total lands on df's own Used/(Used+Avail)
+                // ratio for this specific volume, instead of the container-wide ratio.
+                // Falls back to the raw statfs total if df didn't report this mount.
+                if (_cachedDfUsedBytes.TryGetValue(mountPoint, out var dfUsedBytes))
+                    totalBytes = dfUsedBytes + freeBytes;
 
                 // Match ioreg entry for I/O rates (disk0, disk1, ...)
                 long readRate = 0, writeRate = 0;
@@ -580,7 +699,7 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
                     ReadBytesPerSec  = readRate,
                     WriteBytesPerSec = writeRate,
                     ActivePercent    = 0,
-                    IsSystemDisk     = mountPoint == "/",
+                    IsSystemDisk     = isSystemDisk,
                 });
             }
         }
@@ -592,6 +711,41 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
         foreach (var key in _prevDiskBytes.Keys.Where(k => !activeDisks.Contains(k)).ToList())
             _prevDiskBytes.Remove(key);
         return result;
+    }
+
+    /// <summary>
+    /// Parses `df -k` to get each mounted volume's real "used" bytes — the figure that
+    /// Total-minus-AvailableFreeSpace cannot recover for sibling APFS volumes sharing one
+    /// container (see ReadDisks()). Keyed by mount point (e.g. "/", "/System/Volumes/Data").
+    /// </summary>
+    private static Dictionary<string, long> ReadDfUsedBytesByMount()
+    {
+        var map = new Dictionary<string, long>(StringComparer.Ordinal);
+        try
+        {
+            var output = RunCommand("df", "-k");
+            if (string.IsNullOrEmpty(output)) return map;
+
+            var lines = output.Split('\n');
+            for (int i = 1; i < lines.Length; i++)   // skip header row
+            {
+                var line = lines[i].Trim();
+                if (line.Length == 0) continue;
+
+                var parts = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                // Filesystem  1024-blocks  Used  Available  Capacity  iused  ifree  %iused  Mounted-on
+                if (parts.Length < 9) continue;
+                if (!long.TryParse(parts[2], out var usedKb)) continue;
+
+                // Mount point is everything from column 8 onward (paths can contain spaces)
+                var mountPoint = string.Join(' ', parts.Skip(8));
+                if (mountPoint.Length == 0) continue;
+
+                map[mountPoint] = usedKb * 1024L;
+            }
+        }
+        catch { }
+        return map;
     }
 
     /// <summary>Returns base disk name from a device path, e.g. "/dev/disk3s5" → "disk3".</summary>
