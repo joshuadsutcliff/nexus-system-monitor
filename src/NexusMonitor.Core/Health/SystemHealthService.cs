@@ -126,8 +126,11 @@ public sealed class SystemHealthService : IDisposable
         // ── Raw values ────────────────────────────────────────────────────────
         var cpuVal  = m.Cpu.TotalPercent;
         var memVal  = m.Memory.UsedPercent;
-        var diskVal = m.Disks.Count > 0 ? m.Disks.Average(d => d.ActivePercent) : 0;
-        var diskUsed = m.Disks.Count > 0 ? m.Disks.Max(d => d.UsedPercent) : 0;
+        // Guard against pseudo/zero-capacity volumes poisoning the scores if a
+        // provider's enumeration filter ever regresses (macOS /dev devfs class).
+        var realDisks = m.Disks.Where(d => d.TotalBytes > 0).ToList();
+        var diskVal = realDisks.Count > 0 ? realDisks.Average(d => d.ActivePercent) : 0;
+        var diskUsed = realDisks.Count > 0 ? realDisks.Max(d => d.UsedPercent) : 0;
         var gpuVal  = m.Gpus.Count  > 0 ? m.Gpus.Average(g => g.UsagePercent) : 0;
         var cpuTemp = m.Cpu.TemperatureCelsius;
         var gpuTemp = m.Gpus.Count  > 0 ? m.Gpus.Average(g => g.TemperatureCelsius) : -1;
