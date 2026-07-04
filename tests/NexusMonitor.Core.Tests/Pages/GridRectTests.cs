@@ -1,7 +1,8 @@
-namespace NexusMonitor.Core.Tests.Pages;
-
+using FluentAssertions;
 using NexusMonitor.Core.Pages;
 using Xunit;
+
+namespace NexusMonitor.Core.Tests.Pages;
 
 public class GridRectTests
 {
@@ -9,8 +10,8 @@ public class GridRectTests
     public void RightAndBottom_AreExclusiveEdges()
     {
         var r = new GridRect(Col: 2, Row: 1, ColSpan: 3, RowSpan: 2);
-        Assert.Equal(5, r.Right);
-        Assert.Equal(3, r.Bottom);
+        r.Right.Should().Be(5);
+        r.Bottom.Should().Be(3);
     }
 
     [Theory]
@@ -23,8 +24,8 @@ public class GridRectTests
     {
         var a = new GridRect(c1, r1, cs1, rs1);
         var b = new GridRect(c2, r2, cs2, rs2);
-        Assert.Equal(expected, a.Intersects(b));
-        Assert.Equal(expected, b.Intersects(a));
+        a.Intersects(b).Should().Be(expected);
+        b.Intersects(a).Should().Be(expected);
     }
 
     [Theory]
@@ -34,14 +35,14 @@ public class GridRectTests
     [InlineData(0, -1, 2, 1, 12, false)] // negative row
     public void FitsWithinColumns_ValidatesBounds(int col, int row, int cs, int rs, int cols, bool expected)
     {
-        Assert.Equal(expected, new GridRect(col, row, cs, rs).FitsWithinColumns(cols));
+        new GridRect(col, row, cs, rs).FitsWithinColumns(cols).Should().Be(expected);
     }
 
     [Fact]
     public void ClampTo_MovesAndShrinksIntoGrid()
     {
-        Assert.Equal(new GridRect(9, 0, 3, 1), new GridRect(10, 0, 3, 1).ClampTo(12));   // shift left
-        Assert.Equal(new GridRect(0, 0, 12, 1), new GridRect(0, 0, 15, 1).ClampTo(12));  // shrink span
-        Assert.Equal(new GridRect(0, 0, 2, 1), new GridRect(-2, -1, 2, 1).ClampTo(12));  // negative → origin
+        new GridRect(10, 0, 3, 1).ClampTo(12).Should().Be(new GridRect(9, 0, 3, 1));   // shift left
+        new GridRect(0, 0, 15, 1).ClampTo(12).Should().Be(new GridRect(0, 0, 12, 1));  // shrink span
+        new GridRect(-2, -1, 2, 1).ClampTo(12).Should().Be(new GridRect(0, 0, 2, 1));  // negative → origin
     }
 }
