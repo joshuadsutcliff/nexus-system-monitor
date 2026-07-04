@@ -18,7 +18,7 @@ Thanks for your interest in contributing. This document covers everything you ne
 
 ## Ways to Contribute
 
-- **Bug reports** — File an [Issue](https://github.com/brass458/nexus-system-monitor/issues) with platform, version, and reproduction steps
+- **Bug reports** — File an [Issue](https://github.com/joshuadsutcliff/nexus-system-monitor/issues) with platform, version, and reproduction steps
 - **Feature requests** — Open a Discussion or Issue with the `enhancement` label
 - **Code** — Fix bugs, implement missing features from the [gap analysis](docs/gap-analysis.md), or improve platform implementations
 - **Testing** — Run the app on macOS or Linux and report what works / doesn't (see [TESTING.md](TESTING.md))
@@ -36,7 +36,7 @@ Thanks for your interest in contributing. This document covers everything you ne
 ### Clone and build
 
 ```bash
-git clone https://github.com/brass458/nexus-system-monitor.git
+git clone https://github.com/joshuadsutcliff/nexus-system-monitor.git
 cd nexus-system-monitor
 dotnet build NexusMonitor.sln
 ```
@@ -149,7 +149,7 @@ Improve IO priority handling on Linux procfs
 
 ## Reporting Bugs
 
-Open an [Issue](https://github.com/brass458/nexus-system-monitor/issues) and include:
+Open an [Issue](https://github.com/joshuadsutcliff/nexus-system-monitor/issues) and include:
 
 - **Platform and version** (e.g. "Windows 11 23H2, v0.1.8")
 - **What you did** — steps to reproduce
@@ -163,4 +163,4 @@ For macOS and Linux testing issues specifically, see [TESTING.md](TESTING.md).
 
 ## Questions?
 
-Open a [Discussion](https://github.com/brass458/nexus-system-monitor/discussions) for general questions, design ideas, or anything that doesn't fit an Issue.
+Open a [Discussion](https://github.com/joshuadsutcliff/nexus-system-monitor/discussions) for general questions, design ideas, or anything that doesn't fit an Issue.

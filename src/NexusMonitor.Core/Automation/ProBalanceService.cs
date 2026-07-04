@@ -1,6 +1,7 @@
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using Microsoft.Extensions.Logging;
+using NexusMonitor.Core.Reactive;
 using NexusMonitor.Core.Abstractions;
 using NexusMonitor.Core.Models;
 
@@ -45,10 +46,12 @@ public sealed class ProBalanceService : IDisposable
     {
         if (_running) return;
         _running = true;
-        // Subscribe to the shared multicast stream (1 s interval) and sample at 500 ms.
+        // Subscribe to the shared multicast stream (FAST/1 s cadence) and sample at 500 ms.
         // This reuses the existing provider stream rather than creating an independent poll.
         _subscription = _processProvider
-            .GetProcessStream(TimeSpan.FromSeconds(1))
+            .GetProcessStream(MonitoringCadence.Fast)
+            .RetryWithBackoff(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30),
+                onError: ex => _logger.LogWarning(ex, "ProBalanceService process stream faulted; retrying with backoff"))
             .Sample(TimeSpan.FromMilliseconds(500))
             .Subscribe(OnTick, ex =>
             {

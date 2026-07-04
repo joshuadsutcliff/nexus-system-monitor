@@ -1,35 +1,65 @@
 ---
 type: note
-date: 2026-03-05
+date: 2026-07-04
 project: NexusSystemMonitor
 tags: [nexus, architecture, patterns]
 ---
 
 # Architecture
 
-Current architecture of Nexus System Monitor as of v0.1.6.
+Current architecture of Nexus System Monitor as of **v0.5.2 (2026-07-04)**.
 
 ---
 
 ## Solution Structure
 
+9 projects total — 8 under `src/` plus one standalone tool:
+
 ```
-Areas/Projects/NexusSystemMonitor/
-├── NexusMonitor.sln
-├── Directory.Build.props          # Version source of truth: <Version>0.1.6</Version>
+NexusMonitor.sln
+├── Directory.Build.props          # Version source of truth: <Version>0.5.2</Version>
 ├── src/
-│   ├── NexusMonitor.Core/         # Abstractions, models, services (net8.0 — fully portable)
-│   ├── NexusMonitor.UI/           # Avalonia desktop app (platform-conditional TFM)
-│   ├── NexusMonitor.DiskAnalyzer/ # Disk analysis engine (treemap, scanning)
-│   ├── NexusMonitor.Platform.Windows/  # Windows API implementations (net8.0-windows)
-│   ├── NexusMonitor.Platform.MacOS/    # macOS implementations (net8.0-macos / net8.0 on Windows host)
-│   └── NexusMonitor.Platform.Linux/    # Linux implementations (net8.0)
+│   ├── NexusMonitor.Core/              # Abstractions, models, services (net8.0 — fully portable)
+│   ├── NexusMonitor.Hosting/           # Shared DI/service bootstrap consumed by UI + CLI (platform-conditional TFM)
+│   ├── NexusMonitor.UI/                # Avalonia desktop app (platform-conditional TFM)
+│   ├── NexusMonitor.CLI/               # Headless CLI front-end (platform-conditional TFM)
+│   ├── NexusMonitor.DiskAnalyzer/      # Disk analysis engine (treemap, scanning) (net8.0)
+│   ├── NexusMonitor.Platform.Windows/  # Windows API implementations (net8.0-windows10.0.17763.0 on Windows, net8.0 stub elsewhere)
+│   ├── NexusMonitor.Platform.MacOS/    # macOS implementations (net8.0, unconditional — see Platform layers below)
+│   └── NexusMonitor.Platform.Linux/    # Linux implementations (net8.0, unconditional)
+├── tools/
+│   └── IconGenerator/              # SkiaSharp-based icon generation CLI (net8.0, all 3 platforms)
 └── tests/
-    └── NexusMonitor.Core.Tests/   # Unit tests (mock provider tests)
+    └── NexusMonitor.Core.Tests/    # Unit tests (mock provider tests)
 ```
 
 **Assembly name:** `NexusMonitor` (not `NexusMonitor.UI`)
 All `avares://` URIs: `avares://NexusMonitor/Assets/...`
+
+---
+
+## Platform Layers
+
+Platform selection happens **at build time**, not at runtime, via MSBuild OS conditionals — there is no single cross-compiled binary that dynamically loads a platform plugin.
+
+- **Windows** (`Platform.Windows.csproj`): `TargetFramework` is conditional —
+  `net8.0-windows10.0.17763.0` when `$([MSBuild]::IsOSPlatform('windows'))`, else plain `net8.0`.
+  On non-Windows build hosts, all real implementation files are excluded
+  (`<Compile Remove="**/*.cs" />`) and only an empty `Placeholder.cs` compiles, so
+  `dotnet build NexusMonitor.sln` succeeds on any CI runner without pulling in
+  Windows-only APIs it can't target.
+- **Linux** (`Platform.Linux.csproj`): unconditional plain `net8.0` — no native TFM exists for
+  Linux, so there's nothing to switch on; all functionality is P/Invoke into libc / `/proc`
+  /`/sys` reads and process spawning, all of which cross-compile cleanly.
+- **macOS** (`Platform.MacOS.csproj`): also unconditional plain `net8.0`, **deliberately avoiding
+  the `net8.0-macos` TFM.** The project has no managed ObjC bindings — everything is pure
+  P/Invoke against `libSystem`/`sysctl`/Mach APIs — so there's no reason to pull in the
+  `Microsoft.macOS` workload TFM, whose ObjC runtime SIGBUSes at startup on macOS 26 (Tahoe) /
+  Apple Silicon. Same rationale as Linux: plain `net8.0` builds and runs everywhere without a
+  workload-specific runtime in the way.
+- **UI / CLI / Hosting**: all three follow the same pattern as `Platform.Windows` — conditional
+  `net8.0-windows10.0.17763.0` vs `net8.0` — because they reference `Platform.Windows` directly
+  and need matching TFM compatibility rules (`IsTargetFrameworkCompatible`) to consume it.
 
 ---
 

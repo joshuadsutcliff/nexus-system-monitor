@@ -1387,6 +1387,41 @@
       </StackPanel>
     </Border>
 
+    <!-- ===== UPDATES ===== -->
+    <Border Padding="16"
+            Background="{DynamicResource BgElevatedBrush}"
+            BorderBrush="{DynamicResource GlassBorderBrush}"
+            BorderThickness="1"
+            CornerRadius="{StaticResource CornerLG}">
+      <StackPanel Spacing="12">
+        <TextBlock Text="Updates" FontSize="{DynamicResource NxFont14}" FontWeight="SemiBold"
+                   Foreground="{DynamicResource TextPrimaryBrush}"/>
+        <Separator/>
+
+        <!-- Enable toggle -->
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel Grid.Column="0" Spacing="2">
+            <TextBlock Text="Check for Updates"
+                       FontSize="{DynamicResource NxFont13}" FontWeight="Medium"
+                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+            <TextBlock Text="Periodically checks GitHub for newer releases. Never downloads or installs anything automatically."
+                       FontSize="{DynamicResource NxFont12}"
+                       Foreground="{DynamicResource TextSecondaryBrush}"
+                       TextWrapping="Wrap"/>
+          </StackPanel>
+          <ToggleButton Grid.Column="1" Classes="nx-toggle"
+                        IsChecked="{Binding CheckForUpdates}"
+                        VerticalAlignment="Center"/>
+        </Grid>
+
+        <TextBlock Text="{Binding UpdateAvailableText}"
+                   FontSize="{DynamicResource NxFont11}"
+                   Foreground="{DynamicResource TextTertiaryBrush}"
+                   TextWrapping="Wrap"
+                   IsVisible="{Binding UpdateAvailableText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+      </StackPanel>
+    </Border>
+
     <!-- ===== ABOUT ===== -->
     <Border Padding="16"
             Background="{DynamicResource BgElevatedBrush}"

@@ -1,6 +1,7 @@
 using System.Reactive.Linq;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using NexusMonitor.Core.Reactive;
 using NexusMonitor.Core.Abstractions;
 using NexusMonitor.Core.Models;
 using NexusMonitor.Core.Rules;
@@ -43,7 +44,9 @@ public sealed class SleepPreventionService : IDisposable
         if (_running) return;
         _running = true;
         _subscription = _processProvider
-            .GetProcessStream(TimeSpan.FromSeconds(2))
+            .GetProcessStream(MonitoringCadence.Normal)
+            .RetryWithBackoff(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30),
+                onError: ex => _logger.LogWarning(ex, "SleepPreventionService process stream faulted; retrying with backoff"))
             .Subscribe(OnTick, ex =>
             {
                 _logger.LogError(ex, "SleepPreventionService stream faulted");

@@ -6,20 +6,31 @@
 # of binaries. This script assembles the standard .app structure from that flat output.
 #
 # Usage:
-#   bash installer/macos/create-app-bundle.sh <rid> <version> [output-dir]
+#   bash installer/macos/create-app-bundle.sh <rid> <version> [output-dir] [cli-binary-path]
 #
-#   rid         : osx-x64 or osx-arm64
-#   version     : semver string, e.g. 0.5.0
-#   output-dir  : directory for .dmg and .tar.gz (default: dist/)
+#   rid              : osx-x64 or osx-arm64
+#   version          : semver string, e.g. 0.5.0
+#   output-dir       : directory for .dmg and .tar.gz (default: dist/)
+#   cli-binary-path  : optional path to the published "nexus" CLI binary for
+#                       this RID. When given (and the file exists), it is
+#                       staged into the DMG root alongside the .app, next to
+#                       an INSTALL-CLI.txt note. Omit to preserve the exact
+#                       previous DMG layout (just the .app).
 #
 # Requires (CI: macos-latest runner):
 #   brew install create-dmg
+#
+# Optional signing: set CODESIGN_IDENTITY to a "Developer ID Application: ..."
+# identity (see docs/signing-setup.md) to sign for distribution instead of
+# the default ad-hoc ("-") signature. Notarization/stapling (if configured)
+# happens in the calling workflow, after this script produces the .dmg.
 
 set -euo pipefail
 
-RID="${1:?Usage: $0 <rid> <version> [output-dir]}"
+RID="${1:?Usage: $0 <rid> <version> [output-dir] [cli-binary-path]}"
 VERSION="${2:?Version is required}"
 OUTDIR="${3:-dist}"
+CLI_BINARY="${4:-}"
 
 PUBLISH_DIR="src/NexusMonitor.UI/publish/${RID}"
 APP_NAME="NexusMonitor"
@@ -105,6 +116,43 @@ echo "  ✓ Signed (ad-hoc)"
 echo "→ Creating ${DMG_PATH} ..."
 rm -f "${DMG_PATH}"
 
+# Default: the .app is the only DMG source, exactly as before. If a CLI
+# binary was supplied, stage a small extra directory containing the .app +
+# the CLI + an install note, and use that as the DMG source instead.
+DMG_SOURCE="${APP_DEST}"
+DMG_STAGING=""
+
+if [[ -n "${CLI_BINARY}" ]]; then
+  if [[ -f "${CLI_BINARY}" ]]; then
+    echo "→ Staging CLI binary + install note alongside .app for the DMG …"
+    DMG_STAGING="${PUBLISH_DIR}/dmg-staging"
+    rm -rf "${DMG_STAGING}"
+    mkdir -p "${DMG_STAGING}"
+    cp -R "${APP_DEST}" "${DMG_STAGING}/${BUNDLE_NAME}"
+    cp "${CLI_BINARY}" "${DMG_STAGING}/nexus"
+    chmod +x "${DMG_STAGING}/nexus"
+    cat > "${DMG_STAGING}/INSTALL-CLI.txt" << 'EOF'
+Nexus System Monitor — CLI installation
+========================================
+
+This disk image includes the "nexus" command-line tool alongside the app.
+
+To install it on your PATH, open Terminal, cd into this mounted volume,
+and run:
+
+    sudo cp nexus /usr/local/bin/
+
+Then verify it's available:
+
+    nexus --version
+EOF
+    DMG_SOURCE="${DMG_STAGING}"
+    echo "  ✓ CLI staged: ${DMG_STAGING}/nexus"
+  else
+    echo "Warning: CLI binary not found at ${CLI_BINARY} — DMG will not include the CLI." >&2
+  fi
+fi
+
 create-dmg \
   --volname "Nexus System Monitor ${VERSION}" \
   --volicon "src/NexusMonitor.UI/Assets/nexus-icon.icns" \
@@ -115,9 +163,13 @@ create-dmg \
   --hide-extension "${BUNDLE_NAME}" \
   --app-drop-link 430 190 \
   "${DMG_PATH}" \
-  "${APP_DEST}"
+  "${DMG_SOURCE}"
 
 echo "  ✓ DMG created: ${DMG_PATH}"
+
+if [[ -n "${DMG_STAGING}" ]]; then
+  rm -rf "${DMG_STAGING}"
+fi
 
 # ── Create portable tar.gz of the .app bundle ────────────────────────────────
 echo "→ Creating ${TARBALL} ..."

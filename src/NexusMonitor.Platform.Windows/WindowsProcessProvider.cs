@@ -1,8 +1,8 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Reactive.Linq;
 using NexusMonitor.Core.Abstractions;
 using NexusMonitor.Core.Models;
+using NexusMonitor.Core.Reactive;
 using NexusMonitor.Platform.Windows.Native;
 
 namespace NexusMonitor.Platform.Windows;
@@ -38,11 +38,13 @@ public sealed class WindowsProcessProvider : IProcessProvider, IDisposable
     // Serializes concurrent Snapshot() calls (timer tick vs GetProcessesAsync)
     private readonly object _snapshotLock = new();
 
-    // Shared multicast observable — all callers share one timer + one Snapshot() call per tick
-    private IObservable<IReadOnlyList<ProcessInfo>>? _shared;
+    // Shared multicast observable — all callers share one timer + one Snapshot() call per tick.
+    // SelfHealingSharedStream wraps the timer+Publish() pattern with RetryWithBackoff so a
+    // faulted Snapshot() call is logged and the timer is recreated after a short backoff
+    // instead of permanently killing the multicast for every subscriber.
+    private SelfHealingSharedStream<IReadOnlyList<ProcessInfo>>? _shared;
     private TimeSpan _sharedInterval;
     private readonly object _sharedLock = new();
-    private IDisposable? _connection;
 
     private static readonly int s_processorCount = Math.Max(1, Environment.ProcessorCount);
     private static readonly int s_currentPid     = Environment.ProcessId;
@@ -60,20 +62,18 @@ public sealed class WindowsProcessProvider : IProcessProvider, IDisposable
             // Invalidate cached observable when interval changes
             if (_shared is not null && _sharedInterval != clampedInterval)
             {
-                _connection?.Dispose();
+                _shared.Dispose();
                 _shared = null;
             }
             if (_shared is null)
             {
                 _sharedInterval = clampedInterval;
                 // One timer + one Snapshot() per tick, shared across all subscribers
-                var connectable = Observable.Timer(TimeSpan.Zero, clampedInterval)
-                                            .Select(_ => (IReadOnlyList<ProcessInfo>)Snapshot())
-                                            .Publish();
-                _shared     = connectable;
-                _connection = connectable.Connect();
+                _shared = new SelfHealingSharedStream<IReadOnlyList<ProcessInfo>>(
+                    Snapshot, clampedInterval,
+                    initialBackoff: TimeSpan.FromSeconds(1), maxBackoff: TimeSpan.FromSeconds(30));
             }
-            return _shared;
+            return _shared.Stream;
         }
     }
 
@@ -1220,7 +1220,7 @@ public sealed class WindowsProcessProvider : IProcessProvider, IDisposable
 
     public void Dispose()
     {
-        lock (_sharedLock) { _connection?.Dispose(); }
+        lock (_sharedLock) { _shared?.Dispose(); }
         _cpuSamples.Clear();
         _ioSamples.Clear();
         _userNameCache.Clear();

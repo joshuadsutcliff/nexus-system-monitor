@@ -1,6 +1,8 @@
 using Avalonia.Controls;
+using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.DependencyInjection;
 using NexusMonitor.Core.Services;
+using NexusMonitor.UI.Messages;
 using NexusMonitor.UI.ViewModels;
 using NexusMonitor.UI.Views;
 
@@ -50,6 +52,7 @@ public partial class MainWindow : Window
             case "Tray" when settings.Current.MinimizeToTray:
                 e.Cancel = true;
                 Hide();
+                WeakReferenceMessenger.Default.Send(new WindowVisibilityChangedMessage(false));
                 MaybeHideWidget(settings.Current.HideWidgetOnMinimize);
                 return;
 
@@ -90,6 +93,7 @@ public partial class MainWindow : Window
         if (result.Action == "Tray")
         {
             Hide();
+            WeakReferenceMessenger.Default.Send(new WindowVisibilityChangedMessage(false));
         }
         else
         {

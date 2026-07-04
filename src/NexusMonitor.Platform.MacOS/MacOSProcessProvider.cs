@@ -1,8 +1,8 @@
 ﻿using System.Diagnostics;
-using System.Reactive.Linq;
 using System.Runtime.InteropServices;
 using NexusMonitor.Core.Abstractions;
 using NexusMonitor.Core.Models;
+using NexusMonitor.Core.Reactive;
 
 namespace NexusMonitor.Platform.MacOS;
 
@@ -74,11 +74,13 @@ public sealed class MacOSProcessProvider : IProcessProvider, IDisposable
         public int   pti_priority;
     }
 
-    // Shared multicast observable
-    private IObservable<IReadOnlyList<ProcessInfo>>? _shared;
+    // Shared multicast observable. SelfHealingSharedStream wraps the timer+Publish() pattern
+    // with RetryWithBackoff so a faulted Snapshot() call is logged and the timer is
+    // recreated after a short backoff instead of permanently killing the multicast for
+    // every subscriber.
+    private SelfHealingSharedStream<IReadOnlyList<ProcessInfo>>? _shared;
     private TimeSpan _sharedInterval;
     private readonly object _sharedLock = new();
-    private IDisposable? _connection;
 
     // ── Streaming ──────────────────────────────────────────────────────────────
     public IObservable<IReadOnlyList<ProcessInfo>> GetProcessStream(TimeSpan interval)
@@ -90,19 +92,17 @@ public sealed class MacOSProcessProvider : IProcessProvider, IDisposable
             // Invalidate cached observable when interval changes
             if (_shared is not null && _sharedInterval != clampedInterval)
             {
-                _connection?.Dispose();
+                _shared.Dispose();
                 _shared = null;
             }
             if (_shared is null)
             {
                 _sharedInterval = clampedInterval;
-                var connectable = Observable.Timer(TimeSpan.Zero, clampedInterval)
-                                            .Select(_ => (IReadOnlyList<ProcessInfo>)Snapshot())
-                                            .Publish();
-                _shared     = connectable;
-                _connection = connectable.Connect();
+                _shared = new SelfHealingSharedStream<IReadOnlyList<ProcessInfo>>(
+                    Snapshot, clampedInterval,
+                    initialBackoff: TimeSpan.FromSeconds(1), maxBackoff: TimeSpan.FromSeconds(30));
             }
-            return _shared;
+            return _shared.Stream;
         }
     }
 
@@ -355,6 +355,14 @@ public sealed class MacOSProcessProvider : IProcessProvider, IDisposable
             setpriority(PRIO_PROCESS, (uint)pid, nice);
         }, ct);
 
+    // NOTE (2026-07-04 capability-flag audit): the six tuning no-ops below (affinity, I/O
+    // priority, memory priority, working-set trim, efficiency mode, CPU sets) are all
+    // correctly gated off via IPlatformCapabilities on macOS — SupportsCpuAffinity,
+    // SupportsIoPriority, SupportsMemoryPriority, SupportsTrimMemory and SupportsEfficiencyMode
+    // are all false in MacOSPlatformCapabilities, and SetCpuSetsAsync isn't wired to any UI
+    // control at all (Windows-only feature today). None of these are reachable through the
+    // UI, so leaving them as silent no-ops here is safe. Left as-is; do not flip any of the
+    // above flags to true without a real implementation behind them.
     // macOS does not support CPU affinity — no-op
     public Task SetAffinityAsync(int pid, long affinityMask, CancellationToken ct = default) =>
         Task.CompletedTask;
@@ -414,7 +422,7 @@ public sealed class MacOSProcessProvider : IProcessProvider, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        lock (_sharedLock) { _connection?.Dispose(); }
+        lock (_sharedLock) { _shared?.Dispose(); }
         _cpuSamples.Clear();
         if (_taskInfoPtr != IntPtr.Zero)
             Marshal.FreeHGlobal(_taskInfoPtr);

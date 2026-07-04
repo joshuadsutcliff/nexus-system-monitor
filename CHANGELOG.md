@@ -7,6 +7,152 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-06-18
+
+*Reconstructed from git history 2026-07-04.*
+
+### Fixed
+- **macOS crash-on-close:** installed an Rx `DefaultExceptionHandler`, ordered the shutdown
+  sequence, and corrected the release-build exit path so the app no longer crashes when closed.
+
+## [0.5.1] - 2026-06-18
+
+*Reconstructed from git history 2026-07-04.*
+
+### Added
+- **macOS data providers filled in:** CPU, memory, network, disk, and hardware-info stubs
+  (left as placeholders by the v0.5.0 TFM retarget) now return real live data.
+- **Honest "N/A" fields on macOS:** metrics with no macOS API equivalent (CPU/GPU temperature,
+  GPU usage/engines/VRAM, handle count, memory pools) now display "N/A" instead of a
+  misleading placeholder value.
+
+## [0.5.0] - 2026-06-18
+
+*Reconstructed from git history 2026-07-04.*
+
+### Fixed
+- **[Critical] macOS startup crash (SIGBUS):** `mach_task_self_` was being P/Invoked as a
+  function instead of read as an exported data symbol — corrected, fixing a crash on every
+  macOS launch.
+- **macOS build retargeted from `net8.0-macos` to plain `net8.0`:** the `net8.0-macos` /
+  `Microsoft.macOS` workload TFM's ObjC runtime was the root cause of the SIGBUS on macOS 26
+  (Tahoe) and Apple Silicon; the `.app` bundle is now built from a flat `net8.0` publish output.
+- Corrected signed/unsigned type mismatches in Mach P/Invoke signatures.
+- Native traffic-light window buttons restored via `PreferSystemChrome` (regressed by the
+  TFM retarget).
+- `osascript` invocations now passed via `ArgumentList` instead of a single interpolated
+  argument string, removing a quoting/injection hazard.
+- Prediction depletion test now asserts against the fixed test clock instead of wall-clock
+  time, removing test flakiness.
+
+## [0.4.1] - 2026-04-13
+
+*Reconstructed from git history 2026-07-04.*
+
+### Added
+- **Resource Health Trends & Predictions:** `HealthSnapshotPersistenceService` persists rolling
+  health-score snapshots; a new `HealthTrendsView` is embedded in the Dashboard; `PredictionService`
+  forecasts resource depletion from health-score trends and surfaces dismissible prediction cards
+  (togglable in Settings).
+- **Webhook notifications:** configurable webhook delivery for Alerts/Rules events, with a payload
+  model and Settings UI toggle.
+- **Real hardware temperatures:** LibreHardwareMonitor integrated on Windows for accurate CPU/GPU
+  temperature readings, replacing estimated values.
+- **HVCI dashboard card:** in-app fix action plus UX improvements for Hypervisor-Enforced Code
+  Integrity warnings.
+
+### Changed
+- **Runtime footprint pass (4 batches):** working-set trimming, chart downsampling, buffer caps,
+  lazy ViewModel initialization with Activate/Deactivate lifecycle, disabled chart animations,
+  reduced SQLite cache (8 MB → 1 MB), `ConserveMemory=9`, disabled `TieredCompilation`, capped
+  `ThreadPool`, and blocking GC before `EmptyWorkingSet` — together targeting lower idle CPU/RAM
+  overhead.
+
+### Fixed
+- Four rounds of thread-safety and quality fixes across Rx subscriptions, `MetricsStore` restart
+  handling, `AlertsService` race conditions, history locks, deadlocks, and silently-swallowed
+  exceptions.
+- Windows `Registry` calls guarded with `#if WINDOWS` so the solution builds cleanly on
+  cross-platform CI runners.
+- macOS Gatekeeper workaround documented in the README for the unsigned build on newer macOS
+  versions.
+
+## [0.4.0] - 2026-04-12
+
+*Reconstructed from git history 2026-07-04.*
+
+### Added
+- **Command Palette (Ctrl+K):** glass overlay with fuzzy filtering by label/category, keyboard
+  navigation, fade-in animation, scroll-to-selected, and focus restore.
+- **Process Groups:** new `ProcessGroup` model with wildcard pattern matching, SQLite-backed
+  `ProcessGroupStore`, a management UI (`ProcessGroupsView`/`ViewModel`), a colored Group badge
+  column plus group summary strip in the Processes tab, and group-based targeting in the Rules
+  Engine.
+- **Quiet Hours:** time-window + day-of-week notification suppression, with a dedicated
+  Automation card, a sidebar 🌙 badge when active, and settings wiring.
+
+### Changed
+- `WildcardMatcher` extracted from `ProcessRule` into a shared, reusable utility.
+- `ProcessGroupStore`'s cache is now pre-sorted on mutation instead of re-sorting per lookup;
+  `HexColorToBrushConverter` now caches brushes — both reduce per-tick UI overhead.
+
+### Fixed
+- Command palette startup visibility, redundant `SelectedIndex`, opacity/fade-in animation
+  timing, focus restore, and item-click handling.
+- Group-only rules now supported; `GroupSummaries` sync and the badge template's `DataType`
+  corrected.
+- `x:DataType` and null-store-get guards corrected in `ProcessGroupsView`.
+
+## [0.3.0] - 2026-03-25
+
+*Reconstructed from git history 2026-07-04.*
+
+### Added
+- Session persistence: window geometry and the active tab are now restored from the previous
+  session on launch.
+
+### Changed
+- Docs: Disk Analyzer marked live, removing stale "currently disabled" language.
+
+### Fixed
+- CLI now reports its real assembly version instead of a hardcoded `0.1.8.2`.
+- `MetricsStore` hard buffer cap prevents unbounded memory growth (OOM) if a flush stalls.
+- CLI `Ctrl+C` / process-exit handling wired to all long-running commands; `GlobalCts` disposed
+  safely in a `finally` block, guarded against `ObjectDisposedException`.
+- Linux `Statvfs.Spare` field corrected from `ulong[]` to `int[]` to match the Linux ABI.
+- Empty catch blocks in Linux providers replaced with real exception handling.
+
+## [0.2.0] - 2026-03-24
+
+*Reconstructed from git history 2026-07-04.*
+
+### Added
+- **Phase 20 unit test suite (255 tests):** coverage added for `RulesEngine`, `MetricsStore`,
+  `SettingsService`, `AnomalyDetectionService`, `PerformanceProfileService`, health scoring,
+  sliding-window stats, and `ProcessPreferenceStore`, plus supporting mock/Rx/DB test
+  infrastructure.
+- Docs: NexusCLI section with per-OS launch instructions; corrected release artifact names.
+
+### Fixed
+- Disallowed process rule now correctly sets `ruleMatched` so it can no longer be overridden by
+  preference fallback.
+
+## [0.1.8.2] - 2026-03-18
+
+*Reconstructed from git history 2026-07-04.*
+
+- Fixed CLI bar renderers crashing/mis-rendering when process names contained
+  Spectre.Console markup-like brackets (`[`/`]`) — brackets now escaped before rendering.
+
+## [0.1.8.1] - 2026-03-17
+
+*Reconstructed from git history 2026-07-04.*
+
+- Fixed macOS packaging: proper `Info.plist` metadata and human-readable release artifact
+  names (previously version-only filenames).
+- Fixed macOS ad-hoc code signing and icon embedding in the app bundle.
+- Polished README and added `CONTRIBUTING.md` ahead of the public community launch.
+
 ## [0.1.8] - 2026-03-11
 
 ### Added (Phase 19 — Logging + Housekeeping)
@@ -367,14 +513,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **macOS 12+ (Intel + Apple Silicon):** Full support. Unsigned — see README for Gatekeeper bypass.
 - **Linux (x64, ARM64):** Full support. Best tested on Ubuntu 22.04+.
 
-[Unreleased]: https://github.com/brass458/nexus-system-monitor/compare/v0.1.7...HEAD
-[0.1.7]: https://github.com/brass458/nexus-system-monitor/compare/v0.1.6...v0.1.7
-[0.1.6]: https://github.com/brass458/nexus-system-monitor/compare/v0.1.5.1...v0.1.6
-[0.1.5.1]: https://github.com/brass458/nexus-system-monitor/compare/v0.1.5...v0.1.5.1
-[0.1.5]: https://github.com/brass458/nexus-system-monitor/compare/v0.1.4...v0.1.5
-[0.1.4]: https://github.com/brass458/nexus-system-monitor/compare/v0.1.3.1...v0.1.4
-[0.1.3.1]: https://github.com/brass458/nexus-system-monitor/compare/v0.1.3...v0.1.3.1
-[0.1.3]: https://github.com/brass458/nexus-system-monitor/compare/v0.1.2...v0.1.3
-[0.1.2]: https://github.com/brass458/nexus-system-monitor/compare/v0.1.1...v0.1.2
-[0.1.1]: https://github.com/brass458/nexus-system-monitor/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/brass458/nexus-system-monitor/releases/tag/v0.1.0
+[Unreleased]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.5.1...v0.5.2
+[0.5.1]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.4.1...v0.5.0
+[0.4.1]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.1.8.2...v0.2.0
+[0.1.8.2]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.1.8.1...v0.1.8.2
+[0.1.8.1]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.1.8...v0.1.8.1
+[0.1.8]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.1.7...v0.1.8
+[0.1.7]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.1.6...v0.1.7
+[0.1.6]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.1.5.1...v0.1.6
+[0.1.5.1]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.1.5...v0.1.5.1
+[0.1.5]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.1.4...v0.1.5
+[0.1.4]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.1.3.1...v0.1.4
+[0.1.3.1]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.1.3...v0.1.3.1
+[0.1.3]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.1.2...v0.1.3
+[0.1.2]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/joshuadsutcliff/nexus-system-monitor/releases/tag/v0.1.0

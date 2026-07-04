@@ -47,7 +47,7 @@ public record RecommendationRow(
 
 // ── ViewModel ─────────────────────────────────────────────────────────────────
 
-public partial class OptimizationViewModel : ViewModelBase, IDisposable
+public partial class OptimizationViewModel : ViewModelBase, IActivatable, IDisposable
 {
     private readonly IProcessProvider _processProvider;
     private IDisposable? _subscription;
@@ -82,13 +82,36 @@ public partial class OptimizationViewModel : ViewModelBase, IDisposable
     {
         Title             = "Optimization";
         _processProvider  = processProvider;
+        StartMonitoring();
+    }
+
+    private void StartMonitoring()
+    {
         // ComputeUpdate runs on the timer/background thread; ApplyUpdate on the UI thread.
         // This keeps the classification LINQ + sort off the UI thread.
-        _subscription     = processProvider
+        _subscription = _processProvider
             .GetProcessStream(TimeSpan.FromSeconds(2))
             .Select(ComputeUpdate)
             .ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(ApplyUpdate);
+    }
+
+    /// <summary>
+    /// Resumes the recommendations subscription (UI-only — the underlying process stream
+    /// is a shared multicast driven by other subscribers regardless).
+    /// </summary>
+    /// <inheritdoc/>
+    public void Activate()
+    {
+        if (_subscription is not null) return; // idempotent guard
+        StartMonitoring();
+    }
+
+    /// <inheritdoc/>
+    public void Deactivate()
+    {
+        _subscription?.Dispose();
+        _subscription = null;
     }
 
     // ── Update (split into compute + apply) ───────────────────────────────────

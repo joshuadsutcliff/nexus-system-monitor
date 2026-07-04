@@ -5,8 +5,10 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Styling;
+using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.DependencyInjection;
 using NexusMonitor.Core.Abstractions;
+using NexusMonitor.UI.Messages;
 using Serilog;
 using NexusMonitor.Core.Automation;
 using NexusMonitor.Core.Models;
@@ -154,6 +156,10 @@ public class App : Application
             if (saved.Current.PrometheusEnabled)
                 prometheusExporter.Start(saved.Current.PrometheusPort);
 
+            // Start update checker if enabled (passive — never auto-downloads/installs)
+            if (saved.Current.CheckForUpdates)
+                Services.GetRequiredService<UpdateCheckService>().Start();
+
             // 4A: Flush MetricsStore + dispose services on shutdown so the last buffered
             //     data points are persisted and Rx subscriptions are released cleanly.
             desktop.ShutdownRequested += (_, _) =>
@@ -169,6 +175,7 @@ public class App : Application
                 Services.GetService<CpuLimiterService>()?.Stop();
                 Services.GetService<InstanceBalancerService>()?.Stop();
                 Services.GetService<QuietHoursService>()?.Stop();
+                Services.GetService<UpdateCheckService>()?.Stop();
                 Services.GetService<SleepPreventionService>()?.Stop();
                 Services.GetService<GamingModeService>()?.Stop();
                 Services.GetService<ProBalanceService>()?.Stop();
@@ -270,6 +277,18 @@ public class App : Application
                 }
             }));
 
+            // Wire update checker → one toast per newer version discovered (never re-toasts the
+            // same version across cycles; DistinctUntilChanged relies on UpdateInfo record equality).
+            var updateCheckService = Services.GetRequiredService<UpdateCheckService>();
+            _subscriptions.Add(updateCheckService.Updates
+                .Where(u => u is not null)
+                .DistinctUntilChanged()
+                .Subscribe(info => inAppNotifications.Show(new InAppNotification(
+                    Title:       "Update Available",
+                    Body:        $"Nexus {info!.Version} is available",
+                    Severity:    InAppSeverity.Info,
+                    AutoDismiss: TimeSpan.FromSeconds(8)))));
+
             // Wire alert events → webhook
             var webhookService = Services.GetRequiredService<WebhookNotificationService>();
             _subscriptions.Add(alertsService.Events
@@ -345,6 +364,7 @@ public class App : Application
                 win.Activate();
                 if (win.WindowState == WindowState.Minimized)
                     win.WindowState = WindowState.Normal;
+                WeakReferenceMessenger.Default.Send(new WindowVisibilityChangedMessage(true));
             }
         };
 
@@ -357,6 +377,7 @@ public class App : Application
             desktop.MainWindow?.Activate();
             if (desktop.MainWindow?.WindowState == WindowState.Minimized)
                 desktop.MainWindow.WindowState = WindowState.Normal;
+            WeakReferenceMessenger.Default.Send(new WindowVisibilityChangedMessage(true));
         };
 
         var widgetItem = new NativeMenuItem("Toggle Desktop Widget");

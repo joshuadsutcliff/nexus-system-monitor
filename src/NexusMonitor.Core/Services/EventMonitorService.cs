@@ -1,6 +1,7 @@
 using System.Reactive.Subjects;
 using NexusMonitor.Core.Abstractions;
 using NexusMonitor.Core.Models;
+using NexusMonitor.Core.Reactive;
 using NexusMonitor.Core.Storage;
 
 namespace NexusMonitor.Core.Services;
@@ -105,12 +106,16 @@ public sealed class EventMonitorService : IDisposable
 
     public void Start()
     {
+        // No logger is injected into this service; the resilience wrapper still shields the
+        // subscription from a permanent provider fault by resubscribing with backoff.
         _processSub = _processProvider
-            .GetProcessStream(TimeSpan.FromSeconds(2))
+            .GetProcessStream(MonitoringCadence.Normal)
+            .RetryWithBackoff(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30))
             .Subscribe(procs => _latestProcesses = procs, _ => { });
 
         _metricsSub = _metricsProvider
-            .GetMetricsStream(TimeSpan.FromSeconds(2))
+            .GetMetricsStream(MonitoringCadence.Normal)
+            .RetryWithBackoff(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30))
             .Subscribe(OnMetricsTick, _ => { });
     }
 

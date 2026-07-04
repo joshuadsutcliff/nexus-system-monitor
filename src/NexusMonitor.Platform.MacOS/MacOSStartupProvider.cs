@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using NexusMonitor.Core.Abstractions;
 using NexusMonitor.Core.Models;
 
@@ -9,6 +10,13 @@ namespace NexusMonitor.Platform.MacOS;
 /// </summary>
 public sealed class MacOSStartupProvider : IStartupProvider
 {
+    private readonly ILogger<MacOSStartupProvider> _logger;
+
+    public MacOSStartupProvider(ILogger<MacOSStartupProvider> logger)
+    {
+        _logger = logger;
+    }
+
     private static readonly string[] s_launchAgentDirs =
     [
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
@@ -61,8 +69,19 @@ public sealed class MacOSStartupProvider : IStartupProvider
         return result;
     }
 
-    public Task SetEnabledAsync(StartupItem item, bool enabled, CancellationToken ct = default) =>
-        Task.CompletedTask; // Modifying system plist files requires elevated permissions
+    public Task SetEnabledAsync(StartupItem item, bool enabled, CancellationToken ct = default)
+    {
+        // Modifying system plist files requires elevated permissions — this is a documented
+        // no-op, not a bug. IPlatformCapabilities.SupportsStartupToggle is false on macOS so
+        // the UI hides the Enable/Disable controls; this warning covers any caller that
+        // invokes SetEnabledAsync directly without going through the gated UI.
+        _logger.LogWarning(
+            "SetEnabledAsync({ItemName}, {Enabled}) was called on macOS, but toggling startup " +
+            "items is not supported here (requires elevated permissions to modify system " +
+            "LaunchAgent/LaunchDaemon plists). No change was made.",
+            item.Name, enabled);
+        return Task.CompletedTask;
+    }
 
     // Minimal plist string extraction — avoids a full XML parser dependency
     private static string? ExtractPlistString(string content, string key)

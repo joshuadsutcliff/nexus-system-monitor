@@ -34,6 +34,13 @@ public interface IPlatformCapabilities
     string OpenLocationMenuLabel { get; }
     /// <summary>True on Windows where DirectX version information is meaningful.</summary>
     bool SupportsDirectX { get; }
+    /// <summary>
+    /// True on platforms where the Startup tab's Enable/Disable toggle actually takes effect
+    /// (Windows and Linux). False on macOS, where <c>MacOSStartupProvider.SetEnabledAsync</c>
+    /// is a documented no-op — modifying system LaunchAgent/LaunchDaemon plists requires
+    /// elevated permissions, so the UI hides the toggle instead of pretending it works.
+    /// </summary>
+    bool SupportsStartupToggle { get; }
 }
 
 /// <summary>Full-featured fallback used in mock/design-time builds.</summary>
@@ -56,4 +63,5 @@ public sealed class MockPlatformCapabilities : IPlatformCapabilities
     public bool SupportsPowerPlan          => true;
     public string OpenLocationMenuLabel    => "Open File Location";
     public bool SupportsDirectX            => true;
+    public bool SupportsStartupToggle      => true;
 }

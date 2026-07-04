@@ -36,7 +36,7 @@ dotnet --version
 ## Getting the Code
 
 ```bash
-git clone https://github.com/brass458/nexus-system-monitor.git
+git clone https://github.com/joshuadsutcliff/nexus-system-monitor.git
 cd nexus-system-monitor
 ```
 
@@ -212,7 +212,7 @@ These are known gaps — no need to report them as bugs:
 
 ## Reporting Issues
 
-Open an issue at: **https://github.com/brass458/nexus-system-monitor/issues**
+Open an issue at: **https://github.com/joshuadsutcliff/nexus-system-monitor/issues**
 
 Please include:
 
