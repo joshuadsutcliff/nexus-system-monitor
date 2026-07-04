@@ -79,7 +79,10 @@ Any widget tears off into a plain Avalonia `Window` hosting the same control+VM 
 
 ## 7. Profiles, theming, sharing
 
-- `Profile { Name, PageLayouts[], PopOutStates, ThemeRef }`. `ThemeRef` = preset name (existing 19 palettes: Sakura, Deep Dark, Arctic, …) **or** embedded full theme snapshot (palette, glass, accent, font settings).
+- `Profile { Name, PageLayouts[], PopOutStates, ThemeRef }`. `ThemeRef` = preset name **or** embedded full theme snapshot (palette, glass, accent, font settings).
+- **Preset palettes** (the shipped 19, from `BuiltInThemePresets.cs`, selectable via the existing Settings dropdown): Nexus Default, Clean Light, Neon, Cherry Blossom, Dark Sakura, Anime, Futuristic, Outer Space, Minimalist, Deep Dark, Magical, Techno, Ocean Depth, Sunset, Arctic, Dracula, Solarized Dark, Solarized Light, Nord.
+- **Fonts:** not a fixed list — Settings enumerates every installed system font at runtime (SkiaSharp font manager) plus "(System Default)" and the bundled Inter, with a font-size multiplier. Theme snapshots embed the chosen family + multiplier; on import, a missing family falls back to (System Default) with a notice rather than failing.
+- **Glass / transparency:** the existing Crystal Glass stack (glass + specular toggles, Smart Glass Tint with luminance-adaptive service, backdrop modes) is part of the theme snapshot and therefore travels with profiles. A richer **Liquid Glass** treatment (Apple-style translucent material design) is a desired future direction — explicitly noted here as wanted, design deferred to its own pass; nothing in this feature may preclude it (widget chrome and page backgrounds must stay material-agnostic).
 - Switching profiles (title-bar dropdown + Settings) swaps layouts and theme in one action. Gaming Mode hook (optional setting): auto-switch to a chosen profile on activation, restore on exit.
 - Export → single `.nexusprofile` JSON (schema-versioned); granularity: full profile / single page / theme only. Import validates schema, shows a preview, always adds as new entries (never overwrites); widgets unknown to this build/platform become placeholder tiles preserving slot + config (lossless round-trip).
 - Sharing in v1 is file-based (any file channel). Hosted community gallery deferred (owner will evaluate free hosting later).
