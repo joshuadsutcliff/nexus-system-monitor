@@ -1,8 +1,8 @@
-namespace NexusMonitor.Core.Tests.Pages;
-
 using FluentAssertions;
 using NexusMonitor.Core.Pages;
 using Xunit;
+
+namespace NexusMonitor.Core.Tests.Pages;
 
 public class PageLayoutEngineValidationTests
 {
