@@ -154,6 +154,10 @@ public class App : Application
             if (saved.Current.PrometheusEnabled)
                 prometheusExporter.Start(saved.Current.PrometheusPort);
 
+            // Start update checker if enabled (passive — never auto-downloads/installs)
+            if (saved.Current.CheckForUpdates)
+                Services.GetRequiredService<UpdateCheckService>().Start();
+
             // 4A: Flush MetricsStore + dispose services on shutdown so the last buffered
             //     data points are persisted and Rx subscriptions are released cleanly.
             desktop.ShutdownRequested += (_, _) =>
@@ -169,6 +173,7 @@ public class App : Application
                 Services.GetService<CpuLimiterService>()?.Stop();
                 Services.GetService<InstanceBalancerService>()?.Stop();
                 Services.GetService<QuietHoursService>()?.Stop();
+                Services.GetService<UpdateCheckService>()?.Stop();
                 Services.GetService<SleepPreventionService>()?.Stop();
                 Services.GetService<GamingModeService>()?.Stop();
                 Services.GetService<ProBalanceService>()?.Stop();
@@ -269,6 +274,18 @@ public class App : Application
                         AutoDismiss: TimeSpan.FromSeconds(5)));
                 }
             }));
+
+            // Wire update checker → one toast per newer version discovered (never re-toasts the
+            // same version across cycles; DistinctUntilChanged relies on UpdateInfo record equality).
+            var updateCheckService = Services.GetRequiredService<UpdateCheckService>();
+            _subscriptions.Add(updateCheckService.Updates
+                .Where(u => u is not null)
+                .DistinctUntilChanged()
+                .Subscribe(info => inAppNotifications.Show(new InAppNotification(
+                    Title:       "Update Available",
+                    Body:        $"Nexus {info!.Version} is available",
+                    Severity:    InAppSeverity.Info,
+                    AutoDismiss: TimeSpan.FromSeconds(8)))));
 
             // Wire alert events → webhook
             var webhookService = Services.GetRequiredService<WebhookNotificationService>();

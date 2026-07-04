@@ -155,6 +155,10 @@ public class AppSettings
     // Resource Predictions (Phase 23)
     public bool PredictionsEnabled { get; set; } = false;
 
+    // Update Checker
+    /// <summary>When true, UpdateCheckService periodically polls GitHub for newer releases. Never auto-downloads/installs.</summary>
+    public bool CheckForUpdates { get; set; } = true;
+
     // ── Session persistence ─────────────────────────────────────────────────────
     public string LastActiveTab    { get; set; } = string.Empty;
     public double LastWindowWidth  { get; set; } = 0;

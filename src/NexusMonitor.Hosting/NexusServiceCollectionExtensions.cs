@@ -198,6 +198,9 @@ public static class NexusServiceCollectionExtensions
         // Memory leak detection
         services.AddSingleton<MemoryLeakDetectionService>();
 
+        // Update checker (Phase 24)
+        services.AddSingleton<UpdateCheckService>();
+
         return services;
     }
 }

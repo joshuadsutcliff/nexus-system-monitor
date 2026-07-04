@@ -14,6 +14,7 @@ using NexusMonitor.Core.Models;
 using NexusMonitor.Core.Services;
 using NexusMonitor.Core.Storage;
 using System.Collections.ObjectModel;
+using System.Reactive.Linq;
 using NexusMonitor.Core.Telemetry;
 using NexusMonitor.Core.Themes;
 using NexusMonitor.UI.Messages;
@@ -35,6 +36,8 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     private readonly PredictionService?                      _predictionService;
     private readonly HealthSnapshotPersistenceService?       _healthSnapshotService;
     private readonly EventMonitorService?                    _eventMonitorService;
+    private readonly UpdateCheckService?                     _updateCheckService;
+    private IDisposable?                                     _updateSubscription;
 
     // ── Saved Process Preferences ────────────────────────────────────────────
     public ObservableCollection<ProcessPreference> SavedPreferences { get; } = new();
@@ -237,6 +240,10 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     // ── Resource Predictions ──────────────────────────────────────────────────
     [ObservableProperty] private bool _predictionsEnabled;
 
+    // ── Update Checker ─────────────────────────────────────────────────────────
+    [ObservableProperty] private bool   _checkForUpdates;
+    [ObservableProperty] private string _updateAvailableText = "";
+
     // ── Static lists ─────────────────────────────────────────────────────────
 
     public static IReadOnlyList<string> AccentPresets { get; } =
@@ -306,7 +313,8 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         PredictionService?                      predictionService = null,
         ProcessPreferenceStore?                 preferenceStore = null,
         HealthSnapshotPersistenceService?       healthSnapshotService = null,
-        EventMonitorService?                    eventMonitorService = null)
+        EventMonitorService?                    eventMonitorService = null,
+        UpdateCheckService?                     updateCheckService = null)
     {
         Title             = "Settings";
         _settings         = settings;
@@ -320,6 +328,7 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         _preferenceStore       = preferenceStore;
         _healthSnapshotService = healthSnapshotService;
         _eventMonitorService   = eventMonitorService;
+        _updateCheckService    = updateCheckService;
 
         // Load saved preferences
         if (preferenceStore is not null)
@@ -328,6 +337,15 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
 
         // Subscribe to luminance changes from GlassAdaptiveService
         _glassAdaptive.LuminanceChanged += OnLuminanceChanged;
+
+        // Subscribe to update checker — populates the passive "vX.Y.Z available" text line
+        if (_updateCheckService is not null)
+        {
+            _updateSubscription = _updateCheckService.Updates
+                .Where(u => u is not null)
+                .Subscribe(info => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                    UpdateAvailableText = $"v{info!.Version} available — {info.ReleaseUrl}"));
+        }
 
         // Load saved values via backing fields so partial callbacks don't fire during init
         _themeModeIndex     = Array.IndexOf(_themeModeValues, settings.Current.ThemeMode);
@@ -391,6 +409,9 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
 
         // ── Resource Predictions ──────────────────────────────────────────────
         _predictionsEnabled = settings.Current.PredictionsEnabled;
+
+        // ── Update Checker ─────────────────────────────────────────────────────
+        _checkForUpdates = settings.Current.CheckForUpdates;
 
         // ── Theme preset list ──────────────────────────────────────────────────
         RebuildPresetNames();
@@ -796,6 +817,16 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
             _predictionService?.Start();
         else
             _predictionService?.Stop();
+    }
+
+    partial void OnCheckForUpdatesChanged(bool value)
+    {
+        _settings.Current.CheckForUpdates = value;
+        _settings.Save();
+        if (value)
+            _updateCheckService?.Start();
+        else
+            _updateCheckService?.Stop();
     }
 
     private void SyncWebhookEvents()
@@ -1302,5 +1333,6 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     {
         _osThemeCleanup?.Invoke();
         _glassAdaptive.LuminanceChanged -= OnLuminanceChanged;
+        _updateSubscription?.Dispose();
     }
 }
