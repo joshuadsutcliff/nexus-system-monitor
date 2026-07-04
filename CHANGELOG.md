@@ -513,24 +513,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **macOS 12+ (Intel + Apple Silicon):** Full support. Unsigned — see README for Gatekeeper bypass.
 - **Linux (x64, ARM64):** Full support. Best tested on Ubuntu 22.04+.
 
-[Unreleased]: https://github.com/brass458/nexus-system-monitor/compare/v0.5.2...HEAD
-[0.5.2]: https://github.com/brass458/nexus-system-monitor/compare/v0.5.1...v0.5.2
-[0.5.1]: https://github.com/brass458/nexus-system-monitor/compare/v0.5.0...v0.5.1
-[0.5.0]: https://github.com/brass458/nexus-system-monitor/compare/v0.4.1...v0.5.0
-[0.4.1]: https://github.com/brass458/nexus-system-monitor/compare/v0.4.0...v0.4.1
-[0.4.0]: https://github.com/brass458/nexus-system-monitor/compare/v0.3.0...v0.4.0
-[0.3.0]: https://github.com/brass458/nexus-system-monitor/compare/v0.2.0...v0.3.0
-[0.2.0]: https://github.com/brass458/nexus-system-monitor/compare/v0.1.8.2...v0.2.0
-[0.1.8.2]: https://github.com/brass458/nexus-system-monitor/compare/v0.1.8.1...v0.1.8.2
-[0.1.8.1]: https://github.com/brass458/nexus-system-monitor/compare/v0.1.8...v0.1.8.1
-[0.1.8]: https://github.com/brass458/nexus-system-monitor/compare/v0.1.7...v0.1.8
-[0.1.7]: https://github.com/brass458/nexus-system-monitor/compare/v0.1.6...v0.1.7
-[0.1.6]: https://github.com/brass458/nexus-system-monitor/compare/v0.1.5.1...v0.1.6
-[0.1.5.1]: https://github.com/brass458/nexus-system-monitor/compare/v0.1.5...v0.1.5.1
-[0.1.5]: https://github.com/brass458/nexus-system-monitor/compare/v0.1.4...v0.1.5
-[0.1.4]: https://github.com/brass458/nexus-system-monitor/compare/v0.1.3.1...v0.1.4
-[0.1.3.1]: https://github.com/brass458/nexus-system-monitor/compare/v0.1.3...v0.1.3.1
-[0.1.3]: https://github.com/brass458/nexus-system-monitor/compare/v0.1.2...v0.1.3
-[0.1.2]: https://github.com/brass458/nexus-system-monitor/compare/v0.1.1...v0.1.2
-[0.1.1]: https://github.com/brass458/nexus-system-monitor/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/brass458/nexus-system-monitor/releases/tag/v0.1.0
+[Unreleased]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.5.1...v0.5.2
+[0.5.1]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.4.1...v0.5.0
+[0.4.1]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.1.8.2...v0.2.0
+[0.1.8.2]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.1.8.1...v0.1.8.2
+[0.1.8.1]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.1.8...v0.1.8.1
+[0.1.8]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.1.7...v0.1.8
+[0.1.7]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.1.6...v0.1.7
+[0.1.6]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.1.5.1...v0.1.6
+[0.1.5.1]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.1.5...v0.1.5.1
+[0.1.5]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.1.4...v0.1.5
+[0.1.4]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.1.3.1...v0.1.4
+[0.1.3.1]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.1.3...v0.1.3.1
+[0.1.3]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.1.2...v0.1.3
+[0.1.2]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/joshuadsutcliff/nexus-system-monitor/releases/tag/v0.1.0

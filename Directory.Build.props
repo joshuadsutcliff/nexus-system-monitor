@@ -8,7 +8,7 @@
     <Product>Nexus System Monitor</Product>
     <Authors>TheBlackSwordsman</Authors>
     <Copyright>Copyright 2026 TheBlackSwordsman</Copyright>
-    <RepositoryUrl>https://github.com/brass458/nexus-system-monitor</RepositoryUrl>
+    <RepositoryUrl>https://github.com/joshuadsutcliff/nexus-system-monitor</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
   </PropertyGroup>
 </Project>

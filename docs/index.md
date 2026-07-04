@@ -7,7 +7,7 @@ tags: [nexus, index, hub]
 
 # Nexus System Monitor — Project Hub
 
-**Repository:** `github.com/brass458/nexus-system-monitor`
+**Repository:** `github.com/joshuadsutcliff/nexus-system-monitor`
 **Current version:** v0.1.8.2
 **Tech stack:** C# 12 / .NET 8 / Avalonia UI 11.2.3 / MVVM + ReactiveUI
 **Status:** Phases 1–19 complete · v0.1.8.2 released · **v1.0 roadmap approved 2026-03-24**
@@ -60,7 +60,7 @@ The goal is the **union** of features found in the best system tools — Process
 - **Source:** `Areas/Projects/NexusSystemMonitor/`
 - **CHANGELOG:** [[../CHANGELOG|CHANGELOG]]
 - **Session logs:** `CC-Session-Logs/` (12 sessions, Phases 7–16)
-- **GitHub:** `github.com/brass458/nexus-system-monitor`
+- **GitHub:** `github.com/joshuadsutcliff/nexus-system-monitor`
 
 ---
 

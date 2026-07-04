@@ -5,8 +5,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/brass458/nexus-system-monitor/releases/latest"><img src="https://img.shields.io/github/v/release/brass458/nexus-system-monitor?label=latest" alt="Latest Release"></a>
-  <a href="https://github.com/brass458/nexus-system-monitor/releases/latest"><img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="Platforms"></a>
+  <a href="https://github.com/joshuadsutcliff/nexus-system-monitor/releases/latest"><img src="https://img.shields.io/github/v/release/joshuadsutcliff/nexus-system-monitor?label=latest" alt="Latest Release"></a>
+  <a href="https://github.com/joshuadsutcliff/nexus-system-monitor/releases/latest"><img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="Platforms"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
   <a href="https://github.com/sponsors/brass458"><img src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?logo=github" alt="Sponsor"></a>
 </p>
@@ -21,7 +21,7 @@ Process Lasso is Windows-only. WizTree is Windows-only. Activity Monitor is macO
 
 ## Screenshots
 
-> Screenshots coming soon. See the [Releases](https://github.com/brass458/nexus-system-monitor/releases) page for download links.
+> Screenshots coming soon. See the [Releases](https://github.com/joshuadsutcliff/nexus-system-monitor/releases) page for download links.
 
 <!-- TODO: Add screenshots of:
   - System Health Dashboard (health score, sparklines, bottleneck detection)
@@ -188,7 +188,7 @@ The table above is a summary; feature-level support varies more than "Full" impl
 
 **No .NET SDK required** — just download and run.
 
-1. Go to [**Releases**](https://github.com/brass458/nexus-system-monitor/releases/latest)
+1. Go to [**Releases**](https://github.com/joshuadsutcliff/nexus-system-monitor/releases/latest)
 2. Download the build for your platform (see table below)
 3. Unzip / mount / install and run
 
@@ -219,7 +219,7 @@ The table above is a summary; feature-level support varies more than "Full" impl
 ### From Source
 
 ```bash
-git clone https://github.com/brass458/nexus-system-monitor.git
+git clone https://github.com/joshuadsutcliff/nexus-system-monitor.git
 cd nexus-system-monitor
 dotnet build NexusMonitor.sln
 ```
@@ -298,7 +298,7 @@ dotnet publish src/NexusMonitor.UI /p:PublishProfile=linux-arm64
 
 ### Pre-Built Releases
 
-Download the latest release for your platform from the [**Releases**](https://github.com/brass458/nexus-system-monitor/releases) page:
+Download the latest release for your platform from the [**Releases**](https://github.com/joshuadsutcliff/nexus-system-monitor/releases) page:
 
 | Platform | Installer / Package | Portable |
 |----------|---------------------|----------|
@@ -347,7 +347,7 @@ NexusCLI (`nexus`) is a headless companion to the GUI. It exposes the same monit
 
 ### Download
 
-Go to [**Releases**](https://github.com/brass458/nexus-system-monitor/releases/latest) and grab the CLI archive for your platform:
+Go to [**Releases**](https://github.com/joshuadsutcliff/nexus-system-monitor/releases/latest) and grab the CLI archive for your platform:
 
 | Platform | Archive |
 |----------|---------|
@@ -563,7 +563,7 @@ Adding support for a new platform means implementing these interfaces against na
 
 Early-access testing on macOS and Linux is open. See **[TESTING.md](TESTING.md)** for a step-by-step setup guide, a per-tab test checklist, known limitations, and instructions for filing issues.
 
-Report bugs and feedback at: https://github.com/brass458/nexus-system-monitor/issues
+Report bugs and feedback at: https://github.com/joshuadsutcliff/nexus-system-monitor/issues
 
 For detailed project documentation — feature inventory, architecture, gap analysis, and roadmap — see [`docs/`](docs/index.md).
 
