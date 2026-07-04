@@ -124,6 +124,20 @@ public partial class MainViewModel : ViewModelBase, IDisposable
             });
         });
 
+        // Pause/resume the currently selected tab's UI-only data stream when the main
+        // window is hidden (minimized or sent to the tray) / made visible again.
+        // Background enforcement services are untouched — they don't implement
+        // IActivatable and never see this message. See WindowVisibilityChangedMessage.
+        WeakReferenceMessenger.Default.Register<WindowVisibilityChangedMessage>(this, (_, msg) =>
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (SelectedNavItem?.VM is not IActivatable activatable) return;
+                if (msg.IsVisible) activatable.Activate();
+                else                activatable.Deactivate();
+            });
+        });
+
         if (quietHoursService != null)
         {
             UpdateAutomationBadge(quietHoursService.IsActive);

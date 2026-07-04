@@ -85,13 +85,13 @@ public sealed class AnomalyDetectionService : IDisposable
         _running = true;
 
         _metricsSub = _metricsProvider
-            .GetMetricsStream(TimeSpan.FromSeconds(2))
+            .GetMetricsStream(MonitoringCadence.Normal)
             .RetryWithBackoff(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30),
                 onError: ex => _logger.LogWarning(ex, "AnomalyDetectionService metrics stream faulted; retrying with backoff"))
             .Subscribe(OnMetricsTick, ex => { _logger.LogError(ex, "AnomalyDetectionService metrics stream faulted"); _running = false; });
 
         _processSub = _processProvider
-            .GetProcessStream(TimeSpan.FromSeconds(2))
+            .GetProcessStream(MonitoringCadence.Normal)
             .RetryWithBackoff(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30),
                 onError: ex => _logger.LogWarning(ex, "AnomalyDetectionService process stream faulted; retrying with backoff"))
             .Subscribe(OnProcessTick, ex => { _logger.LogError(ex, "AnomalyDetectionService process stream faulted"); _running = false; });

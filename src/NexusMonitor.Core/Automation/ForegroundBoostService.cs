@@ -48,7 +48,7 @@ public sealed class ForegroundBoostService : IDisposable
         if (_running) return;
         _running = true;
         _subscription = _processProvider
-            .GetProcessStream(TimeSpan.FromSeconds(1))
+            .GetProcessStream(MonitoringCadence.Fast)
             .RetryWithBackoff(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30),
                 onError: ex => _logger.LogWarning(ex, "ForegroundBoostService process stream faulted; retrying with backoff"))
             .Sample(TimeSpan.FromSeconds(1))

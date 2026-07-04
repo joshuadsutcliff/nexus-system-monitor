@@ -1,11 +1,11 @@
 using System.Diagnostics;
 using System.Management;
-using System.Reactive.Linq;
 using System.Runtime.InteropServices;
 using LibreHardwareMonitor.Hardware;
 using Microsoft.Win32;
 using NexusMonitor.Core.Abstractions;
 using NexusMonitor.Core.Models;
+using NexusMonitor.Core.Reactive;
 using NexusMonitor.Platform.Windows.Native;
 
 namespace NexusMonitor.Platform.Windows;
@@ -99,11 +99,14 @@ public sealed class WindowsSystemMetricsProvider : ISystemMetricsProvider, IDisp
     private static readonly TimeSpan GpuSampleCacheDuration    = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan GpuReenumerateDuration    = TimeSpan.FromSeconds(30);
 
-    // Shared multicast observable — all callers share one timer + one Sample() call per tick
-    private IObservable<SystemMetrics>? _shared;
+    // Shared multicast observable — all callers share one timer + one Sample() call per tick.
+    // SelfHealingSharedStream wraps the timer+Publish() pattern with RetryWithBackoff so a
+    // faulted Sample() call (e.g. a transient PerformanceCounter/WMI hiccup) is logged and
+    // the timer is recreated after a short backoff instead of permanently killing the
+    // multicast for every subscriber (see NexusMonitor.Core.Reactive.SelfHealingSharedStream).
+    private SelfHealingSharedStream<SystemMetrics>? _shared;
     private TimeSpan _sharedInterval;
     private readonly object _sharedLock = new();
-    private IDisposable? _connection;
 
     // ─── ISystemMetricsProvider ───────────────────────────────────────────────
 
@@ -116,19 +119,17 @@ public sealed class WindowsSystemMetricsProvider : ISystemMetricsProvider, IDisp
             // Invalidate cached observable when interval changes
             if (_shared is not null && _sharedInterval != clampedInterval)
             {
-                _connection?.Dispose();
+                _shared.Dispose();
                 _shared = null;
             }
             if (_shared is null)
             {
                 _sharedInterval = clampedInterval;
-                var connectable = Observable.Timer(TimeSpan.Zero, clampedInterval)
-                                            .Select(_ => Sample())
-                                            .Publish();
-                _shared     = connectable;
-                _connection = connectable.Connect();
+                _shared = new SelfHealingSharedStream<SystemMetrics>(
+                    Sample, clampedInterval,
+                    initialBackoff: TimeSpan.FromSeconds(1), maxBackoff: TimeSpan.FromSeconds(30));
             }
-            return _shared;
+            return _shared.Stream;
         }
     }
 
@@ -1035,7 +1036,7 @@ public sealed class WindowsSystemMetricsProvider : ISystemMetricsProvider, IDisp
 
     public void Dispose()
     {
-        lock (_sharedLock) { _connection?.Dispose(); }
+        lock (_sharedLock) { _shared?.Dispose(); }
         lock (_lhmLock) { try { _lhm?.Close(); } catch { } _lhm = null; }
         _cpuTotal?.Dispose();
         foreach (var c in _cpuCores) c?.Dispose();

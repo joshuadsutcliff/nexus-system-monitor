@@ -109,12 +109,12 @@ public sealed class EventMonitorService : IDisposable
         // No logger is injected into this service; the resilience wrapper still shields the
         // subscription from a permanent provider fault by resubscribing with backoff.
         _processSub = _processProvider
-            .GetProcessStream(TimeSpan.FromSeconds(2))
+            .GetProcessStream(MonitoringCadence.Normal)
             .RetryWithBackoff(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30))
             .Subscribe(procs => _latestProcesses = procs, _ => { });
 
         _metricsSub = _metricsProvider
-            .GetMetricsStream(TimeSpan.FromSeconds(2))
+            .GetMetricsStream(MonitoringCadence.Normal)
             .RetryWithBackoff(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30))
             .Subscribe(OnMetricsTick, _ => { });
     }

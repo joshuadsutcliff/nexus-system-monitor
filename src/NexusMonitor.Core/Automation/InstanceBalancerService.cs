@@ -46,7 +46,7 @@ public sealed class InstanceBalancerService : IDisposable
         if (_running) return;
         _running = true;
         _subscription = _processProvider
-            .GetProcessStream(TimeSpan.FromSeconds(2))
+            .GetProcessStream(MonitoringCadence.Normal)
             .RetryWithBackoff(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30),
                 onError: ex => _logger.LogWarning(ex, "InstanceBalancerService process stream faulted; retrying with backoff"))
             .Subscribe(OnTick, ex =>

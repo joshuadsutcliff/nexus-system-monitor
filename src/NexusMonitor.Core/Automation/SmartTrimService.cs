@@ -52,9 +52,9 @@ public sealed class SmartTrimService : IDisposable
         if (_running) return;
         _running = true;
 
-        // Track idle ticks on every process-stream tick (2s)
+        // Track idle ticks on every process-stream tick (NORMAL cadence)
         _tickSubscription = _processProvider
-            .GetProcessStream(TimeSpan.FromSeconds(2))
+            .GetProcessStream(MonitoringCadence.Normal)
             .RetryWithBackoff(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30),
                 onError: ex => _logger.LogWarning(ex, "SmartTrimService process stream faulted; retrying with backoff"))
             .Subscribe(TrackIdleTicks, ex =>

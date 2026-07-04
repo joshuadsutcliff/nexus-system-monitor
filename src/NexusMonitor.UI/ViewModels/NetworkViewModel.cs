@@ -11,7 +11,7 @@ using NexusMonitor.UI.Helpers;
 
 namespace NexusMonitor.UI.ViewModels;
 
-public partial class NetworkViewModel : ViewModelBase, IDisposable
+public partial class NetworkViewModel : ViewModelBase, IActivatable, IDisposable
 {
     private readonly INetworkConnectionsProvider _provider;
     private IDisposable? _subscription;
@@ -47,12 +47,17 @@ public partial class NetworkViewModel : ViewModelBase, IDisposable
         Title     = "Network";
         _provider = provider;
 
-        _subscription = provider
+        StartMonitoring();
+    }
+
+    private void StartMonitoring()
+    {
+        _subscription = _provider
             .GetConnectionStream(TimeSpan.FromSeconds(2))
             .ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(Update);
 
-        _adapterSubscription = provider
+        _adapterSubscription = _provider
             .GetAdapterThroughputStream(TimeSpan.FromSeconds(2))
             .ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(t =>
@@ -60,6 +65,26 @@ public partial class NetworkViewModel : ViewModelBase, IDisposable
                 AdapterSendDisplay = t.SendDisplay;
                 AdapterRecvDisplay = t.RecvDisplay;
             });
+    }
+
+    /// <summary>
+    /// Resumes the connection/adapter-throughput subscriptions (UI-only — the underlying
+    /// provider streams are shared multicasts driven by other subscribers regardless).
+    /// </summary>
+    /// <inheritdoc/>
+    public void Activate()
+    {
+        if (_subscription is not null) return; // idempotent guard
+        StartMonitoring();
+    }
+
+    /// <inheritdoc/>
+    public void Deactivate()
+    {
+        _subscription?.Dispose();
+        _subscription = null;
+        _adapterSubscription?.Dispose();
+        _adapterSubscription = null;
     }
 
     // Re-filter when search text changes

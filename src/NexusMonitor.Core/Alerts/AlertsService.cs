@@ -54,7 +54,7 @@ public sealed class AlertsService : IDisposable
         if (Interlocked.CompareExchange(ref _startedGuard, 1, 0) != 0) return;
         _running = true;
         _subscription = _metrics
-            .GetMetricsStream(TimeSpan.FromSeconds(2))
+            .GetMetricsStream(MonitoringCadence.Normal)
             .RetryWithBackoff(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30),
                 onError: ex => _logger.LogWarning(ex, "AlertsService metrics stream faulted; retrying with backoff"))
             .Subscribe(OnTick, ex =>

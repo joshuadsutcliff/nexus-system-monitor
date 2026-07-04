@@ -5,8 +5,10 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Styling;
+using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.DependencyInjection;
 using NexusMonitor.Core.Abstractions;
+using NexusMonitor.UI.Messages;
 using Serilog;
 using NexusMonitor.Core.Automation;
 using NexusMonitor.Core.Models;
@@ -362,6 +364,7 @@ public class App : Application
                 win.Activate();
                 if (win.WindowState == WindowState.Minimized)
                     win.WindowState = WindowState.Normal;
+                WeakReferenceMessenger.Default.Send(new WindowVisibilityChangedMessage(true));
             }
         };
 
@@ -374,6 +377,7 @@ public class App : Application
             desktop.MainWindow?.Activate();
             if (desktop.MainWindow?.WindowState == WindowState.Minimized)
                 desktop.MainWindow.WindowState = WindowState.Normal;
+            WeakReferenceMessenger.Default.Send(new WindowVisibilityChangedMessage(true));
         };
 
         var widgetItem = new NativeMenuItem("Toggle Desktop Widget");

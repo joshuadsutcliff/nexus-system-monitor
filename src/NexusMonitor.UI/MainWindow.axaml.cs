@@ -9,10 +9,12 @@ using Avalonia.Media.Transformation;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.DependencyInjection;
 using NexusMonitor.Core.Models;
 using NexusMonitor.Core.Services;
 using NexusMonitor.Core.ViewModels;
+using NexusMonitor.UI.Messages;
 using NexusMonitor.UI.ViewModels;
 
 namespace NexusMonitor.UI;
@@ -117,14 +119,24 @@ public partial class MainWindow : Window
             }
         };
 
-        // Pause shimmer when minimized, resume when restored
+        // Pause shimmer when minimized, resume when restored. Also broadcasts
+        // WindowVisibilityChangedMessage so UI-only tab ViewModels can pause/resume their
+        // display-refresh subscriptions (background enforcement services never react to
+        // this — see WindowVisibilityChangedMessage doc comment).
         PropertyChanged += (_, e) =>
         {
             if (e.Property != WindowStateProperty) return;
             if (WindowState == WindowState.Minimized)
+            {
                 _shimmerTimer?.Stop();
-            else if (_shimmerEnabled)
-                _shimmerTimer?.Start();
+                WeakReferenceMessenger.Default.Send(new WindowVisibilityChangedMessage(false));
+            }
+            else
+            {
+                if (_shimmerEnabled)
+                    _shimmerTimer?.Start();
+                WeakReferenceMessenger.Default.Send(new WindowVisibilityChangedMessage(true));
+            }
         };
     }
 

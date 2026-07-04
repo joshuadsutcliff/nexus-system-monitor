@@ -24,7 +24,9 @@ public sealed class MemoryLeakDetectionService : IDisposable
     private int _tickCount;
     private bool _disposed;
 
-    private const int TickIntervalSeconds = 2;
+    // Tied to MonitoringCadence.Normal so this service's tick-rate arithmetic can't drift
+    // from the actual cadence requested on the shared provider stream below.
+    private static readonly int TickIntervalSeconds = (int)MonitoringCadence.Normal.TotalSeconds;
     private const int AnalysisEveryNTicks = 10;
     private const double MinFillFraction = 0.5;
     private const double MinRSquared = 0.7;
@@ -54,7 +56,7 @@ public sealed class MemoryLeakDetectionService : IDisposable
             _settings.LeakObservationWindowMinutes * 60 / TickIntervalSeconds,
             30, 120);
 
-        _subscription = _processProvider.GetProcessStream(TimeSpan.FromSeconds(TickIntervalSeconds))
+        _subscription = _processProvider.GetProcessStream(MonitoringCadence.Normal)
             .RetryWithBackoff(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30),
                 onError: ex => _logger.LogWarning(ex, "MemoryLeakDetectionService process stream faulted; retrying with backoff"))
             .Subscribe(processes => OnTick(processes, bufferSize),

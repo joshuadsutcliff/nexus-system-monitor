@@ -88,7 +88,7 @@ public sealed class GamingModeService : IDisposable
         // -- Polling loop (re-apply to new processes every 2 s via shared stream) ------
         string capturedGameProcess = gameProcessName ?? _settings.GamingModeGameProcess;
         _pollingSubscription = _processProvider
-            .GetProcessStream(TimeSpan.FromSeconds(1))
+            .GetProcessStream(MonitoringCadence.Fast)
             .RetryWithBackoff(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30),
                 onError: ex => _logger.LogWarning(ex, "GamingModeService process stream faulted; retrying with backoff"))
             .Sample(TimeSpan.FromSeconds(2))

@@ -1,10 +1,10 @@
 using System.Diagnostics;
-using System.Reactive.Linq;
 using System.Runtime.InteropServices;
 using System.Net.NetworkInformation;
 using System.Text.Json;
 using NexusMonitor.Core.Abstractions;
 using NexusMonitor.Core.Models;
+using NexusMonitor.Core.Reactive;
 
 namespace NexusMonitor.Platform.MacOS;
 
@@ -251,12 +251,14 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
              : 0;
     }
 
-    // Shared multicast observable
-    private IObservable<SystemMetrics>? _shared;
+    // Shared multicast observable. SelfHealingSharedStream wraps the timer+Publish() pattern
+    // with RetryWithBackoff so a faulted BuildMetrics() call (e.g. a transient subprocess or
+    // sysctl hiccup) is logged and the timer is recreated after a short backoff instead of
+    // permanently killing the multicast for every subscriber.
+    private SelfHealingSharedStream<SystemMetrics>? _shared;
     private TimeSpan _sharedInterval;
     private readonly object _sharedLock = new();
     private readonly object _metricsLock = new();
-    private IDisposable? _connection;
     private bool _disposed;
 
     // ── ISystemMetricsProvider ─────────────────────────────────────────────────
@@ -269,19 +271,17 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
             // Invalidate cached observable when interval changes
             if (_shared is not null && _sharedInterval != clampedInterval)
             {
-                _connection?.Dispose();
+                _shared.Dispose();
                 _shared = null;
             }
             if (_shared is null)
             {
                 _sharedInterval = clampedInterval;
-                var connectable = Observable.Timer(TimeSpan.Zero, clampedInterval)
-                                            .Select(_ => BuildMetrics())
-                                            .Publish();
-                _shared     = connectable;
-                _connection = connectable.Connect();
+                _shared = new SelfHealingSharedStream<SystemMetrics>(
+                    BuildMetrics, clampedInterval,
+                    initialBackoff: TimeSpan.FromSeconds(1), maxBackoff: TimeSpan.FromSeconds(30));
             }
-            return _shared;
+            return _shared.Stream;
         }
     }
 
@@ -294,7 +294,7 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
         {
             if (_disposed) return;
             _disposed = true;
-            _connection?.Dispose();
+            _shared?.Dispose();
         }
     }
 

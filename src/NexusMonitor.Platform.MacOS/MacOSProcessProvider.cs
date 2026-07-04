@@ -1,8 +1,8 @@
 ﻿using System.Diagnostics;
-using System.Reactive.Linq;
 using System.Runtime.InteropServices;
 using NexusMonitor.Core.Abstractions;
 using NexusMonitor.Core.Models;
+using NexusMonitor.Core.Reactive;
 
 namespace NexusMonitor.Platform.MacOS;
 
@@ -74,11 +74,13 @@ public sealed class MacOSProcessProvider : IProcessProvider, IDisposable
         public int   pti_priority;
     }
 
-    // Shared multicast observable
-    private IObservable<IReadOnlyList<ProcessInfo>>? _shared;
+    // Shared multicast observable. SelfHealingSharedStream wraps the timer+Publish() pattern
+    // with RetryWithBackoff so a faulted Snapshot() call is logged and the timer is
+    // recreated after a short backoff instead of permanently killing the multicast for
+    // every subscriber.
+    private SelfHealingSharedStream<IReadOnlyList<ProcessInfo>>? _shared;
     private TimeSpan _sharedInterval;
     private readonly object _sharedLock = new();
-    private IDisposable? _connection;
 
     // ── Streaming ──────────────────────────────────────────────────────────────
     public IObservable<IReadOnlyList<ProcessInfo>> GetProcessStream(TimeSpan interval)
@@ -90,19 +92,17 @@ public sealed class MacOSProcessProvider : IProcessProvider, IDisposable
             // Invalidate cached observable when interval changes
             if (_shared is not null && _sharedInterval != clampedInterval)
             {
-                _connection?.Dispose();
+                _shared.Dispose();
                 _shared = null;
             }
             if (_shared is null)
             {
                 _sharedInterval = clampedInterval;
-                var connectable = Observable.Timer(TimeSpan.Zero, clampedInterval)
-                                            .Select(_ => (IReadOnlyList<ProcessInfo>)Snapshot())
-                                            .Publish();
-                _shared     = connectable;
-                _connection = connectable.Connect();
+                _shared = new SelfHealingSharedStream<IReadOnlyList<ProcessInfo>>(
+                    Snapshot, clampedInterval,
+                    initialBackoff: TimeSpan.FromSeconds(1), maxBackoff: TimeSpan.FromSeconds(30));
             }
-            return _shared;
+            return _shared.Stream;
         }
     }
 
@@ -422,7 +422,7 @@ public sealed class MacOSProcessProvider : IProcessProvider, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        lock (_sharedLock) { _connection?.Dispose(); }
+        lock (_sharedLock) { _shared?.Dispose(); }
         _cpuSamples.Clear();
         if (_taskInfoPtr != IntPtr.Zero)
             Marshal.FreeHGlobal(_taskInfoPtr);
