@@ -21,8 +21,8 @@ public class PageLayoutEngineCompactTests
 
         var compacted = PageLayoutEngine.Compact(page);
 
-        Assert.Equal(new GridRect(0, 0, 4, 2), compacted.FindWidget(IdA)!.Rect);
-        Assert.Equal(new GridRect(4, 0, 4, 1), compacted.FindWidget(IdB)!.Rect); // different columns → row 0 too
+        compacted.FindWidget(IdA)!.Rect.Should().Be(new GridRect(0, 0, 4, 2));
+        compacted.FindWidget(IdB)!.Rect.Should().Be(new GridRect(4, 0, 4, 1)); // different columns → row 0 too
     }
 
     [Fact]
@@ -36,8 +36,8 @@ public class PageLayoutEngineCompactTests
 
         var compacted = PageLayoutEngine.Compact(page);
 
-        Assert.Equal(new GridRect(0, 0, 4, 2), compacted.FindWidget(IdA)!.Rect);
-        Assert.Equal(new GridRect(0, 2, 4, 2), compacted.FindWidget(IdB)!.Rect);
+        compacted.FindWidget(IdA)!.Rect.Should().Be(new GridRect(0, 0, 4, 2));
+        compacted.FindWidget(IdB)!.Rect.Should().Be(new GridRect(0, 2, 4, 2));
     }
 
     [Fact]
@@ -52,8 +52,8 @@ public class PageLayoutEngineCompactTests
 
         var compacted = PageLayoutEngine.Compact(page);
 
-        Assert.Equal(page.FindWidget(IdA)!.Rect, compacted.FindWidget(IdA)!.Rect);
-        Assert.Equal(page.FindWidget(IdB)!.Rect, compacted.FindWidget(IdB)!.Rect);
-        Assert.Equal(page.FindWidget(IdC)!.Rect, compacted.FindWidget(IdC)!.Rect);
+        compacted.FindWidget(IdA)!.Rect.Should().Be(page.FindWidget(IdA)!.Rect);
+        compacted.FindWidget(IdB)!.Rect.Should().Be(page.FindWidget(IdB)!.Rect);
+        compacted.FindWidget(IdC)!.Rect.Should().Be(page.FindWidget(IdC)!.Rect);
     }
 }
