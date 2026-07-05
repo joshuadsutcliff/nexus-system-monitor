@@ -1173,8 +1173,17 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     [RelayCommand]
     private void SaveCurrentWorkspaceProfile()
     {
-        var name = NewWorkspaceProfileName?.Trim();
-        if (string.IsNullOrWhiteSpace(name)) return;
+        var typedName = NewWorkspaceProfileName?.Trim();
+        if (string.IsNullOrWhiteSpace(typedName)) return;
+
+        // A typed name that collides case-insensitively with an existing profile must UPDATE that
+        // profile in place, not silently clobber its file while the UI treats them as distinct
+        // (profile files live on case-insensitive filesystems, so "test" and "Test" are the same
+        // file on disk). Reusing the EXISTING stored casing keeps WorkspaceProfileStore.Save
+        // targeting the same file and keeps the in-memory list at a single entry.
+        var existingMatch = _profileStore.ListProfiles()
+            .FirstOrDefault(p => string.Equals(p, typedName, StringComparison.OrdinalIgnoreCase));
+        var name = existingMatch ?? typedName;
 
         var snapshot = new ThemeSnapshot(
             ThemeMode:           _themeModeValues[Math.Clamp(ThemeModeIndex, 0, _themeModeValues.Length - 1)],
@@ -1204,9 +1213,9 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
 
         // Save() is debounced (250 ms) — a disk rescan here would race the pending write and miss
         // the new profile. Add it to the in-memory list directly instead of re-scanning.
-        // Case-insensitive: on case-insensitive filesystems, Save() above already clobbered an
-        // existing "Test.json" if the user typed "test" — comparing Ordinal here would then insert
-        // a second, misleading "test" row alongside "Test" even though only one file exists on disk.
+        // Case-insensitive: when existingMatch is set, `name` is already that exact stored casing,
+        // so this Contains is true and correctly skips inserting a second, misleading row — the
+        // update case must never grow the list past its existing single entry for this profile.
         if (!WorkspaceProfileNames.Contains(name, StringComparer.OrdinalIgnoreCase))
         {
             var insertAt = 0;
@@ -1216,6 +1225,18 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
             WorkspaceProfileNames.Insert(insertAt, name);
             OnPropertyChanged(nameof(CanDeleteSelectedWorkspaceProfile));
         }
+
+        _notificationService?.Show(existingMatch is not null
+            ? new InAppNotification(
+                Title:       "Profile Updated",
+                Body:        $"Updated profile '{name}'.",
+                Severity:    InAppSeverity.Info,
+                AutoDismiss: TimeSpan.FromSeconds(5))
+            : new InAppNotification(
+                Title:       "Profile Saved",
+                Body:        $"Saved profile '{name}'.",
+                Severity:    InAppSeverity.Info,
+                AutoDismiss: TimeSpan.FromSeconds(5)));
     }
 
     [RelayCommand]
