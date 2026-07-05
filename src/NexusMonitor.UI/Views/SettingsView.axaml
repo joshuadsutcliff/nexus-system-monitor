@@ -1469,7 +1469,7 @@
           </Button>
         </Grid>
 
-        <!-- Export / Import (stubbed — wired in Task 5) -->
+        <!-- Export / Import -->
         <StackPanel Orientation="Horizontal" Spacing="8">
           <Button Classes="nx-btn" Padding="8,5" Command="{Binding ExportWorkspaceProfileCommand}">
             <TextBlock Text="Export…" FontSize="{DynamicResource NxFont11}"/>

@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media;
 using Avalonia.Platform;
+using Avalonia.Platform.Storage;
 using Avalonia.Styling;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -16,6 +17,7 @@ using NexusMonitor.Core.Services;
 using NexusMonitor.Core.Storage;
 using System.Collections.ObjectModel;
 using System.Reactive.Linq;
+using System.Text;
 using NexusMonitor.Core.Telemetry;
 using NexusMonitor.Core.Themes;
 using NexusMonitor.UI.Messages;
@@ -39,6 +41,7 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     private readonly HealthSnapshotPersistenceService?       _healthSnapshotService;
     private readonly EventMonitorService?                    _eventMonitorService;
     private readonly UpdateCheckService?                     _updateCheckService;
+    private readonly IInAppNotificationService?              _notificationService;
     private IDisposable?                                     _updateSubscription;
 
     // ── Saved Process Preferences ────────────────────────────────────────────
@@ -320,7 +323,8 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         ProcessPreferenceStore?                 preferenceStore = null,
         HealthSnapshotPersistenceService?       healthSnapshotService = null,
         EventMonitorService?                    eventMonitorService = null,
-        UpdateCheckService?                     updateCheckService = null)
+        UpdateCheckService?                     updateCheckService = null,
+        IInAppNotificationService?               notificationService = null)
     {
         Title             = "Settings";
         _settings         = settings;
@@ -336,6 +340,7 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         _healthSnapshotService = healthSnapshotService;
         _eventMonitorService   = eventMonitorService;
         _updateCheckService    = updateCheckService;
+        _notificationService   = notificationService;
 
         // Load saved preferences
         if (preferenceStore is not null)
@@ -1215,25 +1220,200 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         RefreshWorkspaceProfileNames(); // Delete() is synchronous — safe to rescan immediately
     }
 
-    // ── Workspace profile export / import — stubs (Task 5 wires these) ────────
+    // ── Workspace profile export / import ──────────────────────────────────────
 
+    /// <summary>Exports the selected profile as-is (full pages + theme) to a user-chosen
+    /// <c>.nexusprofile</c> file. No-op when nothing is selected or the selection no longer
+    /// resolves to a saved profile.</summary>
     [RelayCommand]
-    private void ExportWorkspaceProfile()
+    private async Task ExportWorkspaceProfile()
     {
-        // Task 5
+        if (_selectedWorkspaceProfileName is not { } name) return;
+
+        // Load() (not the in-memory name list) so a still-debouncing Save for this exact
+        // profile is read rather than a stale on-disk copy — same read-your-own-writes
+        // guarantee SwitchWorkspaceProfile relies on.
+        var profile = _profileStore.Load(name);
+        if (profile is null) return;
+
+        await ExportProfileToFileAsync(profile, profile.Name);
     }
 
+    /// <summary>Exports a theme-only bundle derived from the selected profile: same name suffixed
+    /// " (theme)", an EMPTY Pages dictionary, and the source's ThemeRef (+ empty PopOutStates).
+    /// Documented convention: importing/switching to a pages-empty profile leaves the current
+    /// dashboard layout untouched and applies only the appearance.</summary>
     [RelayCommand]
-    private void ExportThemeOnlyProfile()
+    private async Task ExportThemeOnlyProfile()
     {
-        // Task 5
+        if (_selectedWorkspaceProfileName is not { } name) return;
+
+        var source = _profileStore.Load(name);
+        if (source is null) return;
+
+        var themeOnly = new WorkspaceProfile(
+            $"{source.Name} (theme)",
+            new Dictionary<string, PageLayout>(),
+            source.Theme,
+            Array.Empty<PopOutState>());
+
+        await ExportProfileToFileAsync(themeOnly, themeOnly.Name);
     }
 
-    [RelayCommand]
-    private void ImportWorkspaceProfile()
+    /// <summary>Shared Save-dialog + write path for both export commands. Every step from
+    /// resolving the main window's <see cref="IStorageProvider"/> through the picker result is a
+    /// silent no-op on null/failure — headless hosts or a user-cancelled dialog never throw.</summary>
+    private static async Task ExportProfileToFileAsync(WorkspaceProfile profile, string suggestedName)
     {
-        // Task 5
+        var sp = GetStorageProvider();
+        if (sp is null) return;
+
+        IStorageFile? file;
+        try
+        {
+            file = await sp.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title             = "Export Workspace Profile",
+                SuggestedFileName = $"{suggestedName}.nexusprofile",
+                DefaultExtension  = "nexusprofile",
+                FileTypeChoices   =
+                [
+                    new FilePickerFileType("Nexus Profile") { Patterns = ["*.nexusprofile"] },
+                    new FilePickerFileType("All Files")     { Patterns = ["*.*"] },
+                ],
+            });
+        }
+        catch (Exception) { return; } // platform has no file-dialog support — nothing to recover
+
+        if (file is null) return; // user cancelled
+
+        await using var stream = await file.OpenWriteAsync();
+        await using var writer = new StreamWriter(stream, Encoding.UTF8);
+        await writer.WriteAsync(WorkspaceProfileSerializer.Serialize(profile));
     }
+
+    /// <summary>Opens a file picker, reads the chosen <c>.nexusprofile</c>/<c>.json</c> file, and
+    /// imports it as a NEW profile (never overwrites, never activates — the user switches
+    /// explicitly via the profile picker). On any failure (unreadable file, malformed/hostile
+    /// JSON, invalid schema version) the error is toasted via <see cref="IInAppNotificationService"/>
+    /// instead of throwing.</summary>
+    [RelayCommand]
+    private async Task ImportWorkspaceProfile()
+    {
+        var sp = GetStorageProvider();
+        if (sp is null) return;
+
+        IReadOnlyList<IStorageFile> files;
+        try
+        {
+            files = await sp.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title          = "Import Workspace Profile",
+                AllowMultiple  = false,
+                FileTypeFilter =
+                [
+                    new FilePickerFileType("Nexus Profile") { Patterns = ["*.nexusprofile", "*.json"] },
+                    new FilePickerFileType("All Files")     { Patterns = ["*.*"] },
+                ],
+            });
+        }
+        catch (Exception) { return; } // platform has no file-dialog support
+
+        if (files.Count == 0) return; // user cancelled
+
+        string json;
+        try
+        {
+            await using var stream = await files[0].OpenReadAsync();
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+            json = await reader.ReadToEndAsync();
+        }
+        catch (Exception ex)
+        {
+            ToastImportError($"Could not read profile file: {ex.Message}");
+            return;
+        }
+
+        if (!WorkspaceProfileSerializer.TryDeserialize(json, out var profile, out var error) || profile is null)
+        {
+            ToastImportError(error ?? "The selected file is not a valid workspace profile.");
+            return;
+        }
+
+        // Imported names are untrusted (arbitrary file content): sanitize BEFORE dedupe, since
+        // WorkspaceProfileStore.Save throws ArgumentException on anything outside [A-Za-z0-9 _-].
+        var sanitizedName = SanitizeProfileName(profile.Name);
+        var finalName = DedupeProfileName(sanitizedName, _profileStore.ListProfiles());
+
+        var imported = profile with { Name = finalName };
+        try { _profileStore.Save(imported); }
+        catch (ArgumentException ex)
+        {
+            ToastImportError($"Could not import profile: {ex.Message}");
+            return;
+        }
+
+        // Save() is debounced (250 ms) — a disk rescan here would race the pending write and miss
+        // the new profile. Mirror SaveCurrentWorkspaceProfile's in-memory insert instead.
+        if (!WorkspaceProfileNames.Contains(finalName, StringComparer.Ordinal))
+        {
+            var insertAt = 0;
+            while (insertAt < WorkspaceProfileNames.Count &&
+                   string.CompareOrdinal(WorkspaceProfileNames[insertAt], finalName) < 0)
+                insertAt++;
+            WorkspaceProfileNames.Insert(insertAt, finalName);
+            OnPropertyChanged(nameof(CanDeleteSelectedWorkspaceProfile));
+        }
+        // NEVER auto-activate — imported profile sits alongside existing ones until the user
+        // explicitly selects it in the profile picker.
+    }
+
+    /// <summary>Pushes an import-failure toast via the in-app notification channel (same pattern as
+    /// the update-checker's "Update Available" toast in App.axaml.cs). A no-op when the service
+    /// wasn't injected (e.g. a lightweight test host) rather than throwing.</summary>
+    private void ToastImportError(string message) =>
+        _notificationService?.Show(new InAppNotification(
+            Title:       "Profile Import Failed",
+            Body:        message,
+            Severity:    InAppSeverity.Warning,
+            AutoDismiss: TimeSpan.FromSeconds(6)));
+
+    /// <summary>Replaces any character outside <c>[A-Za-z0-9 _-]</c> — the exact charset
+    /// <see cref="WorkspaceProfileStore.Save"/> enforces — with '-'. Imported profile names come
+    /// from arbitrary file content and must never reach the store un-sanitized. Falls back to
+    /// "Imported Profile" when nothing but disallowed/whitespace characters remain.</summary>
+    private static string SanitizeProfileName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "Imported Profile";
+
+        var sanitized = new string(name.Select(c =>
+            (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c is ' ' or '_' or '-'
+                ? c
+                : '-').ToArray()).Trim();
+
+        return string.IsNullOrWhiteSpace(sanitized) ? "Imported Profile" : sanitized;
+    }
+
+    /// <summary>Appends " (2)", " (3)"… until the candidate name is absent from
+    /// <paramref name="existing"/> — import-as-new never overwrites a saved profile.</summary>
+    private static string DedupeProfileName(string name, IReadOnlyList<string> existing)
+    {
+        if (!existing.Contains(name, StringComparer.Ordinal)) return name;
+
+        var n = 2;
+        string candidate;
+        do { candidate = $"{name} ({n++})"; }
+        while (existing.Contains(candidate, StringComparer.Ordinal));
+        return candidate;
+    }
+
+    /// <summary>Resolves the main window's <see cref="IStorageProvider"/> for file dialogs —
+    /// codebase idiom shared with ProcessesViewModel.CreateDumpFile: the desktop lifetime's
+    /// MainWindow, not a View-supplied TopLevel (SettingsViewModel has no control reference).
+    /// Null on non-desktop lifetimes or before the main window exists (e.g. headless test hosts).</summary>
+    private static IStorageProvider? GetStorageProvider() =>
+        (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)
+            ?.MainWindow?.StorageProvider;
 
     // ── Static resource helpers ───────────────────────────────────────────────
     //   Write directly into Application.Current.Resources so every
