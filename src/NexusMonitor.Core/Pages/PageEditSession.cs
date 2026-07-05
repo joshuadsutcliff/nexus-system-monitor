@@ -37,7 +37,7 @@ public sealed class PageEditSession
         Apply(PageLayoutEngine.PlaceWidget(Current, widget));
 
     /// <summary>Closes vertical gaps (engine Compact).</summary>
-    public void CompactPage() => Apply(PageLayoutEngine.Compact(Current));
+    public void CompactPage() => Apply(PageLayoutEngine.Compact(Current)); // Unwired in Phase 3 (no toolbar affordance yet); Phase 4 wires or tests it.
 
     /// <summary>Reverts the most recent edit.</summary>
     public void Undo()

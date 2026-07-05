@@ -18,4 +18,4 @@ public record MetricsEnabledChangedMessage(bool Enabled);
 public record WindowVisibilityChangedMessage(bool IsVisible);
 
 /// <summary>Broadcast when the Dashboard page enters/leaves edit mode (page engine).</summary>
-public record PageEditModeChangedMessage(bool IsEditMode);
+public record PageEditModeChangedMessage(bool IsEditMode); // No consumers yet by design: Phase 4 registers this to lock tab navigation during edits.
