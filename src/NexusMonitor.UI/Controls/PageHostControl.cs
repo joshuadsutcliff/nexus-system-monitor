@@ -39,6 +39,9 @@ public sealed class PageHostControl : Panel
 
     private void RebuildChildren()
     {
+        // INVARIANT: a widget's Dispose may release only widget-owned resources — NEVER its
+        // bound VM. Widgets bind shared singleton VMs (card VMs, HealthTrendsViewModel);
+        // disposing those from a rebuild would corrupt live state app-wide.
         foreach (var child in Children)
             (child as IDisposable)?.Dispose();
         Children.Clear();
