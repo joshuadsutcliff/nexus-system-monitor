@@ -124,8 +124,11 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
     // ── Page engine editing (Phase 3) ──────────────────────────────────────
     private PageEditSession? _editSession;
 
+    /// <summary>True while the Dashboard page is in edit mode.</summary>
     [ObservableProperty] private bool _isEditMode;
+    /// <summary>True while the add-widget gallery overlay is open.</summary>
     [ObservableProperty] private bool _isGalleryOpen;
+    /// <summary>True when the edit session has an undoable step.</summary>
     [ObservableProperty] private bool _canUndoEdit;
 
     /// <summary>Enters edit mode over the current page.</summary>
