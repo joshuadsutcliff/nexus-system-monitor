@@ -52,7 +52,10 @@ public sealed class WorkspaceProfileStore : IDisposable
     }
 
     /// <summary>The currently active profile's name, read from the `active-profile` pointer file.
-    /// Falls back to "Default" when no pointer file exists or it cannot be read.</summary>
+    /// Falls back to "Default" when no pointer file exists, it cannot be read, or its content
+    /// fails the same <c>[A-Za-z0-9 _-]</c> validation <see cref="Save"/>/<see cref="SetActive"/>/
+    /// <see cref="Delete"/> enforce on write — a tampered pointer (e.g. a path-traversal payload)
+    /// is treated exactly like a missing pointer file rather than propagated to <see cref="Load"/>.</summary>
     public string ActiveProfileName
     {
         get
@@ -63,7 +66,7 @@ public sealed class WorkspaceProfileStore : IDisposable
                 if (File.Exists(pointerPath))
                 {
                     var name = File.ReadAllText(pointerPath).Trim();
-                    if (!string.IsNullOrWhiteSpace(name)) return name;
+                    if (!string.IsNullOrWhiteSpace(name) && ValidNamePattern.IsMatch(name)) return name;
                 }
             }
             catch (Exception) { /* fall through to the default — never throw from a property getter */ }
@@ -77,11 +80,17 @@ public sealed class WorkspaceProfileStore : IDisposable
     /// pop-out states.</summary>
     public WorkspaceProfile LoadActive() => Load(ActiveProfileName) ?? FactoryDefault();
 
-    /// <summary>Loads the named profile, or null when no file exists or it is corrupt. A corrupt
-    /// file is renamed to .bak and never thrown from — callers should treat null the same as
-    /// "not found".</summary>
+    /// <summary>Loads the named profile, or null when no file exists, the name is invalid, or the
+    /// file is corrupt. A name failing the same <c>[A-Za-z0-9 _-]</c> validation <see cref="Save"/>/
+    /// <see cref="SetActive"/>/<see cref="Delete"/> enforce (e.g. a path-traversal payload reaching
+    /// here via a tampered <see cref="ActiveProfileName"/> pointer) returns null immediately without
+    /// touching the file system — a tampered name must never crash or corrupt-rename something
+    /// outside the profiles directory. A corrupt (but validly-named) file is renamed to .bak and
+    /// never thrown from — callers should treat null the same as "not found" in both cases.</summary>
     public WorkspaceProfile? Load(string name)
     {
+        if (string.IsNullOrWhiteSpace(name) || !ValidNamePattern.IsMatch(name)) return null;
+
         var path = PathFor(name);
         try
         {
@@ -149,6 +158,21 @@ public sealed class WorkspaceProfileStore : IDisposable
         var legacyPath = Path.Combine(_legacyPagesDir, LegacyDashboardFileName);
         if (!File.Exists(legacyPath)) return false;
 
+        // NOTE: save -> rename -> SetActive is not atomic. A failure partway through leaves
+        // partial effects on disk but still returns false (caught below), which looks like
+        // "migration didn't happen" even though it partly did. This is accepted rather than
+        // redesigned because every partial outcome self-heals on the next call/launch:
+        //  - SaveSynchronously throws before the profile file lands: nothing changed (the
+        //    legacy file is untouched), so the next call retries the whole migration.
+        //  - SaveSynchronously succeeds but the rename or SetActive throws after it: the
+        //    "Default" profile file now exists, so ListProfiles().Count > 0 makes the next
+        //    call's guard (above) no-op immediately rather than retry — but that is still
+        //    consistent state, not a stuck/broken one: ActiveProfileName already falls back
+        //    to "Default" whenever the pointer file is missing or invalid, which is exactly
+        //    what SetActive(DefaultProfileName) would have written, so LoadActive() resolves
+        //    to the same profile either way. The only visible residue is the legacy file not
+        //    being renamed to .migrated when the rename step itself is what failed — harmless
+        //    clutter, not a correctness problem.
         try
         {
             var json = File.ReadAllText(legacyPath);

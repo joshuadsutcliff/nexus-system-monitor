@@ -226,4 +226,68 @@ public sealed class WorkspaceProfileStoreTests : IDisposable
         using var third = new WorkspaceProfileStore(_dir);
         third.ListProfiles().Should().Equal("Alpha", "Zeta");
     }
+
+    [Fact]
+    public void Load_TraversalName_ReturnsNull_AndTouchesNothing()
+    {
+        // The store's directory is a subdirectory of _dir; "../decoy" resolves to a file
+        // living directly under _dir — a stand-in for anything outside the profiles dir
+        // that an attacker-controlled name could otherwise reach.
+        var storeDir = Path.Combine(_dir, "store");
+        Directory.CreateDirectory(storeDir);
+        var decoyPath = Path.Combine(_dir, "decoy.json");
+        File.WriteAllText(decoyPath, "not json {{{");
+
+        using var store = new WorkspaceProfileStore(storeDir);
+        var profile = store.Load("../decoy");
+
+        profile.Should().BeNull();
+        // The real proof: pre-fix, Load's corrupt-file branch renames whatever the
+        // traversal resolved to onto ".bak" — an attacker-chosen rename outside the
+        // store directory. Post-fix, an invalid name must never touch the file system.
+        File.Exists(decoyPath).Should().BeTrue();
+        File.Exists(decoyPath + ".bak").Should().BeFalse();
+    }
+
+    [Fact]
+    public void ActiveProfileName_TamperedPointer_FallsBackToDefault()
+    {
+        var storeDir = Path.Combine(_dir, "store");
+        Directory.CreateDirectory(storeDir);
+        File.WriteAllText(Path.Combine(storeDir, "active-profile"), "../evil");
+
+        // Stand-in for a file living outside the store dir that a traversal name inside
+        // the pointer could otherwise reach via Load.
+        var decoyPath = Path.Combine(_dir, "evil.json");
+        File.WriteAllText(decoyPath, "not json {{{");
+
+        using var store = new WorkspaceProfileStore(storeDir);
+
+        store.ActiveProfileName.Should().Be("Default");
+
+        var loaded = store.LoadActive();
+        loaded.Name.Should().Be("Default");
+        loaded.Pages.Keys.Should().BeEquivalentTo(BuiltInPageLayouts.BuiltInPageIds);
+        loaded.Theme.PresetId.Should().BeNull();
+        loaded.Theme.Snapshot.Should().BeNull();
+
+        File.Exists(decoyPath).Should().BeTrue();
+        File.Exists(decoyPath + ".bak").Should().BeFalse();
+    }
+
+    [Fact]
+    public void MigrateLegacy_CorruptLegacyJson_ReturnsFalse_LeavesFileUntouched()
+    {
+        Directory.CreateDirectory(_legacyDir);
+        var legacyPath = Path.Combine(_legacyDir, "dashboard.json");
+        File.WriteAllText(legacyPath, "not json {{{");
+
+        using var store = new WorkspaceProfileStore(_dir, _legacyDir);
+        var migrated = store.MigrateLegacyIfNeeded();
+
+        migrated.Should().BeFalse();
+        File.Exists(legacyPath).Should().BeTrue();
+        File.Exists(legacyPath + ".migrated").Should().BeFalse();
+        store.ListProfiles().Should().BeEmpty();
+    }
 }
