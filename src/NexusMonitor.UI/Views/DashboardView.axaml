@@ -7,6 +7,7 @@
              x:DataType="vm:DashboardViewModel"
              x:CompileBindings="False">
 
+  <Panel>
   <DockPanel>
 
     <!-- ══ Header ══════════════════════════════════════════════════════════ -->
@@ -666,5 +667,11 @@
     </Grid>
 
   </DockPanel>
+
+  <!-- ═ Add-widget gallery overlay ═══════════════════════════════════════ -->
+  <!-- Spans the whole view. Visibility is driven by DashboardViewModel.IsGalleryOpen. -->
+  <controls:WidgetGalleryControl/>
+
+  </Panel>
 
 </UserControl>
