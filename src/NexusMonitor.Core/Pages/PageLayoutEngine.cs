@@ -46,6 +46,30 @@ public static class PageLayoutEngine
             ? page
             : page.WithWidgets(page.Widgets.Where(w => w.InstanceId != instanceId).ToList());
 
+    /// <summary>Closes vertical gaps: in (Row, Col) order, each widget moves up to the lowest
+    /// row where it fits without overlapping already-settled widgets.</summary>
+    public static PageLayout Compact(PageLayout page)
+    {
+        var settled = new List<WidgetInstance>();
+        foreach (var w in page.Widgets.OrderBy(x => x.Rect.Row).ThenBy(x => x.Rect.Col))
+        {
+            var row = 0;
+            while (true)
+            {
+                var candidate = w.Rect with { Row = row };
+                if (!settled.Any(s => s.Rect.Intersects(candidate)))
+                {
+                    settled.Add(w with { Rect = candidate });
+                    break;
+                }
+                row++;
+            }
+        }
+        // Preserve original list order (stable for serialization diffs).
+        var byId = settled.ToDictionary(s => s.InstanceId);
+        return page.WithWidgets(page.Widgets.Select(w => byId[w.InstanceId]).ToList());
+    }
+
     /// <summary>Push-down resolution: while any widget overlaps the pinned/settled set, move the
     /// topmost-leftmost offender down to just below whatever it overlaps. Deterministic and terminating
     /// (rows only ever increase; the grid is unbounded downward).</summary>
