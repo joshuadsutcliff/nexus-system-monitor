@@ -1422,6 +1422,12 @@
       </StackPanel>
     </Border>
 
+    <!-- Experimental -->
+    <TextBlock Text="Experimental" FontSize="{DynamicResource NxFont14}" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,16,0,4"/>
+    <CheckBox IsChecked="{Binding EnablePageEngine}"
+              Content="Enable page engine — Dashboard renders via the new layout engine (takes effect after restart)"
+              FontSize="{DynamicResource NxFont12}"/>
+
     <!-- ===== ABOUT ===== -->
     <Border Padding="16"
             Background="{DynamicResource BgElevatedBrush}"

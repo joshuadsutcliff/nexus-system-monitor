@@ -204,6 +204,9 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     // ── Metrics & History ─────────────────────────────────────────────────────
     [ObservableProperty] private bool _metricsEnabled;
 
+    // ── Page Engine ───────────────────────────────────────────────────────────
+    [ObservableProperty] private bool _enablePageEngine;
+
     // ── Anomaly Detection ─────────────────────────────────────────────────────
     [ObservableProperty] private bool    _anomalyDetectionEnabled;
     [ObservableProperty] private string  _anomalySensitivity = "Medium";
@@ -389,6 +392,9 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
 
         // ── Metrics & History ─────────────────────────────────────────────────
         _metricsEnabled = settings.Current.MetricsEnabled;
+
+        // ── Page Engine ───────────────────────────────────────────────────────
+        _enablePageEngine = settings.Current.EnablePageEngine;
 
         // ── Anomaly Detection ─────────────────────────────────────────────────
         _anomalyDetectionEnabled     = settings.Current.AnomalyDetectionEnabled;
@@ -750,6 +756,12 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
             _predictionService?.Stop();
         }
         WeakReferenceMessenger.Default.Send(new MetricsEnabledChangedMessage(value));
+    }
+
+    partial void OnEnablePageEngineChanged(bool value)
+    {
+        _settings.Current.EnablePageEngine = value;
+        _settings.Save();
     }
 
     partial void OnAnomalyDetectionEnabledChanged(bool value)

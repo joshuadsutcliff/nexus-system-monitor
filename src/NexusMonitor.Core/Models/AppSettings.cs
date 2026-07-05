@@ -159,6 +159,10 @@ public class AppSettings
     /// <summary>When true, UpdateCheckService periodically polls GitHub for newer releases. Never auto-downloads/installs.</summary>
     public bool CheckForUpdates { get; set; } = true;
 
+    // Page Engine (Phase 2)
+    /// <summary>Renders the Dashboard through the page engine (Phase 2, experimental). Read at startup; takes effect after restart.</summary>
+    public bool EnablePageEngine { get; set; } = false;
+
     // ── Session persistence ─────────────────────────────────────────────────────
     public string LastActiveTab    { get; set; } = string.Empty;
     public double LastWindowWidth  { get; set; } = 0;
