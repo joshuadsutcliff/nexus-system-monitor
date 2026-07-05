@@ -1,0 +1,50 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:NexusMonitor.UI.ViewModels"
+             x:Class="NexusMonitor.UI.Widgets.HealthScoreWidget"
+             x:DataType="vm:DashboardViewModel"
+             x:CompileBindings="False">
+
+  <Border Padding="24,20"
+          HorizontalAlignment="Stretch"
+          VerticalAlignment="Stretch"
+          Background="{DynamicResource BgElevatedBrush}"
+          BorderBrush="{DynamicResource GlassBorderBrush}"
+          BorderThickness="1"
+          CornerRadius="{StaticResource CornerLG}">
+    <Grid ColumnDefinitions="Auto,*">
+
+      <!-- Health score panel -->
+      <Border Grid.Column="0" Width="120" Height="120" Margin="0,0,24,0"
+              CornerRadius="60"
+              BorderBrush="{Binding HealthRingBrush}"
+              BorderThickness="6"
+              Background="{DynamicResource BgPrimaryBrush}">
+        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="2">
+          <TextBlock Text="{Binding OverallScore, StringFormat={}{0:F0}}"
+                     FontSize="{DynamicResource NxFont28}" FontWeight="Bold"
+                     Foreground="{Binding HealthRingBrush}"
+                     HorizontalAlignment="Center"/>
+          <TextBlock Text="{Binding TrendArrow}"
+                     FontSize="{DynamicResource NxFont16}"
+                     Foreground="{DynamicResource TextSecondaryBrush}"
+                     HorizontalAlignment="Center"/>
+        </StackPanel>
+      </Border>
+
+      <!-- Health label + description -->
+      <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="8">
+        <TextBlock Text="{Binding OverallLabel}"
+                   FontSize="{DynamicResource NxFont24}" FontWeight="Bold"
+                   Foreground="{Binding HealthRingBrush}"/>
+        <TextBlock Text="{Binding OverallDescription}"
+                   FontSize="{DynamicResource NxFont14}"
+                   Foreground="{DynamicResource TextSecondaryBrush}"
+                   TextWrapping="Wrap"/>
+        <TextBlock Text="{Binding AutomationStatus}"
+                   FontSize="{DynamicResource NxFont12}"
+                   Foreground="{DynamicResource TextTertiaryBrush}"/>
+      </StackPanel>
+    </Grid>
+  </Border>
+</UserControl>
