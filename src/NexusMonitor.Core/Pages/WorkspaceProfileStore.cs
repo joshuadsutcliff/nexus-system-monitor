@@ -77,7 +77,8 @@ public sealed class WorkspaceProfileStore : IDisposable
     /// <summary>Loads the active profile (per <see cref="ActiveProfileName"/>), falling back to a
     /// factory default when nothing is saved under that name: all <see cref="BuiltInPageLayouts"/>
     /// pages plus a neutral <see cref="ThemeRef"/> (PresetId null — "leave appearance as-is") and no
-    /// pop-out states.</summary>
+    /// pop-out states. Delegates to <see cref="Load"/>, so it inherits the same read-your-own-writes
+    /// guarantee against a still-debouncing <see cref="Save"/> for the active profile.</summary>
     public WorkspaceProfile LoadActive() => Load(ActiveProfileName) ?? FactoryDefault();
 
     /// <summary>Loads the named profile, or null when no file exists, the name is invalid, or the
@@ -86,10 +87,20 @@ public sealed class WorkspaceProfileStore : IDisposable
     /// here via a tampered <see cref="ActiveProfileName"/> pointer) returns null immediately without
     /// touching the file system — a tampered name must never crash or corrupt-rename something
     /// outside the profiles directory. A corrupt (but validly-named) file is renamed to .bak and
-    /// never thrown from — callers should treat null the same as "not found" in both cases.</summary>
+    /// never thrown from — callers should treat null the same as "not found" in both cases.
+    /// Read-your-own-writes: if a <see cref="Save"/> for this same name is still sitting in the
+    /// 250 ms debounce window (not yet flushed to disk), that pending profile is returned directly
+    /// instead of racing the flush — without this, a read landing inside the debounce window would
+    /// silently observe the stale pre-save file.</summary>
     public WorkspaceProfile? Load(string name)
     {
         if (string.IsNullOrWhiteSpace(name) || !ValidNamePattern.IsMatch(name)) return null;
+
+        lock (_lock)
+        {
+            if (_pending is not null && string.Equals(_pending.Name, name, StringComparison.Ordinal))
+                return _pending;
+        }
 
         var path = PathFor(name);
         try

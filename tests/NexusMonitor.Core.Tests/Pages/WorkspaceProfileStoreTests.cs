@@ -276,6 +276,49 @@ public sealed class WorkspaceProfileStoreTests : IDisposable
     }
 
     [Fact]
+    public void Load_WithinDebounceWindow_ReturnsPendingWrite()
+    {
+        var original = SampleProfile();
+        using (var seed = new WorkspaceProfileStore(_dir))
+        {
+            seed.Save(original);
+        } // Dispose flushes `original` to disk synchronously.
+
+        using var store = new WorkspaceProfileStore(_dir);
+        var modified = original with
+        {
+            Theme = original.Theme with { Snapshot = original.Theme.Snapshot! with { AccentColorHex = "#ABCDEF" } },
+        };
+
+        store.Save(modified); // Debounced (250ms) — disk still holds `original` right now.
+        var loaded = store.Load(modified.Name); // Read WITHIN the debounce window, no Dispose in between.
+
+        loaded.Should().NotBeNull();
+        WorkspaceProfileComparer.Instance.Equals(modified, loaded).Should().BeTrue();
+    }
+
+    [Fact]
+    public void LoadActive_WithinDebounceWindow_SeesPendingWrite()
+    {
+        var original = SampleProfile("Default"); // matches ActiveProfileName's no-pointer-file fallback.
+        using (var seed = new WorkspaceProfileStore(_dir))
+        {
+            seed.Save(original);
+        } // Dispose flushes `original` to disk synchronously.
+
+        using var store = new WorkspaceProfileStore(_dir);
+        var modified = original with
+        {
+            Theme = original.Theme with { Snapshot = original.Theme.Snapshot! with { AccentColorHex = "#123456" } },
+        };
+
+        store.Save(modified); // Debounced (250ms) — disk still holds `original` right now.
+        var loaded = store.LoadActive(); // ActiveProfileName falls back to "Default" — no pointer file needed.
+
+        WorkspaceProfileComparer.Instance.Equals(modified, loaded).Should().BeTrue();
+    }
+
+    [Fact]
     public void MigrateLegacy_CorruptLegacyJson_ReturnsFalse_LeavesFileUntouched()
     {
         Directory.CreateDirectory(_legacyDir);
