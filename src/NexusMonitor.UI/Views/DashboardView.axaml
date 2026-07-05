@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:NexusMonitor.UI.ViewModels"
              xmlns:views="using:NexusMonitor.UI.Views"
+             xmlns:controls="using:NexusMonitor.UI.Controls"
              x:Class="NexusMonitor.UI.Views.DashboardView"
              x:DataType="vm:DashboardViewModel"
              x:CompileBindings="False">
@@ -38,7 +39,7 @@
     </Border>
 
     <!-- ══ Content ══════════════════════════════════════════════════════════ -->
-    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <ScrollViewer IsVisible="{Binding !UsePageEngine}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
       <StackPanel Spacing="14" Margin="16">
 
         <!-- ── Overall Health Ring Card ─────────────────────────────────── -->
@@ -622,6 +623,14 @@
         <Border Height="16"/>
 
       </StackPanel>
+    </ScrollViewer>
+
+    <!-- ══ Content (page engine) ═══════════════════════════════════════════ -->
+    <ScrollViewer IsVisible="{Binding UsePageEngine}"
+                  HorizontalScrollBarVisibility="Disabled"
+                  VerticalScrollBarVisibility="Auto"
+                  Padding="20,0,20,20">
+      <controls:PageHostControl Page="{Binding EnginePage}"/>
     </ScrollViewer>
 
   </DockPanel>
