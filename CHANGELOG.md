@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Page engine (experimental, off by default): the Dashboard can render through the new
   grid layout engine (`Settings → Experimental → Enable page engine`). Phase 2 of the
   page-customization system — placeholder tiles now, real widgets and edit mode next.
+- Page engine edit mode (experimental): rearrange, resize, add, and remove Dashboard
+  widgets with drag-and-drop, undo, and persistent layouts (requires "Enable page engine").
 
 ## [0.5.2] - 2026-06-18
 
