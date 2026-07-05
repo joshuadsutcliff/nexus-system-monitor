@@ -18,4 +18,8 @@
       <_Parameter1>NexusMonitor.Core.Tests</_Parameter1>
     </AssemblyAttribute>
   </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Pages\Defaults\*.json" />
+  </ItemGroup>
 </Project>

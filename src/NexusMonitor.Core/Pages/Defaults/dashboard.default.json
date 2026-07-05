@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "page": {
+    "pageId": "dashboard",
+    "title": "Dashboard",
+    "iconKey": "icon.dashboard",
+    "gridColumns": 12,
+    "widgets": [
+      {
+        "instanceId": "0b5e0001-0000-4000-8000-000000000001",
+        "widgetTypeId": "nexus.widget.healthScore",
+        "rect": { "col": 0, "row": 0, "colSpan": 4, "rowSpan": 2 }
+      },
+      {
+        "instanceId": "0b5e0001-0000-4000-8000-000000000002",
+        "widgetTypeId": "nexus.widget.cpuChart",
+        "rect": { "col": 4, "row": 0, "colSpan": 8, "rowSpan": 2 }
+      },
+      {
+        "instanceId": "0b5e0001-0000-4000-8000-000000000003",
+        "widgetTypeId": "nexus.widget.memoryChart",
+        "rect": { "col": 0, "row": 2, "colSpan": 12, "rowSpan": 2 }
+      }
+    ]
+  }
+}
