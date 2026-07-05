@@ -18,6 +18,8 @@
 - Build/test commands on this machine (macOS, SDK not on PATH):
   `export DOTNET_ROOT=$HOME/.dotnet` then `/Users/josh/.dotnet/dotnet build NexusMonitor.sln -c Release` and `/Users/josh/.dotnet/dotnet test tests/NexusMonitor.Core.Tests -c Release --filter "FullyQualifiedName~<TestClass>"`.
 - In C#, TDD "red" for a not-yet-written type is a **compile error** (e.g. CS0246) — that counts as the failing state for "verify it fails" steps.
+- **Doc-comment ruling (review precedent, Tasks 1-2):** XML doc comments go on EVERY public member — methods, properties, and consts included — even where a brief's sample code omits them. Add a one-line `/// <summary>` when the sample lacks one.
+- **Test style ruling (owner decision, 2026-07-04):** the repo's test convention is FluentAssertions (`.Should()`), and it governs. The briefs' test code blocks are written with raw xUnit `Assert.*` — translate assertions to FluentAssertions idiom when writing the actual test files (structure, test names, and case values stay exactly as specified). Also: `using` directives go above the `namespace` declaration, matching existing test files.
 - Commit after every task (not every step) unless a step says otherwise; commit messages given per task.
 
 ---
