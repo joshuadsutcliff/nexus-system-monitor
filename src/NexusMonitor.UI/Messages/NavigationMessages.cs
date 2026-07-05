@@ -16,3 +16,6 @@ public record MetricsEnabledChangedMessage(bool Enabled);
 /// display-refresh subscriptions on <c>IsVisible = false</c> and resume on <c>true</c>.
 /// </summary>
 public record WindowVisibilityChangedMessage(bool IsVisible);
+
+/// <summary>Broadcast when the Dashboard page enters/leaves edit mode (page engine).</summary>
+public record PageEditModeChangedMessage(bool IsEditMode);
