@@ -1,0 +1,16 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:NexusMonitor.UI.ViewModels"
+             xmlns:views="using:NexusMonitor.UI.Views"
+             x:Class="NexusMonitor.UI.Widgets.HealthTrendsWidget"
+             x:DataType="vm:DashboardViewModel"
+             x:CompileBindings="False">
+
+  <!-- Thin wrapper: HealthTrendsView already carries its own card Border chrome
+       (Views/HealthTrendsView.axaml), so this widget hosts it exactly as the classic
+       embed does (DashboardView.axaml ~line 647) with no additional wrapping Border —
+       adding one would double the card chrome and break visual equivalence. -->
+  <views:HealthTrendsView DataContext="{Binding HealthTrendsViewModel}"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Stretch"/>
+</UserControl>
