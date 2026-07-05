@@ -1,4 +1,5 @@
 using FluentAssertions;
+using System.Linq;
 using System.Text.Json;
 using NexusMonitor.Core.Pages;
 using Xunit;
@@ -48,6 +49,18 @@ public class PageLayoutSerializerTests
 
         var config = JsonDocument.Parse(page!.Widgets[0].ConfigJson!);
         config.RootElement.GetProperty("someFutureKey").GetArrayLength().Should().Be(3);
+    }
+
+    /// <summary>GridRect's computed Right/Bottom properties must not leak into the wire format; the
+    /// serialized rect object must contain exactly the four persisted geometry keys.</summary>
+    [Fact]
+    public void SerializedRect_ContainsExactlyTheFourGeometryKeys()
+    {
+        using var doc = JsonDocument.Parse(PageLayoutSerializer.Serialize(SamplePage()));
+        var rect = doc.RootElement.GetProperty("page").GetProperty("widgets")[0].GetProperty("rect");
+
+        rect.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
+            "col", "row", "colSpan", "rowSpan");
     }
 
     /// <summary>Malformed, incomplete, or unsupported envelopes must never throw and must always report

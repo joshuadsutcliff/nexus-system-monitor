@@ -1,12 +1,16 @@
+using System.Text.Json.Serialization;
+
 namespace NexusMonitor.Core.Pages;
 
 /// <summary>A cell-aligned rectangle on a page grid. Col/Row are 0-based; Right/Bottom are exclusive.</summary>
 public sealed record GridRect(int Col, int Row, int ColSpan, int RowSpan)
 {
     /// <summary>Exclusive right edge: column where the rectangle ends (Col + ColSpan).</summary>
+    [JsonIgnore]
     public int Right => Col + ColSpan;
 
     /// <summary>Exclusive bottom edge: row where the rectangle ends (Row + RowSpan).</summary>
+    [JsonIgnore]
     public int Bottom => Row + RowSpan;
 
     /// <summary>True when the rectangles share at least one cell. Touching edges do not intersect.</summary>
