@@ -49,6 +49,26 @@ public class PageLayoutSerializerTests
         var config = JsonDocument.Parse(page!.Widgets[0].ConfigJson!);
         config.RootElement.GetProperty("someFutureKey").GetArrayLength().Should().Be(3);
     }
+
+    /// <summary>Malformed, incomplete, or unsupported envelopes must never throw and must always report
+    /// a human-readable error alongside a false result and a null page.</summary>
+    [Theory]
+    [InlineData("")]                                      // empty
+    [InlineData("not json at all {{{")]                   // garbage
+    [InlineData("null")]                                  // JSON null
+    [InlineData("""{"schemaVersion":1}""")]               // missing page
+    [InlineData("""{"page":null,"schemaVersion":1}""")]   // null page
+    [InlineData("""{"schemaVersion":999,"page":{"pageId":"x","title":"X","iconKey":"i","gridColumns":12,"widgets":[]}}""")] // future version
+    [InlineData("""{"page":{"pageId":"x","title":"X","iconKey":"i","gridColumns":12,"widgets":[]}}""")] // missing schemaVersion, page otherwise valid
+    [InlineData(null)]                                    // null input
+    public void TryDeserialize_HostileInput_ReturnsFalseWithError_NeverThrows(string? json)
+    {
+        var ok = PageLayoutSerializer.TryDeserialize(json, out var page, out var error);
+
+        ok.Should().BeFalse();
+        page.Should().BeNull();
+        error.Should().NotBeNullOrWhiteSpace();
+    }
 }
 
 /// <summary>Structural equality for pages whose Widgets lists are IReadOnlyList (record Equals is reference-based for lists).</summary>

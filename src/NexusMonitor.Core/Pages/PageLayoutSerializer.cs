@@ -17,24 +17,37 @@ public static class PageLayoutSerializer
         WriteIndented = true,
     };
 
-    /// <summary>Versioned wrapper persisted around a <see cref="PageLayout"/>.</summary>
-    private sealed record Envelope(int SchemaVersion, PageLayout Page);
+    /// <summary>Versioned wrapper persisted around a <see cref="PageLayout"/>.
+    /// SchemaVersion is nullable so a missing property (rather than defaulting to 0) can be
+    /// distinguished and rejected explicitly.</summary>
+    private sealed record Envelope(int? SchemaVersion, PageLayout Page);
 
     /// <summary>Serializes a page into the versioned envelope: {"schemaVersion":N,"page":{...}}.</summary>
     public static string Serialize(PageLayout page) =>
         JsonSerializer.Serialize(new Envelope(CurrentSchemaVersion, page), Options);
 
-    /// <summary>Never throws. False + error for malformed JSON, missing envelope fields,
-    /// or a schemaVersion newer than this build understands.</summary>
-    public static bool TryDeserialize(string json, out PageLayout? page, out string? error)
+    /// <summary>Never throws. False + error for null/empty/whitespace input, malformed JSON,
+    /// missing envelope fields (including a missing schemaVersion), or a schemaVersion newer
+    /// than this build understands.</summary>
+    public static bool TryDeserialize(string? json, out PageLayout? page, out string? error)
     {
         page = null;
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            error = "Layout JSON is null or empty.";
+            return false;
+        }
         try
         {
             var envelope = JsonSerializer.Deserialize<Envelope>(json, Options);
             if (envelope?.Page is null)
             {
                 error = "Missing 'page' object in layout file.";
+                return false;
+            }
+            if (envelope.SchemaVersion is null)
+            {
+                error = "Missing schemaVersion in layout file.";
                 return false;
             }
             if (envelope.SchemaVersion > CurrentSchemaVersion)
