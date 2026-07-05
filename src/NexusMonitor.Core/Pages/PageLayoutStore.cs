@@ -3,7 +3,7 @@ namespace NexusMonitor.Core.Pages;
 /// <summary>Per-page layout persistence. Mirrors SettingsService's shape: debounced (250 ms)
 /// atomic writes (tmp + move), synchronous flush on dispose, IO failures logged-by-silence
 /// (never thrown). A corrupt page file is renamed to .bak and the factory default returned —
-/// never a blank page (spec §8).</summary>
+/// never a blank page (spec §8). Note: the debounce holds a single pending layout — concurrent saves of DIFFERENT pages within one window would drop the earlier one; fine for the single-page Phase 3, needs a keyed map before multi-page editing.</summary>
 public sealed class PageLayoutStore : IDisposable
 {
     private readonly string _dir;
@@ -35,8 +35,7 @@ public sealed class PageLayoutStore : IDisposable
                 File.Move(path, path + ".bak", overwrite: true);
             }
         }
-        catch (IOException) { /* fall through to factory default */ }
-        catch (UnauthorizedAccessException) { /* fall through to factory default */ }
+        catch (Exception) { /* fall through to factory default — never throw from load */ }
         return BuiltInPageLayouts.Load(pageId);
     }
 
@@ -65,8 +64,7 @@ public sealed class PageLayoutStore : IDisposable
             File.WriteAllText(path + ".tmp", PageLayoutSerializer.Serialize(page));
             File.Move(path + ".tmp", path, overwrite: true);
         }
-        catch (IOException) { /* never throw from background write */ }
-        catch (UnauthorizedAccessException) { /* never throw */ }
+        catch (Exception) { /* timer-thread escape would be process-fatal; mirror SettingsService's broad catch */ }
     }
 
     private string PathFor(string pageId) => Path.Combine(_dir, pageId + ".json");
