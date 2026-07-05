@@ -5,8 +5,9 @@ using NexusMonitor.Core.Pages;
 namespace NexusMonitor.UI.Controls;
 
 /// <summary>Arranges widget tiles on the page grid. Pure view-mode renderer: layout math is
-/// delegated to Core's PageGeometry, children come from WidgetTileFactory, and nothing here
-/// mutates the PageLayout (edit mode arrives in Phase 3).</summary>
+/// delegated to Core's PageGeometry, children come from WidgetTileFactory, and this control
+/// never mutates the PageLayout itself (edit mode lives elsewhere in the stack); it does
+/// dispose outgoing children on rebuild so a future disposable widget tears down cleanly.</summary>
 public sealed class PageHostControl : Panel
 {
     /// <summary>The page to render. Reassigning rebuilds all children.</summary>
@@ -38,6 +39,8 @@ public sealed class PageHostControl : Panel
 
     private void RebuildChildren()
     {
+        foreach (var child in Children)
+            (child as IDisposable)?.Dispose();
         Children.Clear();
         if (Page is null) return;
         foreach (var widget in Page.Widgets)
