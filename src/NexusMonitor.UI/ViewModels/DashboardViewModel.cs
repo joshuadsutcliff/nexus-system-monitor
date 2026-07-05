@@ -78,20 +78,23 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
     /// <summary>The page rendered by the engine path; null when the flag is off or the factory layout failed to load.</summary>
     [ObservableProperty] private PageLayout? _enginePage;
 
-    private readonly PageLayoutStore? _layoutStore;
+    // Phase 5 superseded PageLayoutStore as the read/write path here (see WorkspaceProfileStore
+    // below) — PageLayoutStore itself stays registered in DI only as the legacy-pages migration
+    // source (App.axaml.cs); DashboardViewModel no longer reads or writes it.
+    private readonly WorkspaceProfileStore? _profileStore;
 
-    public DashboardViewModel(SystemHealthService healthService, MemoryLeakDetectionService leakService, AppSettings settings, HealthTrendsViewModel healthTrendsViewModel, PredictionService? predictionService = null, PageLayoutStore? layoutStore = null)
+    public DashboardViewModel(SystemHealthService healthService, MemoryLeakDetectionService leakService, AppSettings settings, HealthTrendsViewModel healthTrendsViewModel, PredictionService? predictionService = null, WorkspaceProfileStore? profileStore = null)
     {
         _healthService      = healthService;
         _leakService        = leakService;
         _settings           = settings;
         HealthTrendsViewModel = healthTrendsViewModel;
-        _layoutStore        = layoutStore;
+        _profileStore       = profileStore;
 
         var usePageEngine = settings.EnablePageEngine;
         if (usePageEngine)
         {
-            try { EnginePage = _layoutStore?.LoadOrDefault("dashboard") ?? TryFactoryLoad(); }
+            try { EnginePage = _profileStore?.LoadActive().Pages.GetValueOrDefault("dashboard") ?? TryFactoryLoad(); }
             catch (InvalidOperationException) { usePageEngine = false; } // packaging bug — never a user path
         }
         UsePageEngine = usePageEngine;
@@ -115,6 +118,14 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
         WeakReferenceMessenger.Default.Register<MetricsIntervalChangedMessage>(this, (_, msg) =>
         {
             _healthService.Start(msg.Interval);
+        });
+
+        // Page engine Phase 5: reload the dashboard layout when the user switches the active
+        // workspace profile in Settings. Theme is applied separately (synchronously, before this
+        // message is sent) by SettingsViewModel — this handler only ever touches layout.
+        WeakReferenceMessenger.Default.Register<WorkspaceProfileSwitchedMessage>(this, (_, _) =>
+        {
+            EnginePage = _profileStore?.LoadActive().Pages.GetValueOrDefault("dashboard") ?? EnginePage;
         });
     }
 
@@ -142,13 +153,24 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
         WeakReferenceMessenger.Default.Send(new PageEditModeChangedMessage(true));
     }
 
-    /// <summary>Commits edits, persists, leaves edit mode.</summary>
+    /// <summary>Commits edits, persists into the ACTIVE workspace profile (load-modify-save via
+    /// the store, replacing just the "dashboard" page — the profile's other pages and theme are
+    /// left untouched), leaves edit mode.</summary>
     [RelayCommand]
     private void SaveEdit()
     {
         if (_editSession is null) return;
-        EnginePage = _editSession.Commit();
-        _layoutStore?.Save(EnginePage);
+        var committed = _editSession.Commit();
+        EnginePage = committed;
+
+        if (_profileStore is not null)
+        {
+            var active = _profileStore.LoadActive();
+            var pages = active.Pages.ToDictionary(kv => kv.Key, kv => kv.Value);
+            pages["dashboard"] = committed;
+            _profileStore.Save(active with { Pages = pages });
+        }
+
         ExitEdit();
     }
 

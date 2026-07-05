@@ -62,6 +62,15 @@ public class App : Application
 
         Services = BuildServices();
 
+        // Page engine Phase 5: one-time migration of P3's legacy per-page dashboard.json into a
+        // "Default" workspace profile. Must run here — right after the container is built and
+        // before ANY ViewModel is resolved (DashboardViewModel's constructor below reads
+        // WorkspaceProfileStore.LoadActive() for its initial EnginePage, and it eagerly resolves
+        // as soon as MainViewModel is constructed a few lines down) — otherwise DashboardViewModel
+        // would load before the legacy layout had a chance to become the active profile, silently
+        // falling back to the factory default instead of the user's existing saved layout.
+        Services.GetRequiredService<WorkspaceProfileStore>().MigrateLegacyIfNeeded();
+
         var saved = Services.GetRequiredService<SettingsService>();
         RequestedThemeVariant = saved.Current.ThemeMode switch
         {
@@ -448,7 +457,15 @@ public class App : Application
         // Page engine (Phase 3) — GUI-only, not part of AddNexusCoreServices since the CLI
         // host has no page-editing surface. DI disposes IDisposable singletons on shutdown,
         // which flushes PageLayoutStore's debounced save.
+        // Phase 5 superseded this as DashboardViewModel's read/write path (see WorkspaceProfileStore
+        // below) — kept registered only as the legacy-pages migration source; no code path saves
+        // through it anymore, so its own debounced flush on shutdown is now always a no-op.
         services.AddSingleton<PageLayoutStore>();
+
+        // Page engine Phase 5 — named workspace profiles (layout + theme bundles). Registered
+        // singleton so App.OnFrameworkInitializationCompleted can run MigrateLegacyIfNeeded()
+        // once, before any ViewModel resolves.
+        services.AddSingleton<WorkspaceProfileStore>();
 
         // UI-only registrations
         services.AddSingleton<InAppNotificationService>();

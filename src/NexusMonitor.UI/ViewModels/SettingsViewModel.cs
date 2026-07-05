@@ -11,6 +11,7 @@ using Microsoft.Extensions.DependencyInjection;
 using NexusMonitor.Core.Alerts;
 using NexusMonitor.Core.Health;
 using NexusMonitor.Core.Models;
+using NexusMonitor.Core.Pages;
 using NexusMonitor.Core.Services;
 using NexusMonitor.Core.Storage;
 using System.Collections.ObjectModel;
@@ -31,6 +32,7 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     private readonly AnomalyDetectionConfig       _anomalyConfig;
     private readonly GlassAdaptiveService         _glassAdaptive;
     private readonly ThemePresetService           _presetService;
+    private readonly WorkspaceProfileStore        _profileStore;
     private readonly ProcessPreferenceStore?      _preferenceStore;
     private readonly WebhookNotificationService              _webhookService;
     private readonly PredictionService?                      _predictionService;
@@ -312,6 +314,7 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         AnomalyDetectionConfig       anomalyConfig,
         GlassAdaptiveService         glassAdaptive,
         ThemePresetService           presetService,
+        WorkspaceProfileStore        profileStore,
         WebhookNotificationService   webhookService,
         PredictionService?                      predictionService = null,
         ProcessPreferenceStore?                 preferenceStore = null,
@@ -326,6 +329,7 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         _anomalyConfig    = anomalyConfig;
         _glassAdaptive    = glassAdaptive;
         _presetService    = presetService;
+        _profileStore     = profileStore;
         _webhookService        = webhookService;
         _predictionService     = predictionService;
         _preferenceStore       = preferenceStore;
@@ -447,6 +451,9 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         ApplyTextAccent(_accentColorHex, _textAccentColorHex);
         ApplyFont(_fontFamily, _fontSizeMultiplier);
         UpdateSurfaceSwatches();
+
+        // ── Workspace profiles (Phase 5) ───────────────────────────────────────
+        RefreshWorkspaceProfileNames();
     }
 
     private void RebuildPresetNames()
@@ -1034,6 +1041,198 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         _suppressPresetCallback = true;
         SelectedPresetIndex = PresetNames.Count - 1;
         _suppressPresetCallback = false;
+    }
+
+    // ── Workspace profiles (Phase 5) ───────────────────────────────────────────
+
+    /// <summary>All saved workspace profile names (file-system scan via the store), refreshed
+    /// after every switch/save/delete. ComboBox <c>ItemsSource</c> in the Settings "Workspace
+    /// Profiles" card.</summary>
+    public System.Collections.ObjectModel.ObservableCollection<string> WorkspaceProfileNames { get; } = new();
+
+    private bool _suppressWorkspaceProfileCallback;
+    private string? _selectedWorkspaceProfileName;
+
+    /// <summary>
+    /// Bound to the "Workspace Profiles" ComboBox's <c>SelectedItem</c>. Setting this — via user
+    /// selection — switches the active workspace profile immediately (mirrors
+    /// <see cref="SelectedPresetIndex"/>'s manual-property-drives-apply structure).
+    /// </summary>
+    public string? SelectedWorkspaceProfileName
+    {
+        get => _selectedWorkspaceProfileName;
+        set
+        {
+            if (!SetProperty(ref _selectedWorkspaceProfileName, value)) return;
+            if (!_suppressWorkspaceProfileCallback && !string.IsNullOrEmpty(value))
+                SwitchWorkspaceProfile(value);
+            // Fired after SwitchWorkspaceProfile (not before) so it reflects the post-switch
+            // ActiveProfileName rather than a transient mid-switch mismatch.
+            OnPropertyChanged(nameof(CanDeleteSelectedWorkspaceProfile));
+        }
+    }
+
+    /// <summary>Text entered in the "Save current as…" box; cleared after a successful save.</summary>
+    [ObservableProperty] private string _newWorkspaceProfileName = "";
+
+    /// <summary>True when a profile is selected and it is NOT the active one — mirrors
+    /// <see cref="WorkspaceProfileStore.Delete"/>'s own guard (deleting the active profile throws).</summary>
+    public bool CanDeleteSelectedWorkspaceProfile =>
+        !string.IsNullOrEmpty(_selectedWorkspaceProfileName) &&
+        !string.Equals(_selectedWorkspaceProfileName, _profileStore.ActiveProfileName, StringComparison.Ordinal);
+
+    /// <summary>Re-scans the store for saved profile names and re-syncs the selected/active name.
+    /// Safe to call after any SYNCHRONOUS store mutation (SetActive, Delete); NOT called directly
+    /// after <see cref="WorkspaceProfileStore.Save"/>, which is debounced — see
+    /// <see cref="SaveCurrentWorkspaceProfile"/>.</summary>
+    private void RefreshWorkspaceProfileNames()
+    {
+        WorkspaceProfileNames.Clear();
+        foreach (var name in _profileStore.ListProfiles())
+            WorkspaceProfileNames.Add(name);
+
+        _suppressWorkspaceProfileCallback = true;
+        SelectedWorkspaceProfileName = _profileStore.ActiveProfileName;
+        _suppressWorkspaceProfileCallback = false;
+    }
+
+    /// <summary>
+    /// Switches the active workspace profile: persists the new active pointer, applies its
+    /// bundled appearance, then broadcasts <see cref="WorkspaceProfileSwitchedMessage"/> so
+    /// DashboardViewModel reloads its layout from the same profile. Restart-free.
+    /// Appearance handling (exactly one applies):
+    /// <list type="bullet">
+    /// <item>Embedded <see cref="ThemeSnapshot"/>: bulk-set the 14 appearance VM properties under
+    /// <see cref="_suppressApply"/> then <see cref="ApplyAllVisuals"/> + <see cref="UpdateSurfaceSwatches"/>
+    /// — mirrors <see cref="ApplyPreset"/>'s structure exactly.</item>
+    /// <item>Named <see cref="ThemeRef.PresetId"/>: routed through the existing <see cref="ApplyPreset"/>.</item>
+    /// <item>Neither set (neutral): appearance is left untouched.</item>
+    /// </list>
+    /// </summary>
+    private void SwitchWorkspaceProfile(string name)
+    {
+        _profileStore.SetActive(name);
+        var profile = _profileStore.LoadActive();
+
+        if (profile.Theme.Snapshot is { } snap)
+        {
+            _suppressApply = true;
+            try
+            {
+                var modeIdx = Array.IndexOf(_themeModeValues, snap.ThemeMode);
+                ThemeModeIndex      = modeIdx < 0 ? 0 : modeIdx;
+
+                AccentColorHex      = snap.AccentColorHex;
+                TextAccentColorHex  = snap.TextAccentColorHex;
+                CustomWindowBgHex   = snap.CustomWindowBgHex;
+                CustomSurfaceBgHex  = snap.CustomSurfaceBgHex;
+                CustomSidebarBgHex  = snap.CustomSidebarBgHex;
+                IsGlassEnabled      = snap.IsGlassEnabled;
+                GlassOpacity        = snap.GlassOpacity;
+                BackdropBlurMode    = snap.BackdropBlurMode;
+                IsSpecularEnabled   = snap.IsSpecularEnabled;
+                SpecularIntensity   = snap.SpecularIntensity;
+                FontFamily          = snap.FontFamily;
+                FontSizeMultiplier  = snap.FontSizeMultiplier;
+                SmartTintEnabled    = snap.SmartTintEnabled;
+            }
+            finally
+            {
+                _suppressApply = false;
+            }
+
+            // A raw snapshot isn't a named preset — mark custom (same as any manual edit would),
+            // so the theme-preset combo and surface swatches don't keep showing a stale, unrelated
+            // preset's identity/palette against these just-applied colors.
+            _settings.Current.ActiveThemePresetId = "";
+            _settings.Save();
+
+            ApplyAllVisuals();
+            UpdateSurfaceSwatches();
+        }
+        else if (!string.IsNullOrEmpty(profile.Theme.PresetId))
+        {
+            var preset = _availablePresets.FirstOrDefault(p => p.Id == profile.Theme.PresetId);
+            if (preset is not null)
+                ApplyPreset(preset); // persists appearance into _settings.Current + Save, same as here
+        }
+        // else: neutral (Snapshot and PresetId both null) — appearance left untouched.
+
+        WeakReferenceMessenger.Default.Send(new WorkspaceProfileSwitchedMessage(name));
+    }
+
+    [RelayCommand]
+    private void SaveCurrentWorkspaceProfile()
+    {
+        var name = NewWorkspaceProfileName?.Trim();
+        if (string.IsNullOrWhiteSpace(name)) return;
+
+        var snapshot = new ThemeSnapshot(
+            ThemeMode:           _themeModeValues[Math.Clamp(ThemeModeIndex, 0, _themeModeValues.Length - 1)],
+            AccentColorHex:      AccentColorHex,
+            TextAccentColorHex:  TextAccentColorHex,
+            CustomWindowBgHex:   CustomWindowBgHex,
+            CustomSurfaceBgHex:  CustomSurfaceBgHex,
+            CustomSidebarBgHex:  CustomSidebarBgHex,
+            IsGlassEnabled:      IsGlassEnabled,
+            GlassOpacity:        GlassOpacity,
+            BackdropBlurMode:    BackdropBlurMode,
+            IsSpecularEnabled:   IsSpecularEnabled,
+            SpecularIntensity:   SpecularIntensity,
+            FontFamily:          FontFamily,
+            FontSizeMultiplier:  FontSizeMultiplier,
+            SmartTintEnabled:    SmartTintEnabled);
+
+        // Pages come from the ACTIVE profile (not the on-screen EnginePage instance — SettingsViewModel
+        // has no reference to it), per the plan: "the ACTIVE profile's pages via store.LoadActive().Pages".
+        var pages = _profileStore.LoadActive().Pages;
+        var profile = new WorkspaceProfile(name, pages, new ThemeRef(Snapshot: snapshot), Array.Empty<PopOutState>());
+
+        try { _profileStore.Save(profile); }
+        catch (ArgumentException) { return; } // invalid characters in a user-typed name — silent no-op
+
+        NewWorkspaceProfileName = "";
+
+        // Save() is debounced (250 ms) — a disk rescan here would race the pending write and miss
+        // the new profile. Add it to the in-memory list directly instead of re-scanning.
+        if (!WorkspaceProfileNames.Contains(name, StringComparer.Ordinal))
+        {
+            var insertAt = 0;
+            while (insertAt < WorkspaceProfileNames.Count &&
+                   string.CompareOrdinal(WorkspaceProfileNames[insertAt], name) < 0)
+                insertAt++;
+            WorkspaceProfileNames.Insert(insertAt, name);
+            OnPropertyChanged(nameof(CanDeleteSelectedWorkspaceProfile));
+        }
+    }
+
+    [RelayCommand]
+    private void DeleteSelectedWorkspaceProfile()
+    {
+        if (!CanDeleteSelectedWorkspaceProfile || _selectedWorkspaceProfileName is not { } name) return;
+        try { _profileStore.Delete(name); }
+        catch (InvalidOperationException) { return; } // defensive — CanDelete already guards this
+        RefreshWorkspaceProfileNames(); // Delete() is synchronous — safe to rescan immediately
+    }
+
+    // ── Workspace profile export / import — stubs (Task 5 wires these) ────────
+
+    [RelayCommand]
+    private void ExportWorkspaceProfile()
+    {
+        // Task 5
+    }
+
+    [RelayCommand]
+    private void ExportThemeOnlyProfile()
+    {
+        // Task 5
+    }
+
+    [RelayCommand]
+    private void ImportWorkspaceProfile()
+    {
+        // Task 5
     }
 
     // ── Static resource helpers ───────────────────────────────────────────────
