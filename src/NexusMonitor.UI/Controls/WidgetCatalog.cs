@@ -22,14 +22,42 @@ public static class WidgetCatalog
         new WidgetCatalogEntry(
             "nexus.widget.healthScore",
             "Health Score",
-            "Placeholder tile — live content arrives with widget extraction."),
+            "Overall system health ring with trend."),
         new WidgetCatalogEntry(
-            "nexus.widget.cpuChart",
+            "nexus.widget.cpuCard",
             "CPU",
-            "Placeholder tile — live content arrives with widget extraction."),
+            "Processor usage level and status."),
         new WidgetCatalogEntry(
-            "nexus.widget.memoryChart",
+            "nexus.widget.memoryCard",
             "Memory",
-            "Placeholder tile — live content arrives with widget extraction."),
+            "RAM utilization and status."),
+        new WidgetCatalogEntry(
+            "nexus.widget.diskCard",
+            "Disk",
+            "Storage usage and status."),
+        new WidgetCatalogEntry(
+            "nexus.widget.gpuCard",
+            "GPU",
+            "Graphics processor usage and status."),
+        new WidgetCatalogEntry(
+            "nexus.widget.bottleneck",
+            "Bottleneck Analysis",
+            "System resource bottleneck detection."),
+        new WidgetCatalogEntry(
+            "nexus.widget.topConsumers",
+            "Top Consumers",
+            "Processes using the most resources."),
+        new WidgetCatalogEntry(
+            "nexus.widget.recommendations",
+            "Recommendations",
+            "Actionable system optimization suggestions."),
+        new WidgetCatalogEntry(
+            "nexus.widget.predictions",
+            "Predictions",
+            "Forecasted system trends and alerts."),
+        new WidgetCatalogEntry(
+            "nexus.widget.healthTrends",
+            "Health Trends",
+            "Historical health metrics over time."),
     };
 }

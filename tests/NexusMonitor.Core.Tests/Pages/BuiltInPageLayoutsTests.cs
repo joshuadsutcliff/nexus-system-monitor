@@ -13,7 +13,7 @@ public class BuiltInPageLayoutsTests
 
         page.PageId.Should().Be("dashboard");
         page.GridColumns.Should().Be(12);
-        page.Widgets.Count.Should().BeGreaterOrEqualTo(3);
+        page.Widgets.Count.Should().BeGreaterOrEqualTo(10);
 
         // Factory layouts must themselves be valid: no overlaps, everything in-grid.
         for (var i = 0; i < page.Widgets.Count; i++)
