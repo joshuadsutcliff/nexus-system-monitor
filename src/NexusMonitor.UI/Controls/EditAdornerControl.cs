@@ -81,21 +81,34 @@ public sealed class EditAdornerControl : Control
 
     // ── Gesture state ─────────────────────────────────────────────────────────
     // Reset together at the end of every gesture (release) so no state can leak into the next
-    // press/session: _dragIndex back to -1, _resizing false, _ghost null.
+    // press/session: _dragId back to null, _resizing false, _ghost null.
+    //
+    // Gesture identity is the widget's InstanceId, not its list index: the bound Page can be
+    // swapped out from under a live gesture (Cancel via keyboard focus while pointer is
+    // captured, Undo, a second pointer), reshuffling or shrinking Widgets. An index captured at
+    // press would then point at the wrong tile — or past the end of the list. _dragId is
+    // re-resolved against the *current* Page on every event via FindWidget, and any event that
+    // can't resolve it aborts the gesture cleanly instead of indexing blind.
 
-    private int _dragIndex = -1;
+    private Guid? _dragId;
     private bool _resizing;
     private Point _pressOffset;      // pointer offset inside the tile at press (drag)
     private GridRect? _ghost;        // candidate cell rect under the pointer
 
-    /// <summary>Pixel rect for tile <paramref name="i"/>, derived from Core's PageGeometry.
-    /// Shared by <see cref="Render"/> and <see cref="HitTest"/> so chrome and hit-zones can never diverge.</summary>
-    private Rect TileRect(int i)
+    /// <summary>Pixel rect for a cell-grid rect, derived from Core's PageGeometry. Shared by
+    /// <see cref="TileRect"/> and the gesture math (<see cref="CellRectForResize"/>) so chrome,
+    /// hit-zones, and resize origins can never diverge.</summary>
+    private Rect PixelRect(GridRect cell)
     {
-        var page = Page!;
-        var px = PageGeometry.ToPixelRect(page.Widgets[i].Rect, Bounds.Width, page.GridColumns, CellHeight, CellGap);
+        var px = PageGeometry.ToPixelRect(cell, Bounds.Width, Page!.GridColumns, CellHeight, CellGap);
         return new Rect(px.X, px.Y, px.Width, px.Height);
     }
+
+    /// <summary>Pixel rect for tile <paramref name="i"/> by its current list index. Only safe to call
+    /// with an index freshly derived from <c>Page.Widgets</c> in the same call (HitTest, Render, or the
+    /// press handler) — gesture code that spans multiple events must resolve by InstanceId instead,
+    /// since the Page (and therefore the list) can change between events.</summary>
+    private Rect TileRect(int i) => PixelRect(Page!.Widgets[i].Rect);
 
     /// <summary>Zone hit for a point: (tile index, zone) or null. Zones: 0=body, 1=remove, 2=grip.</summary>
     private (int Index, int Zone)? HitTest(Point p)
@@ -134,7 +147,7 @@ public sealed class EditAdornerControl : Control
     private GridRect CellRectForResize(WidgetInstance w, Point p)
     {
         var (_, strideX, strideY) = Strides();
-        var origin = TileRect(_dragIndex).TopLeft;
+        var origin = PixelRect(w.Rect).TopLeft;
         var colSpan = Math.Max(1, (int)Math.Round((p.X - origin.X) / strideX));
         var rowSpan = Math.Max(1, (int)Math.Round((p.Y - origin.Y) / strideY));
         return new GridRect(w.Rect.Col, w.Rect.Row, colSpan, rowSpan).ClampTo(Page!.GridColumns);
@@ -164,13 +177,34 @@ public sealed class EditAdornerControl : Control
 
         if (_ghost is not null)
         {
-            var px = PageGeometry.ToPixelRect(_ghost, Bounds.Width, Page.GridColumns, CellHeight, CellGap);
-            var ghostRect = new Rect(px.X, px.Y, px.Width, px.Height);
-            var legal = PageLayoutEngine.IsValidPlacement(Page, _ghost,
-                ignoreInstanceId: Page.Widgets[_dragIndex].InstanceId);
-            var (fill, pen) = legal ? (GhostCleanBrush, GhostCleanPen) : (GhostPushBrush, GhostPushPen);
-            ctx.DrawRectangle(fill, pen, ghostRect, 8, 8);
+            var widget = _dragId is { } id ? Page.FindWidget(id) : null;
+            if (widget is null)
+            {
+                // The dragged widget no longer exists on this Page (swapped mid-gesture, e.g. by
+                // Cancel/Undo while this control still held pointer capture) — abort instead of
+                // drawing a ghost for a vanished tile or indexing into the wrong one.
+                AbortGesture();
+            }
+            else
+            {
+                var px = PageGeometry.ToPixelRect(_ghost, Bounds.Width, Page.GridColumns, CellHeight, CellGap);
+                var ghostRect = new Rect(px.X, px.Y, px.Width, px.Height);
+                var legal = PageLayoutEngine.IsValidPlacement(Page, _ghost, ignoreInstanceId: widget.InstanceId);
+                var (fill, pen) = legal ? (GhostCleanBrush, GhostCleanPen) : (GhostPushBrush, GhostPushPen);
+                ctx.DrawRectangle(fill, pen, ghostRect, 8, 8);
+            }
         }
+    }
+
+    /// <summary>Resets all gesture state — because the gesture ended normally, or because the bound
+    /// Page changed mid-gesture and the dragged widget can no longer be resolved by InstanceId.
+    /// Idempotent: safe to call even when no gesture is active.</summary>
+    private void AbortGesture()
+    {
+        _dragId = null;
+        _resizing = false;
+        _ghost = null;
+        InvalidateVisual();
     }
 
     /// <summary>Hit-tests the press point: a remove-box hit raises <see cref="RemoveRequested"/> and marks the
@@ -192,9 +226,10 @@ public sealed class EditAdornerControl : Control
         }
         else
         {
-            _dragIndex = hit.Value.Index;
+            var index = hit.Value.Index;
+            _dragId = Page!.Widgets[index].InstanceId;
             _resizing = hit.Value.Zone == 2;
-            var r = TileRect(_dragIndex);
+            var r = TileRect(index);
             _pressOffset = e.GetPosition(this) - r.TopLeft;
             e.Pointer.Capture(this);   // capture ONLY on a valid zone (ColorWheel idiom)
             e.Handled = true;
@@ -202,30 +237,42 @@ public sealed class EditAdornerControl : Control
     }
 
     /// <summary>Mid-gesture: recomputes the candidate ghost cell rect under the pointer and redraws.
-    /// No-op unless this control holds pointer capture from a body/grip press.</summary>
+    /// No-op unless this control holds pointer capture from a body/grip press. Re-resolves the dragged
+    /// widget by InstanceId every event (not by the index captured at press) because the bound Page can
+    /// be swapped mid-gesture (Cancel, Undo, a second pointer); if it no longer resolves — or the adorner
+    /// was deactivated mid-gesture — the gesture is aborted cleanly rather than indexing into a stale list.</summary>
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
-        if (e.Pointer.Captured != this || _dragIndex < 0 || Page is null) return;
+        if (e.Pointer.Captured != this) return;
+        if (!IsActive) { AbortGesture(); return; }
+
+        if (Page is null || _dragId is null) { AbortGesture(); return; }
+        var widget = Page.FindWidget(_dragId.Value);
+        if (widget is null) { AbortGesture(); return; }
 
         var p = e.GetPosition(this);
-        var w = Page.Widgets[_dragIndex];
-        _ghost = _resizing ? CellRectForResize(w, p) : CellRectForDrag(w, p);
+        _ghost = _resizing ? CellRectForResize(widget, p) : CellRectForDrag(widget, p);
         InvalidateVisual();
         e.Handled = true;
     }
 
-    /// <summary>Ends the gesture: always uncaptures, then — if a candidate ghost was set — raises
-    /// <see cref="MoveCommitted"/> once with the final rect. The layout itself is not touched here;
-    /// the caller (DashboardView → DashboardViewModel.EditMove) owns the single engine mutation.
-    /// Gesture state is always cleared, so nothing survives to the next press.</summary>
+    /// <summary>Ends the gesture: always uncaptures first, then — only if the dragged widget still
+    /// resolves on the current Page and a candidate ghost was set — raises <see cref="MoveCommitted"/>
+    /// once with the final rect. If the Page was swapped mid-gesture and the widget vanished, no commit
+    /// fires (there is nothing sane to commit against). The layout itself is not touched here; the caller
+    /// (DashboardView → DashboardViewModel.EditMove) owns the single engine mutation. Gesture state is
+    /// always cleared, so nothing survives to the next press.</summary>
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
-        e.Pointer.Capture(null);       // ALWAYS release capture
-        if (_dragIndex >= 0 && _ghost is not null && Page is not null)
-            MoveCommitted?.Invoke(Page.Widgets[_dragIndex].InstanceId, _ghost);
-        _dragIndex = -1;
+        e.Pointer.Capture(null);       // ALWAYS release capture, unconditionally, first
+
+        var widget = Page is not null && _dragId is { } id ? Page.FindWidget(id) : null;
+        if (widget is not null && _ghost is not null)
+            MoveCommitted?.Invoke(widget.InstanceId, _ghost);
+
+        _dragId = null;
         _resizing = false;
         _ghost = null;
         InvalidateVisual();
