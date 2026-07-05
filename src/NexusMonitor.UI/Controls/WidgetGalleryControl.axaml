@@ -17,6 +17,7 @@
 
     <!-- Gallery card: centered -->
     <Border x:Name="GalleryCard"
+            Focusable="True"
             MaxWidth="480"
             HorizontalAlignment="Center"
             VerticalAlignment="Center"
