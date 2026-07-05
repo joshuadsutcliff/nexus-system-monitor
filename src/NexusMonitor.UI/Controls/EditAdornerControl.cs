@@ -8,7 +8,8 @@ namespace NexusMonitor.UI.Controls;
 
 /// <summary>Edit-mode overlay for PageHostControl: draws per-tile chrome (outline, remove box,
 /// resize grip) and owns all edit pointer interaction. Rendering and hit-testing share the same
-/// geometry (PageGeometry) so they can never diverge. Inactive → invisible and hit-test-transparent.</summary>
+/// geometry (PageGeometry) so they can never diverge. Inactive → invisible and hit-test-transparent
+/// (enforced via IsHitTestVisible).</summary>
 public sealed class EditAdornerControl : Control
 {
     /// <summary>The page whose tiles are adorned (same instance PageHostControl renders).</summary>
@@ -27,9 +28,15 @@ public sealed class EditAdornerControl : Control
     public static readonly StyledProperty<bool> IsActiveProperty =
         AvaloniaProperty.Register<EditAdornerControl, bool>(nameof(IsActive));
 
+    public EditAdornerControl()
+    {
+        IsHitTestVisible = false;
+    }
+
     static EditAdornerControl()
     {
         AffectsRender<EditAdornerControl>(PageProperty, CellHeightProperty, CellGapProperty, IsActiveProperty);
+        IsActiveProperty.Changed.AddClassHandler<EditAdornerControl>((c, e) => c.IsHitTestVisible = (bool?)e.NewValue ?? false);
     }
 
     /// <summary>The page whose tiles are adorned.</summary>
