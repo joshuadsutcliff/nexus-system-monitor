@@ -1449,9 +1449,9 @@
                       SelectedItem="{Binding SelectedWorkspaceProfileName}"/>
             <Button Classes="nx-btn" Padding="8,5"
                     Command="{Binding DeleteSelectedWorkspaceProfileCommand}"
-                    IsEnabled="{Binding CanDeleteSelectedWorkspaceProfile}"
-                    ToolTip.Tip="Delete this profile (not available for the active profile)">
-              <TextBlock Text="Delete" FontSize="{DynamicResource NxFont11}"/>
+                    IsEnabled="{Binding CanDeleteActiveWorkspaceProfile}"
+                    ToolTip.Tip="Delete the current profile — switches to Default first (not available while Default is active)">
+              <TextBlock Text="Delete Current" FontSize="{DynamicResource NxFont11}"/>
             </Button>
           </StackPanel>
         </Grid>

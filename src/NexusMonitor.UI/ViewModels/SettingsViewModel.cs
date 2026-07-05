@@ -1073,22 +1073,20 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
                 SwitchWorkspaceProfile(value);
             // Fired after SwitchWorkspaceProfile (not before) so it reflects the post-switch
             // ActiveProfileName rather than a transient mid-switch mismatch.
-            OnPropertyChanged(nameof(CanDeleteSelectedWorkspaceProfile));
+            OnPropertyChanged(nameof(CanDeleteActiveWorkspaceProfile));
         }
     }
 
     /// <summary>Text entered in the "Save current as…" box; cleared after a successful save.</summary>
     [ObservableProperty] private string _newWorkspaceProfileName = "";
 
-    /// <summary>True when a profile is selected and it is NOT the active one — mirrors
-    /// <see cref="WorkspaceProfileStore.Delete"/>'s own guard (deleting the active profile throws).
-    /// Compared case-insensitively: this gates an actual file delete (<see cref="DeleteSelectedWorkspaceProfile"/>),
-    /// and profile files live on case-insensitive filesystems (macOS/Windows) where "Test" and "test"
-    /// are the same file — an Ordinal mismatch here could let the active profile's file be deleted
-    /// out from under it.</summary>
-    public bool CanDeleteSelectedWorkspaceProfile =>
-        !string.IsNullOrEmpty(_selectedWorkspaceProfileName) &&
-        !string.Equals(_selectedWorkspaceProfileName, _profileStore.ActiveProfileName, StringComparison.OrdinalIgnoreCase);
+    /// <summary>True when the ACTIVE workspace profile is not "Default". Delete now targets the
+    /// ACTIVE profile — <see cref="DeleteSelectedWorkspaceProfile"/> switches to Default first, then
+    /// removes the file it just vacated — so Default itself must never be deletable (there would be
+    /// nothing left to switch to). Compared case-insensitively: profile files live on case-insensitive
+    /// filesystems (macOS/Windows), where "default" and "Default" are the same file.</summary>
+    public bool CanDeleteActiveWorkspaceProfile =>
+        !string.Equals(_profileStore.ActiveProfileName, "Default", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Re-scans the store for saved profile names and re-syncs the selected/active name.
     /// Safe to call after any SYNCHRONOUS store mutation (SetActive, Delete); NOT called directly
@@ -1223,7 +1221,7 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
                    string.CompareOrdinal(WorkspaceProfileNames[insertAt], name) < 0)
                 insertAt++;
             WorkspaceProfileNames.Insert(insertAt, name);
-            OnPropertyChanged(nameof(CanDeleteSelectedWorkspaceProfile));
+            OnPropertyChanged(nameof(CanDeleteActiveWorkspaceProfile));
         }
 
         _notificationService?.Show(existingMatch is not null
@@ -1239,13 +1237,38 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
                 AutoDismiss: TimeSpan.FromSeconds(5)));
     }
 
+    /// <summary>Deletes the CURRENTLY ACTIVE workspace profile: switches to "Default" first (the
+    /// full existing <see cref="SwitchWorkspaceProfile"/> path — theme apply, layout-reload message,
+    /// SetActive), THEN removes the now-vacated profile's file. This order means
+    /// <see cref="CanDeleteActiveWorkspaceProfile"/> is already false (active == Default) before the
+    /// delete happens — there is no path where this can target Default itself.</summary>
     [RelayCommand]
     private void DeleteSelectedWorkspaceProfile()
     {
-        if (!CanDeleteSelectedWorkspaceProfile || _selectedWorkspaceProfileName is not { } name) return;
-        try { _profileStore.Delete(name); }
-        catch (InvalidOperationException) { return; } // defensive — CanDelete already guards this
-        RefreshWorkspaceProfileNames(); // Delete() is synchronous — safe to rescan immediately
+        if (!CanDeleteActiveWorkspaceProfile) return;
+
+        var doomed = _profileStore.ActiveProfileName;
+
+        SwitchWorkspaceProfile("Default");
+
+        try { _profileStore.Delete(doomed); }
+        catch (InvalidOperationException) { return; } // defensive — the switch-first order already guards this
+
+        // Delete() is synchronous — remove the doomed name from the in-memory list directly rather
+        // than rescanning disk. Case-insensitive: profile files live on case-insensitive filesystems.
+        var match = WorkspaceProfileNames.FirstOrDefault(n => string.Equals(n, doomed, StringComparison.OrdinalIgnoreCase));
+        if (match is not null) WorkspaceProfileNames.Remove(match);
+
+        // Sync the picker to the new active selection ("Default") without re-triggering another switch.
+        _suppressWorkspaceProfileCallback = true;
+        SelectedWorkspaceProfileName = _profileStore.ActiveProfileName;
+        _suppressWorkspaceProfileCallback = false;
+
+        _notificationService?.Show(new InAppNotification(
+            Title:       "Profile Deleted",
+            Body:        $"Deleted profile '{doomed}' — switched to Default.",
+            Severity:    InAppSeverity.Info,
+            AutoDismiss: TimeSpan.FromSeconds(5)));
     }
 
     // ── Workspace profile export / import ──────────────────────────────────────
@@ -1268,9 +1291,11 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>Exports a theme-only bundle derived from the selected profile: same name suffixed
-    /// " (theme)", an EMPTY Pages dictionary, and the source's ThemeRef (+ empty PopOutStates).
-    /// Documented convention: importing/switching to a pages-empty profile leaves the current
-    /// dashboard layout untouched and applies only the appearance.</summary>
+    /// " theme" (no parens — parens fall outside <see cref="WorkspaceProfileStore"/>'s
+    /// <c>[A-Za-z0-9 _-]</c> charset and would sanitize to "-theme-" on import), an EMPTY Pages
+    /// dictionary, and the source's ThemeRef (+ empty PopOutStates). Documented convention:
+    /// importing/switching to a pages-empty profile leaves the current dashboard layout untouched
+    /// and applies only the appearance.</summary>
     [RelayCommand]
     private async Task ExportThemeOnlyProfile()
     {
@@ -1280,7 +1305,7 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         if (source is null) return;
 
         var themeOnly = new WorkspaceProfile(
-            $"{source.Name} (theme)",
+            $"{source.Name} theme",
             new Dictionary<string, PageLayout>(),
             source.Theme,
             Array.Empty<PopOutState>());
@@ -1409,7 +1434,7 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
                    string.CompareOrdinal(WorkspaceProfileNames[insertAt], finalName) < 0)
                 insertAt++;
             WorkspaceProfileNames.Insert(insertAt, finalName);
-            OnPropertyChanged(nameof(CanDeleteSelectedWorkspaceProfile));
+            OnPropertyChanged(nameof(CanDeleteActiveWorkspaceProfile));
         }
         // NEVER auto-activate — imported profile sits alongside existing ones until the user
         // explicitly selects it in the profile picker.
