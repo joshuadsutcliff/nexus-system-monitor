@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.Rendering;
 using NexusMonitor.Core.Pages;
 
 namespace NexusMonitor.UI.Controls;
@@ -9,8 +10,13 @@ namespace NexusMonitor.UI.Controls;
 /// <summary>Edit-mode overlay for PageHostControl: draws per-tile chrome (outline, remove box,
 /// resize grip), owns all edit pointer interaction, and drives drag/resize gestures with a
 /// ghost preview. Rendering and hit-testing share the same geometry (PageGeometry) so they can
-/// never diverge. Inactive → invisible and hit-test-transparent (enforced via IsHitTestVisible).</summary>
-public sealed class EditAdornerControl : Control
+/// never diverge. Inactive → invisible and hit-test-transparent (enforced via IsHitTestVisible).
+/// Implements <see cref="ICustomHitTest"/> because most of the chrome is stroke-only (the tile
+/// outline and resize grip have no fill) — Avalonia's default hit-testing follows actual painted
+/// geometry, so an unfilled outline/grip is NOT hit-testable on its own merits, and presses over
+/// the tile body or grip would silently fall through to the real widget content underneath. Only
+/// the filled remove-box happened to be hit-testable without this override.</summary>
+public sealed class EditAdornerControl : Control, ICustomHitTest
 {
     /// <summary>The page whose tiles are adorned (same instance PageHostControl renders).</summary>
     public static readonly StyledProperty<PageLayout?> PageProperty =
@@ -109,6 +115,18 @@ public sealed class EditAdornerControl : Control
     /// press handler) — gesture code that spans multiple events must resolve by InstanceId instead,
     /// since the Page (and therefore the list) can change between events.</summary>
     private Rect TileRect(int i) => PixelRect(Page!.Widgets[i].Rect);
+
+    /// <summary><see cref="ICustomHitTest"/> root-cause fix: without this, Avalonia's default
+    /// hit-testing for a plain <see cref="Control"/> follows actual painted geometry rather than
+    /// the logical <see cref="Visual.Bounds"/> rect. <see cref="Render"/> draws the tile outline
+    /// (stroke only, no fill) and the resize grip (stroke-only diagonal lines) — neither paints a
+    /// filled region — so without this override, only the filled remove-box registers a hit;
+    /// presses over the tile body or grip silently fall through to the real widget content
+    /// underneath (PageHostControl's children), and drag/resize gestures can never begin. This
+    /// makes the whole Bounds hit-testable while active, matching the doc'd intent that the
+    /// adorner "owns all edit pointer interaction"; <see cref="OnPointerPressed"/> still resolves
+    /// the specific zone (body/remove/grip) via <see cref="HitTest"/> below.</summary>
+    bool ICustomHitTest.HitTest(Point point) => IsActive && new Rect(Bounds.Size).Contains(point);
 
     /// <summary>Zone hit for a point: (tile index, zone) or null. Zones: 0=body, 1=remove, 2=grip.</summary>
     private (int Index, int Zone)? HitTest(Point p)
