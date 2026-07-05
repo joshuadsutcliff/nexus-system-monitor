@@ -1,0 +1,19 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="NexusMonitor.UI.Controls.WidgetTile">
+  <Border Background="{DynamicResource BgElevatedBrush}"
+          BorderBrush="{DynamicResource GlassBorderBrush}"
+          BorderThickness="1"
+          CornerRadius="{StaticResource CornerMD}"
+          Padding="16,12">
+    <StackPanel Spacing="6">
+      <TextBlock x:Name="TitleText"
+                 FontSize="{DynamicResource NxFont14}"
+                 Foreground="{DynamicResource TextPrimaryBrush}"/>
+      <TextBlock x:Name="SubtitleText"
+                 FontSize="{DynamicResource NxFont12}"
+                 Foreground="{DynamicResource TextSecondaryBrush}"
+                 TextWrapping="Wrap"/>
+    </StackPanel>
+  </Border>
+</UserControl>

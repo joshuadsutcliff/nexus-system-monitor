@@ -8,6 +8,7 @@ using Microsoft.Win32;
 using CommunityToolkit.Mvvm.Messaging;
 using NexusMonitor.Core.Health;
 using NexusMonitor.Core.Models;
+using NexusMonitor.Core.Pages;
 using NexusMonitor.UI.Messages;
 using ReactiveUI;
 
@@ -69,12 +70,30 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
 
     public HealthTrendsViewModel HealthTrendsViewModel { get; }
 
+    // ── Page engine (Phase 2, flag-gated) ─────────────────────────────────────
+
+    /// <summary>True when the Dashboard renders through the page engine (EnablePageEngine at startup).</summary>
+    public bool UsePageEngine { get; }
+
+    /// <summary>The page rendered by the engine path; null when the flag is off or the factory layout failed to load.</summary>
+    public PageLayout? EnginePage { get; }
+
     public DashboardViewModel(SystemHealthService healthService, MemoryLeakDetectionService leakService, AppSettings settings, HealthTrendsViewModel healthTrendsViewModel, PredictionService? predictionService = null)
     {
         _healthService      = healthService;
         _leakService        = leakService;
         _settings           = settings;
         HealthTrendsViewModel = healthTrendsViewModel;
+
+        var usePageEngine = settings.EnablePageEngine;
+        PageLayout? enginePage = null;
+        if (usePageEngine)
+        {
+            try { enginePage = BuiltInPageLayouts.Load("dashboard"); }
+            catch (InvalidOperationException) { usePageEngine = false; } // packaging bug — never a user path
+        }
+        UsePageEngine = usePageEngine;
+        EnginePage = enginePage;
 
         _subscription = _healthService.HealthStream
             .ObserveOn(RxApp.MainThreadScheduler)
