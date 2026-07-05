@@ -76,24 +76,25 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
     public bool UsePageEngine { get; }
 
     /// <summary>The page rendered by the engine path; null when the flag is off or the factory layout failed to load.</summary>
-    public PageLayout? EnginePage { get; }
+    [ObservableProperty] private PageLayout? _enginePage;
 
-    public DashboardViewModel(SystemHealthService healthService, MemoryLeakDetectionService leakService, AppSettings settings, HealthTrendsViewModel healthTrendsViewModel, PredictionService? predictionService = null)
+    private readonly PageLayoutStore? _layoutStore;
+
+    public DashboardViewModel(SystemHealthService healthService, MemoryLeakDetectionService leakService, AppSettings settings, HealthTrendsViewModel healthTrendsViewModel, PredictionService? predictionService = null, PageLayoutStore? layoutStore = null)
     {
         _healthService      = healthService;
         _leakService        = leakService;
         _settings           = settings;
         HealthTrendsViewModel = healthTrendsViewModel;
+        _layoutStore        = layoutStore;
 
         var usePageEngine = settings.EnablePageEngine;
-        PageLayout? enginePage = null;
         if (usePageEngine)
         {
-            try { enginePage = BuiltInPageLayouts.Load("dashboard"); }
+            try { EnginePage = _layoutStore?.LoadOrDefault("dashboard") ?? TryFactoryLoad(); }
             catch (InvalidOperationException) { usePageEngine = false; } // packaging bug — never a user path
         }
         UsePageEngine = usePageEngine;
-        EnginePage = enginePage;
 
         _subscription = _healthService.HealthStream
             .ObserveOn(RxApp.MainThreadScheduler)
@@ -115,6 +116,104 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
         {
             _healthService.Start(msg.Interval);
         });
+    }
+
+    /// <summary>Loads the factory-default "dashboard" layout (used when no layout store is available).</summary>
+    private static PageLayout TryFactoryLoad() => BuiltInPageLayouts.Load("dashboard");
+
+    // ── Page engine editing (Phase 3) ──────────────────────────────────────
+    private PageEditSession? _editSession;
+
+    /// <summary>True while the Dashboard page is in edit mode.</summary>
+    [ObservableProperty] private bool _isEditMode;
+    /// <summary>True while the add-widget gallery overlay is open.</summary>
+    [ObservableProperty] private bool _isGalleryOpen;
+    /// <summary>True when the edit session has an undoable step.</summary>
+    [ObservableProperty] private bool _canUndoEdit;
+
+    /// <summary>Enters edit mode over the current page.</summary>
+    [RelayCommand]
+    private void EnterEditMode()
+    {
+        if (!UsePageEngine || EnginePage is null || IsEditMode) return;
+        _editSession = new PageEditSession(EnginePage);
+        IsEditMode = true;
+        CanUndoEdit = false;
+        WeakReferenceMessenger.Default.Send(new PageEditModeChangedMessage(true));
+    }
+
+    /// <summary>Commits edits, persists, leaves edit mode.</summary>
+    [RelayCommand]
+    private void SaveEdit()
+    {
+        if (_editSession is null) return;
+        EnginePage = _editSession.Commit();
+        _layoutStore?.Save(EnginePage);
+        ExitEdit();
+    }
+
+    /// <summary>Abandons edits, restores the pre-edit layout, leaves edit mode.</summary>
+    [RelayCommand]
+    private void CancelEdit()
+    {
+        if (_editSession is null) return;
+        EnginePage = _editSession.Cancel();
+        ExitEdit();
+    }
+
+    /// <summary>Reverts the most recent edit.</summary>
+    [RelayCommand]
+    private void UndoEdit()
+    {
+        if (_editSession is null) return;
+        _editSession.Undo();
+        EnginePage = _editSession.Current;
+        CanUndoEdit = _editSession.CanUndo;
+    }
+
+    /// <summary>Opens the add-widget gallery overlay.</summary>
+    [RelayCommand]
+    private void OpenGallery() { if (IsEditMode) IsGalleryOpen = true; }
+
+    /// <summary>Adds a widget of the given type at the top of the page (engine push-down applies).</summary>
+    [RelayCommand]
+    private void AddWidget(string typeId)
+    {
+        if (_editSession is null) return;
+        _editSession.Add(new WidgetInstance(Guid.NewGuid(), typeId, new GridRect(0, 0, 4, 2)));
+        AfterEdit();
+        IsGalleryOpen = false;
+    }
+
+    /// <summary>Adorner callback: commit a drag/resize result.</summary>
+    public void EditMove(Guid id, GridRect target)
+    {
+        if (_editSession is null) return;
+        _editSession.Move(id, target);
+        AfterEdit();
+    }
+
+    /// <summary>Adorner callback: remove a widget.</summary>
+    public void EditRemove(Guid id)
+    {
+        if (_editSession is null) return;
+        _editSession.Remove(id);
+        AfterEdit();
+    }
+
+    private void AfterEdit()
+    {
+        EnginePage = _editSession!.Current;
+        CanUndoEdit = _editSession.CanUndo;
+    }
+
+    private void ExitEdit()
+    {
+        _editSession = null;
+        IsEditMode = false;
+        IsGalleryOpen = false;
+        CanUndoEdit = false;
+        WeakReferenceMessenger.Default.Send(new PageEditModeChangedMessage(false));
     }
 
     private void OnPredictionCardPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)

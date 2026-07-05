@@ -1,0 +1,68 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:NexusMonitor.UI.ViewModels"
+             xmlns:controls="using:NexusMonitor.UI.Controls"
+             x:Class="NexusMonitor.UI.Controls.WidgetGalleryControl"
+             x:DataType="vm:DashboardViewModel"
+             x:CompileBindings="False"
+             IsVisible="{Binding IsGalleryOpen}">
+
+  <!-- Full-screen panel: backdrop layer + card layer -->
+  <Panel>
+
+    <!-- Backdrop: semi-transparent dimmer, click to close -->
+    <Border Background="#80000000"
+            PointerPressed="OnBackdropPointerPressed">
+    </Border>
+
+    <!-- Gallery card: centered -->
+    <Border x:Name="GalleryCard"
+            Focusable="True"
+            MaxWidth="480"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            Padding="20,16"
+            Background="{DynamicResource BgElevatedBrush}"
+            BorderBrush="{DynamicResource GlassBorderBrush}"
+            BorderThickness="1"
+            CornerRadius="{StaticResource CornerLG}"
+            BoxShadow="0 8 40 0 #66000000, 0 2 8 0 #33000000"
+            PointerPressed="OnCardPointerPressed">
+
+      <StackPanel Spacing="12">
+
+        <TextBlock Text="Add widget"
+                   FontSize="{DynamicResource NxFont14}"
+                   Foreground="{DynamicResource TextPrimaryBrush}"/>
+
+        <ItemsControl ItemsSource="{x:Static controls:WidgetCatalog.Entries}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate DataType="controls:WidgetCatalogEntry">
+
+              <Button Classes="nx-btn"
+                      HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Left"
+                      Margin="0,3,0,0"
+                      Command="{Binding $parent[UserControl].DataContext.AddWidgetCommand}"
+                      CommandParameter="{Binding TypeId}">
+                <StackPanel Spacing="2">
+                  <TextBlock Text="{Binding Name}"
+                             FontSize="{DynamicResource NxFont12}"
+                             Foreground="{DynamicResource TextPrimaryBrush}"/>
+                  <TextBlock Text="{Binding Description}"
+                             FontSize="{DynamicResource NxFont11}"
+                             Foreground="{DynamicResource TextSecondaryBrush}"
+                             TextWrapping="Wrap"/>
+                </StackPanel>
+              </Button>
+
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+      </StackPanel>
+    </Border>
+
+  </Panel>
+
+</UserControl>

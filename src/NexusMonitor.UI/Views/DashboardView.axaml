@@ -7,6 +7,7 @@
              x:DataType="vm:DashboardViewModel"
              x:CompileBindings="False">
 
+  <Panel>
   <DockPanel>
 
     <!-- ══ Header ══════════════════════════════════════════════════════════ -->
@@ -21,20 +22,45 @@
                    Foreground="{DynamicResource TextPrimaryBrush}"
                    VerticalAlignment="Center"/>
 
-        <!-- Data-stale indicator — visible only when the health pipeline has stalled -->
-        <Border Grid.Column="2"
-                IsVisible="{Binding IsDataStale}"
-                Padding="8,3"
-                CornerRadius="{StaticResource CornerSM}"
-                Background="#33FF9F0A"
-                BorderBrush="#FF9F0A"
-                BorderThickness="1"
-                VerticalAlignment="Center">
-          <TextBlock Text="Data stale"
-                     FontSize="{DynamicResource NxFont12}" FontWeight="Medium"
-                     Foreground="#FF9F0A"
-                     VerticalAlignment="Center"/>
-        </Border>
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+          <!-- View-mode: single pencil toggle (page engine only); hidden while editing -->
+          <StackPanel Orientation="Horizontal" IsVisible="{Binding UsePageEngine}">
+            <Button Classes="nx-btn-ghost"
+                    IsVisible="{Binding !IsEditMode}"
+                    Command="{Binding EnterEditModeCommand}"
+                    ToolTip.Tip="Edit layout">
+              <TextBlock Text="✏" FontSize="{DynamicResource NxFont14}" Foreground="{DynamicResource TextSecondaryBrush}"/>
+            </Button>
+          </StackPanel>
+          <!-- Edit-mode toolbar -->
+          <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsEditMode}">
+            <Button Classes="nx-btn" Command="{Binding OpenGalleryCommand}">
+              <TextBlock Text="＋ Add widget" FontSize="{DynamicResource NxFont12}"/>
+            </Button>
+            <Button Classes="nx-btn" Command="{Binding UndoEditCommand}" IsEnabled="{Binding CanUndoEdit}">
+              <TextBlock Text="Undo" FontSize="{DynamicResource NxFont12}"/>
+            </Button>
+            <Button Classes="nx-btn" Command="{Binding CancelEditCommand}">
+              <TextBlock Text="Cancel" FontSize="{DynamicResource NxFont12}"/>
+            </Button>
+            <Button Classes="nx-btn-accent" Command="{Binding SaveEditCommand}">
+              <TextBlock Text="Save" FontSize="{DynamicResource NxFont12}"/>
+            </Button>
+          </StackPanel>
+          <!-- Data-stale indicator — visible only when the health pipeline has stalled -->
+          <Border IsVisible="{Binding IsDataStale}"
+                  Padding="8,3"
+                  CornerRadius="{StaticResource CornerSM}"
+                  Background="#33FF9F0A"
+                  BorderBrush="#FF9F0A"
+                  BorderThickness="1"
+                  VerticalAlignment="Center">
+            <TextBlock Text="Data stale"
+                       FontSize="{DynamicResource NxFont12}" FontWeight="Medium"
+                       Foreground="#FF9F0A"
+                       VerticalAlignment="Center"/>
+          </Border>
+        </StackPanel>
       </Grid>
     </Border>
 
@@ -631,10 +657,21 @@
                     HorizontalScrollBarVisibility="Disabled"
                     VerticalScrollBarVisibility="Auto"
                     Padding="20,0,20,20">
-        <controls:PageHostControl Page="{Binding EnginePage}"/>
+        <Panel>
+          <controls:PageHostControl Page="{Binding EnginePage}"/>
+          <controls:EditAdornerControl x:Name="EditAdorner"
+                                       Page="{Binding EnginePage}"
+                                       IsActive="{Binding IsEditMode}"/>
+        </Panel>
       </ScrollViewer>
     </Grid>
 
   </DockPanel>
+
+  <!-- ═ Add-widget gallery overlay ═══════════════════════════════════════ -->
+  <!-- Spans the whole view. Visibility is driven by DashboardViewModel.IsGalleryOpen. -->
+  <controls:WidgetGalleryControl/>
+
+  </Panel>
 
 </UserControl>

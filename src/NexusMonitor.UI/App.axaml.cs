@@ -24,6 +24,7 @@ using NexusMonitor.Core.Telemetry;
 using NexusMonitor.UI.Controls;
 using NexusMonitor.UI.Services;
 using NexusMonitor.Core.Health;
+using NexusMonitor.Core.Pages;
 using NexusMonitor.UI.ViewModels;
 using NexusMonitor.UI.Views;
 using NexusMonitor.Hosting;
@@ -443,6 +444,11 @@ public class App : Application
 
         services.AddNexusPlatformProviders();
         services.AddNexusCoreServices();
+
+        // Page engine (Phase 3) — GUI-only, not part of AddNexusCoreServices since the CLI
+        // host has no page-editing surface. DI disposes IDisposable singletons on shutdown,
+        // which flushes PageLayoutStore's debounced save.
+        services.AddSingleton<PageLayoutStore>();
 
         // UI-only registrations
         services.AddSingleton<InAppNotificationService>();
