@@ -1,0 +1,78 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:NexusMonitor.UI.ViewModels"
+             x:Class="NexusMonitor.UI.Widgets.PredictionsWidget"
+             x:DataType="vm:DashboardViewModel"
+             x:CompileBindings="False">
+
+  <!-- NOTE: the classic section gates the ENTIRE card on HasPredictions (IsVisible on the
+       root Border), which would make a user-placed widget vanish. Per plan, that visibility
+       moves off the root: the root always renders; the live content is gated on HasPredictions,
+       and a "No active predictions" fallback is gated on !HasPredictions. -->
+  <Border Padding="20,16"
+          HorizontalAlignment="Stretch"
+          VerticalAlignment="Stretch"
+          Background="{DynamicResource BgElevatedBrush}"
+          BorderBrush="{DynamicResource GlassBorderBrush}"
+          BorderThickness="1"
+          CornerRadius="{StaticResource CornerLG}">
+    <StackPanel Spacing="10">
+      <TextBlock Text="Resource Predictions"
+                 FontSize="{DynamicResource NxFont14}" FontWeight="SemiBold"
+                 Foreground="{DynamicResource TextPrimaryBrush}"/>
+
+      <StackPanel Spacing="10" IsVisible="{Binding HasPredictions}">
+        <TextBlock Text="Based on recent trends, these resources may need attention."
+                   FontSize="{DynamicResource NxFont12}"
+                   Foreground="{DynamicResource TextTertiaryBrush}"/>
+
+        <ItemsControl ItemsSource="{Binding PredictionCards}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:PredictionCardViewModel">
+              <Border Padding="12,10" Margin="0,3,0,0"
+                      IsVisible="{Binding !IsDismissed}"
+                      Background="{DynamicResource BgPrimaryBrush}"
+                      BorderBrush="{DynamicResource BorderSubtleBrush}"
+                      BorderThickness="1"
+                      CornerRadius="{StaticResource CornerSM}">
+                <Grid ColumnDefinitions="*,Auto">
+                  <StackPanel Grid.Column="0" Spacing="4">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                      <TextBlock Text="{Binding SeverityLabel}"
+                                 FontSize="{DynamicResource NxFont11}" FontWeight="SemiBold"
+                                 Foreground="{DynamicResource AccentBrush}"/>
+                      <TextBlock Text="{Binding Resource}"
+                                 FontSize="{DynamicResource NxFont13}" FontWeight="SemiBold"
+                                 Foreground="{DynamicResource TextPrimaryBrush}"/>
+                    </StackPanel>
+                    <TextBlock Text="{Binding Description}"
+                               FontSize="{DynamicResource NxFont12}"
+                               Foreground="{DynamicResource TextSecondaryBrush}"
+                               TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding DepletionLabel}"
+                               FontSize="{DynamicResource NxFont11}"
+                               Foreground="{DynamicResource TextTertiaryBrush}"
+                               IsVisible="{Binding DepletionLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                  </StackPanel>
+                  <Button Grid.Column="1"
+                          Content="&#x2715;"
+                          Command="{Binding DismissCommand}"
+                          FontSize="{DynamicResource NxFont12}"
+                          VerticalAlignment="Top"
+                          Padding="6,4"
+                          Background="Transparent"
+                          Foreground="{DynamicResource TextTertiaryBrush}"/>
+                </Grid>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+
+      <TextBlock Text="No active predictions"
+                 IsVisible="{Binding !HasPredictions}"
+                 FontSize="{DynamicResource NxFont12}"
+                 Foreground="{DynamicResource TextSecondaryBrush}"/>
+    </StackPanel>
+  </Border>
+</UserControl>

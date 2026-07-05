@@ -37,6 +37,9 @@
             <Button Classes="nx-btn" Command="{Binding OpenGalleryCommand}">
               <TextBlock Text="＋ Add widget" FontSize="{DynamicResource NxFont12}"/>
             </Button>
+            <Button Classes="nx-btn" Command="{Binding TidyLayoutCommand}">
+              <TextBlock Text="Tidy" FontSize="{DynamicResource NxFont12}"/>
+            </Button>
             <Button Classes="nx-btn" Command="{Binding UndoEditCommand}" IsEnabled="{Binding CanUndoEdit}">
               <TextBlock Text="Undo" FontSize="{DynamicResource NxFont12}"/>
             </Button>

@@ -1,0 +1,80 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:NexusMonitor.UI.ViewModels"
+             x:Class="NexusMonitor.UI.Widgets.TopConsumersWidget"
+             x:DataType="vm:DashboardViewModel"
+             x:CompileBindings="False">
+
+  <Border Padding="20,16"
+          HorizontalAlignment="Stretch"
+          VerticalAlignment="Stretch"
+          Background="{DynamicResource BgElevatedBrush}"
+          BorderBrush="{DynamicResource GlassBorderBrush}"
+          BorderThickness="1"
+          CornerRadius="{StaticResource CornerLG}">
+    <StackPanel Spacing="10">
+      <Grid ColumnDefinitions="*,Auto">
+        <StackPanel Grid.Column="0" Spacing="2">
+          <TextBlock Text="Top Resource Consumers"
+                     FontSize="{DynamicResource NxFont14}" FontWeight="SemiBold"
+                     Foreground="{DynamicResource TextPrimaryBrush}"/>
+          <TextBlock Text="Apps having the biggest impact on your system"
+                     FontSize="{DynamicResource NxFont12}"
+                     Foreground="{DynamicResource TextTertiaryBrush}"/>
+        </StackPanel>
+        <Button Grid.Column="1"
+                Content="↻ Refresh"
+                Command="{Binding RefreshConsumersCommand}"
+                FontSize="{DynamicResource NxFont11}"
+                Padding="12,5"
+                Background="Transparent"
+                Foreground="{DynamicResource TextSecondaryBrush}"
+                BorderBrush="{DynamicResource BorderSubtleBrush}"
+                BorderThickness="1"
+                CornerRadius="{StaticResource CornerSM}"
+                VerticalAlignment="Center"
+                Cursor="Hand"/>
+      </Grid>
+
+      <ItemsControl ItemsSource="{Binding TopConsumers}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:ProcessImpactViewModel">
+            <Grid ColumnDefinitions="*,60,60" Margin="0,4,0,0">
+              <!-- Name + bar -->
+              <StackPanel Grid.Column="0" Spacing="2">
+                <TextBlock Text="{Binding Name}"
+                           FontSize="{DynamicResource NxFont13}" FontWeight="Medium"
+                           Foreground="{DynamicResource TextPrimaryBrush}"/>
+                <!-- Impact bar -->
+                <Border Height="4" CornerRadius="2"
+                        Background="{DynamicResource BorderSubtleBrush}"
+                        ClipToBounds="True">
+                  <ProgressBar Value="{Binding BarWidth}"
+                               Minimum="0" Maximum="100"
+                               Height="4"
+                               Background="Transparent"
+                               Foreground="{DynamicResource AccentBrush}"
+                               CornerRadius="2"/>
+                </Border>
+              </StackPanel>
+              <!-- CPU% -->
+              <TextBlock Grid.Column="1"
+                         Text="{Binding CpuPercent, StringFormat={}{0:F1}%}"
+                         FontSize="{DynamicResource NxFont12}"
+                         Foreground="{DynamicResource TextSecondaryBrush}"
+                         HorizontalAlignment="Right"
+                         VerticalAlignment="Center"/>
+              <!-- Memory -->
+              <TextBlock Grid.Column="2"
+                         Text="{Binding MemoryLabel}"
+                         FontSize="{DynamicResource NxFont12}"
+                         Foreground="{DynamicResource TextSecondaryBrush}"
+                         HorizontalAlignment="Right"
+                         VerticalAlignment="Center"/>
+            </Grid>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </StackPanel>
+  </Border>
+</UserControl>

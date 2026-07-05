@@ -171,6 +171,15 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
         CanUndoEdit = _editSession.CanUndo;
     }
 
+    /// <summary>Closes vertical gaps in the current layout (engine Compact).</summary>
+    [RelayCommand]
+    private void TidyLayout()
+    {
+        if (_editSession is null) return;
+        _editSession.CompactPage();
+        AfterEdit();
+    }
+
     /// <summary>Opens the add-widget gallery overlay.</summary>
     [RelayCommand]
     private void OpenGallery() { if (IsEditMode) IsGalleryOpen = true; }

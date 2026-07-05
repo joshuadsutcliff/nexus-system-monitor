@@ -88,4 +88,28 @@ public class PageEditSessionTests
         s.Current.Widgets.Count.Should().Be(page.Widgets.Count + 1);
         s.Current.FindWidget(widget.InstanceId)!.Rect.Row.Should().Be(0); // newcomer keeps its spot
     }
+
+    [Fact]
+    public void Remove_UnknownId_IsNoOp_NoUndoEntry()
+    {
+        var s = new PageEditSession(Factory());
+        s.Remove(Guid.NewGuid());
+        s.CanUndo.Should().BeFalse();
+        s.IsDirty.Should().BeFalse();
+    }
+
+    [Fact]
+    public void CompactPage_ClosesGaps_AndPushesUndoEntry()
+    {
+        var page = Factory();
+        var diskCard = page.Widgets[3]; // nexus.widget.diskCard at (4,2,4,2)
+        var cpuCard = page.Widgets[1]; // nexus.widget.cpuCard at (4,0,4,2) — top row, directly above diskCard
+        var s = new PageEditSession(page);
+        s.Remove(cpuCard.InstanceId); // opens a gap at (4,0,4,2)
+
+        s.CompactPage();
+
+        s.Current.FindWidget(diskCard.InstanceId)!.Rect.Row.Should().Be(0); // pulled up to close the gap
+        s.CanUndo.Should().BeTrue();
+    }
 }
