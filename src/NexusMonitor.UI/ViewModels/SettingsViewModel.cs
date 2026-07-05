@@ -1081,10 +1081,14 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     [ObservableProperty] private string _newWorkspaceProfileName = "";
 
     /// <summary>True when a profile is selected and it is NOT the active one — mirrors
-    /// <see cref="WorkspaceProfileStore.Delete"/>'s own guard (deleting the active profile throws).</summary>
+    /// <see cref="WorkspaceProfileStore.Delete"/>'s own guard (deleting the active profile throws).
+    /// Compared case-insensitively: this gates an actual file delete (<see cref="DeleteSelectedWorkspaceProfile"/>),
+    /// and profile files live on case-insensitive filesystems (macOS/Windows) where "Test" and "test"
+    /// are the same file — an Ordinal mismatch here could let the active profile's file be deleted
+    /// out from under it.</summary>
     public bool CanDeleteSelectedWorkspaceProfile =>
         !string.IsNullOrEmpty(_selectedWorkspaceProfileName) &&
-        !string.Equals(_selectedWorkspaceProfileName, _profileStore.ActiveProfileName, StringComparison.Ordinal);
+        !string.Equals(_selectedWorkspaceProfileName, _profileStore.ActiveProfileName, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Re-scans the store for saved profile names and re-syncs the selected/active name.
     /// Safe to call after any SYNCHRONOUS store mutation (SetActive, Delete); NOT called directly
@@ -1200,7 +1204,10 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
 
         // Save() is debounced (250 ms) — a disk rescan here would race the pending write and miss
         // the new profile. Add it to the in-memory list directly instead of re-scanning.
-        if (!WorkspaceProfileNames.Contains(name, StringComparer.Ordinal))
+        // Case-insensitive: on case-insensitive filesystems, Save() above already clobbered an
+        // existing "Test.json" if the user typed "test" — comparing Ordinal here would then insert
+        // a second, misleading "test" row alongside "Test" even though only one file exists on disk.
+        if (!WorkspaceProfileNames.Contains(name, StringComparer.OrdinalIgnoreCase))
         {
             var insertAt = 0;
             while (insertAt < WorkspaceProfileNames.Count &&
@@ -1260,18 +1267,22 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         await ExportProfileToFileAsync(themeOnly, themeOnly.Name);
     }
 
-    /// <summary>Shared Save-dialog + write path for both export commands. Every step from
-    /// resolving the main window's <see cref="IStorageProvider"/> through the picker result is a
-    /// silent no-op on null/failure — headless hosts or a user-cancelled dialog never throw.</summary>
-    private static async Task ExportProfileToFileAsync(WorkspaceProfile profile, string suggestedName)
+    /// <summary>Shared Save-dialog + write path for both export commands. Resolving the main
+    /// window's <see cref="IStorageProvider"/> is a silent no-op when unavailable (headless hosts).
+    /// Everything from the picker call through the write is wrapped in one try/catch — mirroring
+    /// <c>ProcessesViewModel.CreateDumpFile</c>'s single-catch shape — so a cancelled dialog still
+    /// returns silently (<c>file is null</c>), but any real failure (no dialog support, a picker
+    /// exception, or the write itself failing) is toasted via <see cref="IInAppNotificationService"/>
+    /// — the same notification path <see cref="ImportWorkspaceProfile"/> uses — instead of vanishing
+    /// into an unobserved task.</summary>
+    private async Task ExportProfileToFileAsync(WorkspaceProfile profile, string suggestedName)
     {
         var sp = GetStorageProvider();
         if (sp is null) return;
 
-        IStorageFile? file;
         try
         {
-            file = await sp.SaveFilePickerAsync(new FilePickerSaveOptions
+            var file = await sp.SaveFilePickerAsync(new FilePickerSaveOptions
             {
                 Title             = "Export Workspace Profile",
                 SuggestedFileName = $"{suggestedName}.nexusprofile",
@@ -1282,15 +1293,28 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
                     new FilePickerFileType("All Files")     { Patterns = ["*.*"] },
                 ],
             });
+
+            if (file is null) return; // user cancelled
+
+            await using var stream = await file.OpenWriteAsync();
+            await using var writer = new StreamWriter(stream, Encoding.UTF8);
+            await writer.WriteAsync(WorkspaceProfileSerializer.Serialize(profile));
         }
-        catch (Exception) { return; } // platform has no file-dialog support — nothing to recover
-
-        if (file is null) return; // user cancelled
-
-        await using var stream = await file.OpenWriteAsync();
-        await using var writer = new StreamWriter(stream, Encoding.UTF8);
-        await writer.WriteAsync(WorkspaceProfileSerializer.Serialize(profile));
+        catch (Exception ex)
+        {
+            ToastExportError($"Could not export profile: {ex.Message}");
+        }
     }
+
+    /// <summary>Pushes an export-failure toast via the in-app notification channel — the same path
+    /// <see cref="ToastImportError"/> uses. A no-op when the service wasn't injected (e.g. a
+    /// lightweight test host) rather than throwing.</summary>
+    private void ToastExportError(string message) =>
+        _notificationService?.Show(new InAppNotification(
+            Title:       "Profile Export Failed",
+            Body:        message,
+            Severity:    InAppSeverity.Warning,
+            AutoDismiss: TimeSpan.FromSeconds(6)));
 
     /// <summary>Opens a file picker, reads the chosen <c>.nexusprofile</c>/<c>.json</c> file, and
     /// imports it as a NEW profile (never overwrites, never activates — the user switches
@@ -1355,7 +1379,9 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
 
         // Save() is debounced (250 ms) — a disk rescan here would race the pending write and miss
         // the new profile. Mirror SaveCurrentWorkspaceProfile's in-memory insert instead.
-        if (!WorkspaceProfileNames.Contains(finalName, StringComparer.Ordinal))
+        // Case-insensitive for the same reason DedupeProfileName is: profile files live on
+        // case-insensitive filesystems, so this must not treat "test" and "Test" as distinct.
+        if (!WorkspaceProfileNames.Contains(finalName, StringComparer.OrdinalIgnoreCase))
         {
             var insertAt = 0;
             while (insertAt < WorkspaceProfileNames.Count &&
@@ -1381,7 +1407,10 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     /// <summary>Replaces any character outside <c>[A-Za-z0-9 _-]</c> — the exact charset
     /// <see cref="WorkspaceProfileStore.Save"/> enforces — with '-'. Imported profile names come
     /// from arbitrary file content and must never reach the store un-sanitized. Falls back to
-    /// "Imported Profile" when nothing but disallowed/whitespace characters remain.</summary>
+    /// "Imported Profile" when nothing but disallowed/whitespace characters remain. Result is then
+    /// capped at 64 characters (re-trimmed after truncation, since cutting mid-name can leave
+    /// trailing whitespace, and re-checked for empty, since trimming an all-whitespace tail can
+    /// leave nothing) — untrusted names must never reach the store/UI unbounded in length.</summary>
     private static string SanitizeProfileName(string name)
     {
         if (string.IsNullOrWhiteSpace(name)) return "Imported Profile";
@@ -1391,19 +1420,28 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
                 ? c
                 : '-').ToArray()).Trim();
 
+        if (string.IsNullOrWhiteSpace(sanitized)) return "Imported Profile";
+
+        const int MaxLength = 64;
+        if (sanitized.Length > MaxLength)
+            sanitized = sanitized[..MaxLength].Trim();
+
         return string.IsNullOrWhiteSpace(sanitized) ? "Imported Profile" : sanitized;
     }
 
     /// <summary>Appends " (2)", " (3)"… until the candidate name is absent from
-    /// <paramref name="existing"/> — import-as-new never overwrites a saved profile.</summary>
+    /// <paramref name="existing"/> — import-as-new never overwrites a saved profile. Compared
+    /// case-insensitively: profile files live on case-insensitive filesystems (macOS/Windows), so an
+    /// imported name differing only by case (e.g. "test" vs. an existing "Test") would otherwise pass
+    /// this check and then silently clobber the existing profile's file on disk.</summary>
     private static string DedupeProfileName(string name, IReadOnlyList<string> existing)
     {
-        if (!existing.Contains(name, StringComparer.Ordinal)) return name;
+        if (!existing.Contains(name, StringComparer.OrdinalIgnoreCase)) return name;
 
         var n = 2;
         string candidate;
         do { candidate = $"{name} ({n++})"; }
-        while (existing.Contains(candidate, StringComparer.Ordinal));
+        while (existing.Contains(candidate, StringComparer.OrdinalIgnoreCase));
         return candidate;
     }
 
