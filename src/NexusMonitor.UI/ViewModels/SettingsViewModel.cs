@@ -1174,14 +1174,20 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         var typedName = NewWorkspaceProfileName?.Trim();
         if (string.IsNullOrWhiteSpace(typedName)) return;
 
+        // Run the typed name through the same sanitizer ImportWorkspaceProfile uses on untrusted
+        // file content BEFORE the case-insensitive lookup — a user-typed name containing anything
+        // outside [A-Za-z0-9 _-] would otherwise reach WorkspaceProfileStore.Save() unsanitized and
+        // throw ArgumentException, which used to be swallowed as a silent no-op below.
+        var sanitizedTypedName = SanitizeProfileName(typedName);
+
         // A typed name that collides case-insensitively with an existing profile must UPDATE that
         // profile in place, not silently clobber its file while the UI treats them as distinct
         // (profile files live on case-insensitive filesystems, so "test" and "Test" are the same
         // file on disk). Reusing the EXISTING stored casing keeps WorkspaceProfileStore.Save
         // targeting the same file and keeps the in-memory list at a single entry.
         var existingMatch = _profileStore.ListProfiles()
-            .FirstOrDefault(p => string.Equals(p, typedName, StringComparison.OrdinalIgnoreCase));
-        var name = existingMatch ?? typedName;
+            .FirstOrDefault(p => string.Equals(p, sanitizedTypedName, StringComparison.OrdinalIgnoreCase));
+        var name = existingMatch ?? sanitizedTypedName;
 
         var snapshot = new ThemeSnapshot(
             ThemeMode:           _themeModeValues[Math.Clamp(ThemeModeIndex, 0, _themeModeValues.Length - 1)],
@@ -1204,8 +1210,20 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         var pages = _profileStore.LoadActive().Pages;
         var profile = new WorkspaceProfile(name, pages, new ThemeRef(Snapshot: snapshot), Array.Empty<PopOutState>());
 
+        // Belt-and-suspenders: sanitizedTypedName should always satisfy WorkspaceProfileStore's
+        // charset now, so this should be unreachable — but if it ever isn't, surface a toast
+        // instead of silently no-op'ing (the prior behavior, which left users wondering why
+        // nothing happened).
         try { _profileStore.Save(profile); }
-        catch (ArgumentException) { return; } // invalid characters in a user-typed name — silent no-op
+        catch (ArgumentException ex)
+        {
+            _notificationService?.Show(new InAppNotification(
+                Title:       "Profile Not Saved",
+                Body:        $"Could not save profile '{name}': {ex.Message}",
+                Severity:    InAppSeverity.Warning,
+                AutoDismiss: TimeSpan.FromSeconds(6)));
+            return;
+        }
 
         NewWorkspaceProfileName = "";
 

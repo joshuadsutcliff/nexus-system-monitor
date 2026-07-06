@@ -84,6 +84,12 @@ public sealed class WorkspaceProfileStoreTests : IDisposable
         profile.Theme.PresetId.Should().BeNull();
         profile.Theme.Snapshot.Should().BeNull();
         profile.PopOutStates.Should().BeEmpty();
+
+        // Fresh (non-migrated) setup: LoadActive must MATERIALIZE the factory default onto disk
+        // rather than just returning an in-memory stand-in — otherwise ListProfiles() stays empty
+        // and any UI profile picker bound to it renders blank while ActiveProfileName says "Default".
+        store.ListProfiles().Should().Contain("Default");
+        File.Exists(Path.Combine(_dir, "Default.json")).Should().BeTrue();
     }
 
     [Fact]
@@ -295,6 +301,14 @@ public sealed class WorkspaceProfileStoreTests : IDisposable
 
         loaded.Should().NotBeNull();
         WorkspaceProfileComparer.Instance.Equals(modified, loaded).Should().BeTrue();
+
+        // Case-variant lookup: the pending-write short-circuit must match case-insensitively,
+        // same as every on-disk file guard in this store (profile files live on case-insensitive
+        // filesystems) — otherwise a case-variant read during the debounce window falls through
+        // to the stale on-disk copy instead of the pending write.
+        var loadedCaseVariant = store.Load(modified.Name.ToUpperInvariant());
+        loadedCaseVariant.Should().NotBeNull();
+        WorkspaceProfileComparer.Instance.Equals(modified, loadedCaseVariant).Should().BeTrue();
     }
 
     [Fact]

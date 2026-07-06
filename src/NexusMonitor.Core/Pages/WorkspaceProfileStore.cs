@@ -78,8 +78,28 @@ public sealed class WorkspaceProfileStore : IDisposable
     /// factory default when nothing is saved under that name: all <see cref="BuiltInPageLayouts"/>
     /// pages plus a neutral <see cref="ThemeRef"/> (PresetId null — "leave appearance as-is") and no
     /// pop-out states. Delegates to <see cref="Load"/>, so it inherits the same read-your-own-writes
-    /// guarantee against a still-debouncing <see cref="Save"/> for the active profile.</summary>
-    public WorkspaceProfile LoadActive() => Load(ActiveProfileName) ?? FactoryDefault();
+    /// guarantee against a still-debouncing <see cref="Save"/> for the active profile.
+    /// On a fresh (never-saved, non-migrated) setup — nothing resolves for the active name AND
+    /// <see cref="ListProfiles"/> is empty — the factory default is MATERIALIZED onto disk (saved
+    /// synchronously as "Default" and set active) rather than returned as an in-memory-only stand-in:
+    /// otherwise <see cref="ListProfiles"/> stays empty forever while <see cref="ActiveProfileName"/>
+    /// says "Default", and any UI profile picker bound to the former renders blank. When some OTHER
+    /// named profile already exists but the active pointer resolves to nothing (e.g. a since-deleted
+    /// profile), the factory default is still returned but NOT persisted — that scenario isn't a
+    /// fresh setup and silently materializing a competing "Default" would be surprising.</summary>
+    public WorkspaceProfile LoadActive()
+    {
+        var loaded = Load(ActiveProfileName);
+        if (loaded is not null) return loaded;
+
+        var factoryDefault = FactoryDefault();
+        if (ListProfiles().Count == 0)
+        {
+            SaveSynchronously(factoryDefault);
+            SetActive(DefaultProfileName);
+        }
+        return factoryDefault;
+    }
 
     /// <summary>Loads the named profile, or null when no file exists, the name is invalid, or the
     /// file is corrupt. A name failing the same <c>[A-Za-z0-9 _-]</c> validation <see cref="Save"/>/
@@ -98,7 +118,10 @@ public sealed class WorkspaceProfileStore : IDisposable
 
         lock (_lock)
         {
-            if (_pending is not null && string.Equals(_pending.Name, name, StringComparison.Ordinal))
+            // OrdinalIgnoreCase to match every on-disk file guard in this store (profile files
+            // live on case-insensitive filesystems) — a Ordinal-only comparison here let a
+            // case-variant read during the debounce window fall through to the stale on-disk copy.
+            if (_pending is not null && string.Equals(_pending.Name, name, StringComparison.OrdinalIgnoreCase))
                 return _pending;
         }
 
