@@ -46,6 +46,21 @@ public static class PageLayoutEngine
             ? page
             : page.WithWidgets(page.Widgets.Where(w => w.InstanceId != instanceId).ToList());
 
+    /// <summary>Replaces a widget's pop-out state (null clears it). Unlike Move/Remove this is not
+    /// wrapped in an edit session with undo — pop-out changes apply directly to the live page and
+    /// persist immediately. Unknown ids return the same instance (no-op).</summary>
+    public static PageLayout SetPopOut(PageLayout page, Guid instanceId, PopOutState? popOut)
+    {
+        var existing = page.FindWidget(instanceId);
+        if (existing is null) return page;
+
+        var updated = existing with { PopOut = popOut };
+        var widgets = page.Widgets
+            .Select(w => w.InstanceId == instanceId ? updated : w)
+            .ToList();
+        return page.WithWidgets(widgets);
+    }
+
     /// <summary>Closes vertical gaps: in (Row, Col) order, each widget moves up to the lowest
     /// row where it fits without overlapping already-settled widgets.</summary>
     public static PageLayout Compact(PageLayout page)
