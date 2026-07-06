@@ -145,13 +145,23 @@ public sealed class PopOutCoordinator
                 screens, fallback)
             : WindowGeometry.ClampToScreens(CascadeDefault(fallback), screens, fallback);
 
+        // Position is applied in Opened, not here in the object initializer, so it takes effect
+        // AFTER the native window is realized and its OS decorations (title bar) are attached —
+        // symmetrical with CaptureGeometry, which likewise only ever reads Position from an
+        // already-realized window (at Closing). Setting Position pre-Show instead is what caused
+        // the launch-restore-only vertical drift this was fixed for: on macOS, a window's very
+        // first realization in the process can attach decorations AFTER Show() in a way that
+        // shifts an already-assigned Position by the title-bar's height (physical px) — a
+        // fresh-session pop-out or a profile-switch restore never hit this because by then some
+        // other window (at minimum the main window) had already gone through that one-time
+        // decoration attachment.
         var window = new WidgetPopOutWindow(widget, _dashboardViewModel)
         {
-            Position = new PixelPoint(geometry.X, geometry.Y),
-            Width    = ToLogical(geometry.Width, ownerScaling),
-            Height   = ToLogical(geometry.Height, ownerScaling),
+            Width  = ToLogical(geometry.Width, ownerScaling),
+            Height = ToLogical(geometry.Height, ownerScaling),
         };
         window.Closing += (_, _) => OnWindowClosing(window);
+        window.Opened  += (_, _) => window.Position = new PixelPoint(geometry.X, geometry.Y);
 
         _open[widget.InstanceId] = window;
         window.Show();

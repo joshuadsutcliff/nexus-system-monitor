@@ -45,7 +45,11 @@ public partial class WidgetPopOutWindow : Window
     /// for the caller (<see cref="PopOutCoordinator"/>) to set before <see cref="Window.Show()"/>.
     /// </summary>
     /// <param name="widget">The widget instance being popped out. Its control is built via
-    /// <see cref="WidgetTileFactory.Create"/> and hosted inside the card-chrome border; its
+    /// <see cref="WidgetTileFactory.Create"/> (with <c>asPopOutContent: true</c>, so it always
+    /// gets the live control rather than the popped-out placeholder — this window IS the widget's
+    /// "elsewhere" right now, regardless of whether <paramref name="widget"/>'s
+    /// <see cref="WidgetInstance.PopOut"/> already has <c>IsPoppedOut</c> true, as it does on every
+    /// restore path) and hosted inside the card-chrome border; its
     /// <see cref="WidgetInstance.WidgetTypeId"/> resolves this window's title via the widget
     /// catalog.</param>
     /// <param name="dashboardViewModel">The owning DashboardViewModel, set as this window's
@@ -56,7 +60,7 @@ public partial class WidgetPopOutWindow : Window
         InstanceId     = widget.InstanceId;
         Title          = ResolveTitle(widget.WidgetTypeId);
         DataContext    = dashboardViewModel;
-        CardHost.Child = WidgetTileFactory.Create(widget);
+        CardHost.Child = WidgetTileFactory.Create(widget, asPopOutContent: true);
         Closed        += OnClosed;
     }
 

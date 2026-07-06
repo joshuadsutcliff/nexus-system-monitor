@@ -14,6 +14,7 @@ using NexusMonitor.Core.Services;
 using NexusMonitor.UI.Messages;
 using NexusMonitor.UI.Services;
 using ReactiveUI;
+using Serilog;
 
 namespace NexusMonitor.UI.ViewModels;
 
@@ -318,9 +319,21 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
     /// switched into). Idempotent and safe to call repeatedly — <see cref="PopOutCoordinator.TryPopOut"/>
     /// is itself a no-op (returns true without opening a second window) for a widget it already has
     /// open, so re-attaching the owner window (e.g. tab navigation back to Dashboard) never duplicates
-    /// windows.</summary>
+    /// windows.
+    /// <para>
+    /// Logs a single INFO line every call, before either guard can return early — diagnostic gold
+    /// for a restore that silently opens nothing: it reports <see cref="UsePageEngine"/>, whether
+    /// <see cref="EnginePage"/> is loaded, whether <see cref="_ownerWindow"/> is attached yet, and
+    /// how many widgets on the page are actually marked popped-out, so a future no-windows-opened
+    /// report can be diagnosed from the log alone instead of needing to reproduce it live.
+    /// </para></summary>
     private void RestorePopOuts()
     {
+        var poppedOutCount = EnginePage?.Widgets.Count(w => w.PopOut?.IsPoppedOut == true) ?? 0;
+        Log.Information(
+            "RestorePopOuts: UsePageEngine={UsePageEngine} EnginePageLoaded={EnginePageLoaded} OwnerWindowAttached={OwnerWindowAttached} PoppedOutWidgetCount={PoppedOutWidgetCount}",
+            UsePageEngine, EnginePage is not null, _ownerWindow is not null, poppedOutCount);
+
         if (!UsePageEngine || EnginePage is null) return;
 
         _popOutCoordinator ??= CreateCoordinator();
