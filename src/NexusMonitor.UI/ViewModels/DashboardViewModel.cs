@@ -84,7 +84,16 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
 
     /// <summary>The page rendered by the engine path; null only if no factory-default layout could
     /// be built at all (see the constructor's catch block).</summary>
-    [ObservableProperty] private PageLayout? _enginePage;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanEditLayout))]
+    private PageLayout? _enginePage;
+
+    /// <summary>True when there is a loaded page to edit. False only in the catastrophic
+    /// double-failure case where even the factory-default layout failed to load (see the
+    /// constructor's nested catch), leaving <see cref="EnginePage"/> null — gates the pencil
+    /// "Edit layout" button (<see cref="Views.DashboardView"/>) so it goes disabled instead of
+    /// staying visible-but-dead with nothing left to edit.</summary>
+    public bool CanEditLayout => EnginePage is not null;
 
     // Phase 5 superseded PageLayoutStore as the read/write path here (see WorkspaceProfileStore
     // below) — PageLayoutStore itself stays registered in DI only as the legacy-pages migration
@@ -113,6 +122,12 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
         _profileStore       = profileStore;
         _notificationService = notificationService;
 
+        // Subscribed BEFORE the LoadActive() call just below: WorkspaceProfileStore.ProfileRecovered
+        // can fire synchronously from inside that very call (a corrupt or stale/tampered active
+        // profile), so the handler must already be wired up or that first-launch signal is missed.
+        if (_profileStore is not null)
+            _profileStore.ProfileRecovered += OnProfileRecovered;
+
         // Phase 7: the page engine is unconditional — there is no classic fallback left, so a
         // load failure here must still leave the user with a renderable (factory-default) page
         // rather than silently disabling the engine. The active profile's own on-disk file is
@@ -138,11 +153,7 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
                 Log.Fatal(ex2, "Factory-default dashboard layout is also unavailable — Dashboard will render empty.");
             }
 
-            _notificationService?.Show(new InAppNotification(
-                Title:       "Layout Not Loaded",
-                Body:        "Your saved layout could not be loaded — showing defaults. Your profile file was preserved.",
-                Severity:    InAppSeverity.Warning,
-                AutoDismiss: TimeSpan.FromSeconds(6)));
+            ShowLayoutNotLoadedToast();
         }
 
         _subscription = _healthService.HealthStream
@@ -207,6 +218,31 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
 
     /// <summary>Loads the factory-default "dashboard" layout (used when no layout store is available).</summary>
     private static PageLayout TryFactoryLoad() => BuiltInPageLayouts.Load("dashboard");
+
+    /// <summary>Handles <see cref="WorkspaceProfileStore.ProfileRecovered"/>: the active workspace
+    /// profile failed to load (a corrupt file preserved as .bak, or a stale/tampered active
+    /// pointer) and the caller silently fell back to a factory-default layout. Without this, the
+    /// user gets zero feedback that their own saved layout didn't apply. Reuses
+    /// <see cref="ShowLayoutNotLoadedToast"/> — the same copy the constructor's own
+    /// packaging-bug fallback shows — so there is exactly one copy of the string.
+    /// <para>
+    /// Safe to call during construction: this handler is subscribed BEFORE the constructor's own
+    /// <c>LoadActive()</c> call, since the event can fire synchronously from within that very call.
+    /// <see cref="IInAppNotificationService.Show"/> only pushes onto a plain Subject (see
+    /// <see cref="Services.InAppNotificationService"/>) — no UI-thread affinity of its own; the
+    /// actual toast rendering marshals onto the UI thread itself via <c>Dispatcher.UIThread.Post</c>
+    /// (see <see cref="Controls.NotificationHost"/>). So calling Show() synchronously here mirrors
+    /// exactly what the constructor's pre-existing packaging-bug catch already does.
+    /// </para></summary>
+    private void OnProfileRecovered(string profileName) => ShowLayoutNotLoadedToast();
+
+    /// <summary>Single copy of the "layout not loaded" toast — shown by the constructor's
+    /// packaging-bug catch and by <see cref="OnProfileRecovered"/>.</summary>
+    private void ShowLayoutNotLoadedToast() => _notificationService?.Show(new InAppNotification(
+        Title:       "Layout Not Loaded",
+        Body:        "Your saved layout could not be loaded — showing defaults. Your profile file was preserved.",
+        Severity:    InAppSeverity.Warning,
+        AutoDismiss: TimeSpan.FromSeconds(6)));
 
     // ── Page engine editing (Phase 3) ──────────────────────────────────────
     private PageEditSession? _editSession;
@@ -643,6 +679,8 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
     public void Dispose()
     {
         WeakReferenceMessenger.Default.UnregisterAll(this);
+        if (_profileStore is not null)
+            _profileStore.ProfileRecovered -= OnProfileRecovered;
         _subscription?.Dispose();
         _subscription = null;
         _predictionsSubscription?.Dispose();

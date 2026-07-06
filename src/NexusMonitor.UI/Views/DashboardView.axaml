@@ -27,6 +27,7 @@
           <StackPanel Orientation="Horizontal" IsVisible="{Binding UsePageEngine}">
             <Button Classes="nx-btn-ghost"
                     IsVisible="{Binding !IsEditMode}"
+                    IsEnabled="{Binding CanEditLayout}"
                     Command="{Binding EnterEditModeCommand}"
                     ToolTip.Tip="Edit layout">
               <TextBlock Text="✏" FontSize="{DynamicResource NxFont14}" Foreground="{DynamicResource TextSecondaryBrush}"/>

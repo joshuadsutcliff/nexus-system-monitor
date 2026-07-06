@@ -23,6 +23,24 @@ public sealed class WorkspaceProfileStore : IDisposable
     private Timer? _debounce;
     private WorkspaceProfile? _pending;
 
+    /// <summary>Fired when a saved layout could not be recovered from disk and the caller silently
+    /// fell back to something else — without this signal the user gets zero feedback that their
+    /// own profile didn't apply. The argument is the profile name that failed to load. Two
+    /// distinct triggers both surface through this one event:
+    /// <list type="bullet">
+    /// <item>A profile file failed to parse and was preserved by renaming it to <c>.bak</c> (see
+    /// <see cref="Load"/>) — fires for every caller of <see cref="Load"/>, whether called directly
+    /// or indirectly through <see cref="LoadActive"/>.</item>
+    /// <item><see cref="LoadActive"/>'s active-profile pointer resolved to a name with no loadable
+    /// profile even though other profiles already exist on disk (e.g. a stale/tampered pointer
+    /// naming a since-deleted profile) — fires once from <see cref="LoadActive"/> itself, and only
+    /// when the failure wasn't already reported by the corrupt-file trigger above (never both, for
+    /// the same fallback).</item>
+    /// </list>
+    /// NOT fired for a genuine fresh/first-run setup (nothing has ever been saved): materializing
+    /// the factory default there is normal, not recovery.</summary>
+    public event Action<string>? ProfileRecovered;
+
     /// <summary>Creates a store rooted at <paramref name="baseDirectory"/> (tests) or the per-user
     /// app-data profiles directory (production, when null). <paramref name="legacyPagesDirectory"/>
     /// is the P3 per-page directory consulted by <see cref="MigrateLegacyIfNeeded"/> (tests), or the
@@ -86,10 +104,13 @@ public sealed class WorkspaceProfileStore : IDisposable
     /// says "Default", and any UI profile picker bound to the former renders blank. When some OTHER
     /// named profile already exists but the active pointer resolves to nothing (e.g. a since-deleted
     /// profile), the factory default is still returned but NOT persisted — that scenario isn't a
-    /// fresh setup and silently materializing a competing "Default" would be surprising.</summary>
+    /// fresh setup and silently materializing a competing "Default" would be surprising; it instead
+    /// raises <see cref="ProfileRecovered"/> (fresh-start materialization above never does).</summary>
     public WorkspaceProfile LoadActive()
     {
-        var loaded = Load(ActiveProfileName);
+        var name = ActiveProfileName;
+        var loaded = LoadCore(name, out var recoveredFromCorruption);
+        if (recoveredFromCorruption) ProfileRecovered?.Invoke(name);
         if (loaded is not null) return loaded;
 
         var factoryDefault = FactoryDefault();
@@ -97,6 +118,13 @@ public sealed class WorkspaceProfileStore : IDisposable
         {
             SaveSynchronously(factoryDefault);
             SetActive(DefaultProfileName);
+        }
+        else if (!recoveredFromCorruption)
+        {
+            // Not a fresh start (other profiles exist) and this exact failure wasn't already
+            // reported above — a stale/tampered pointer resolved to nothing. Signal once so the
+            // caller isn't silently handed a non-persisted factory default with no explanation.
+            ProfileRecovered?.Invoke(name);
         }
         return factoryDefault;
     }
@@ -107,13 +135,28 @@ public sealed class WorkspaceProfileStore : IDisposable
     /// here via a tampered <see cref="ActiveProfileName"/> pointer) returns null immediately without
     /// touching the file system — a tampered name must never crash or corrupt-rename something
     /// outside the profiles directory. A corrupt (but validly-named) file is renamed to .bak and
-    /// never thrown from — callers should treat null the same as "not found" in both cases.
+    /// never thrown from — callers should treat null the same as "not found" in both cases. A
+    /// corrupt-file rename raises <see cref="ProfileRecovered"/> with <paramref name="name"/> AFTER
+    /// the rename succeeds, so the .bak file is already on disk by the time subscribers observe it.
     /// Read-your-own-writes: if a <see cref="Save"/> for this same name is still sitting in the
     /// 250 ms debounce window (not yet flushed to disk), that pending profile is returned directly
     /// instead of racing the flush — without this, a read landing inside the debounce window would
     /// silently observe the stale pre-save file.</summary>
     public WorkspaceProfile? Load(string name)
     {
+        var profile = LoadCore(name, out var recoveredFromCorruption);
+        if (recoveredFromCorruption) ProfileRecovered?.Invoke(name);
+        return profile;
+    }
+
+    /// <summary>Shared implementation behind <see cref="Load"/>, also called directly by
+    /// <see cref="LoadActive"/> (rather than through the public <see cref="Load"/>) so the latter
+    /// can inspect <paramref name="recoveredFromCorruption"/> itself — that lets it decide whether
+    /// it still needs to raise <see cref="ProfileRecovered"/> for a pointer that resolved to
+    /// nothing WITHOUT double-firing when this method already handled a corrupt file.</summary>
+    private WorkspaceProfile? LoadCore(string name, out bool recoveredFromCorruption)
+    {
+        recoveredFromCorruption = false;
         if (string.IsNullOrWhiteSpace(name) || !ValidNamePattern.IsMatch(name)) return null;
 
         lock (_lock)
@@ -134,6 +177,7 @@ public sealed class WorkspaceProfileStore : IDisposable
                 if (WorkspaceProfileSerializer.TryDeserialize(json, out var profile, out _))
                     return profile;
                 File.Move(path, path + ".bak", overwrite: true);
+                recoveredFromCorruption = true;
             }
         }
         catch (Exception) { /* fall through to null — never throw from load */ }
