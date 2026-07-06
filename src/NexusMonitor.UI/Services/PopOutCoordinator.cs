@@ -185,6 +185,28 @@ public sealed class PopOutCoordinator
         }
     }
 
+    /// <summary>
+    /// Closes the pop-out window hosting <paramref name="instanceId"/>, if one is currently open,
+    /// and removes it from <see cref="Open"/>. Used when the widget itself is being removed from
+    /// the page entirely (e.g. edit-mode Remove) so its OS window is never orphaned — left open
+    /// with no coordinator entry and no way for the app to close it. No-op if no window is open
+    /// for this id (e.g. a persisted-but-not-actually-open pop-out, such as after a crash between
+    /// marking a widget popped-out and its window actually opening).
+    /// </summary>
+    /// <param name="suppressReturn">When true, engages the same suppression mechanism
+    /// <see cref="PersistAndCloseAll"/> uses: <see cref="OnWindowClosing"/> will not invoke
+    /// <c>onReturned</c> for this close. Pass true when the widget is being deleted outright —
+    /// there is no page-side widget left to persist returned geometry into.</param>
+    public void CloseWindow(Guid instanceId, bool suppressReturn)
+    {
+        if (!_open.TryGetValue(instanceId, out var window)) return;
+
+        if (suppressReturn)
+            _suppressReturnOnClose.Add(instanceId);
+
+        window.Close(); // synchronously raises Closing → OnWindowClosing, which removes it from _open
+    }
+
     /// <summary>Cascade placement (in physical pixels) for a widget with no remembered geometry:
     /// offset from <paramref name="fallback"/> (the main window's bounds, already physical) by
     /// <see cref="CascadeBaseOffsetPx"/> plus <see cref="CascadeStepPx"/> per already-open pop-out,

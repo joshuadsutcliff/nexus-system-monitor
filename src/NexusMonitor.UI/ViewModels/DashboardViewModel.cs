@@ -241,10 +241,19 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
         AfterEdit();
     }
 
-    /// <summary>Adorner callback: remove a widget.</summary>
+    /// <summary>Adorner callback: remove a widget. If the widget is currently popped out into its
+    /// own OS window (or the coordinator otherwise still has one open for it), that window is
+    /// closed first — suppressing its <c>onReturned</c> callback, since the widget is being
+    /// deleted outright and there is no page-side widget left to persist returned geometry into —
+    /// so removing a widget from the page never orphans an open pop-out window.</summary>
     public void EditRemove(Guid id)
     {
         if (_editSession is null) return;
+
+        var poppedOut = _editSession.Current.FindWidget(id)?.PopOut?.IsPoppedOut == true;
+        if (poppedOut || (_popOutCoordinator?.Open.ContainsKey(id) ?? false))
+            _popOutCoordinator?.CloseWindow(id, suppressReturn: true);
+
         _editSession.Remove(id);
         AfterEdit();
     }
@@ -280,12 +289,20 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
     /// placement/size, rather than seeing these persisted zeros as real remembered geometry). If
     /// <see cref="PopOutCoordinator.TryPopOut"/> refuses (the open-pop-out cap was hit, already
     /// toasted by the coordinator, or no owner window is attached yet), the pop-out mark is reverted
-    /// to its exact pre-call value so the model never claims a window is open when none actually is.</summary>
+    /// to its exact pre-call value so the model never claims a window is open when none actually is.
+    /// Double-click/redundant-call guard: if the widget is already marked popped-out AND the
+    /// coordinator still has its window open, this is a no-op — there's nothing to rebuild or
+    /// re-persist. A widget that's marked popped-out but NOT actually open in the coordinator (e.g.
+    /// right after a cap-refusal revert, or recovering from a crash between "marked popped out" and
+    /// "window opened") still falls through to the normal path below so it can actually open.</summary>
     public void PopOutWidget(Guid instanceId)
     {
         if (EnginePage is null) return;
         var widget = EnginePage.FindWidget(instanceId);
         if (widget is null) return;
+
+        if (widget.PopOut?.IsPoppedOut == true && (_popOutCoordinator?.Open.ContainsKey(instanceId) ?? false))
+            return;
 
         var markedPoppedOut = widget.PopOut is { } prior
             ? prior with { IsPoppedOut = true }
@@ -314,11 +331,24 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
     /// active workspace profile immediately — shared by every pop-out transition above, none of
     /// which are edit-session ops. Reassigning <see cref="EnginePage"/> re-triggers PageHostControl's
     /// rebuild (same mechanism <see cref="AfterEdit"/> relies on), so the placeholder tile
-    /// appears/disappears immediately on both the pop-out and the return transition.</summary>
+    /// appears/disappears immediately on both the pop-out and the return transition.
+    /// <para>
+    /// Pop-out state is applied here regardless of edit mode — the pop-out button is edit-chrome-only,
+    /// so a live <see cref="_editSession"/> always exists when this fires. Without rebasing, the
+    /// session's stale snapshot (captured on <see cref="EnterEditMode"/>, before this pop-out
+    /// happened) would silently win on <see cref="SaveEdit"/> (its Commit overwrites this exact
+    /// change back to disk), <see cref="CancelEdit"/>, or <see cref="UndoEdit"/> — reverting the
+    /// pop-out on the model while the OS window stays open. So when a session is live, the same
+    /// transform is also rebased into it via <see cref="PageEditSession.RebaseAll"/>, which applies
+    /// to the session's original, every undo entry, and its current snapshot — pop-out state is
+    /// orthogonal metadata applied from outside the edit session, so no session outcome (Commit,
+    /// Cancel, or Undo) should ever be able to revert it.
+    /// </para></summary>
     private void ApplyPopOutStateAndSave(Guid instanceId, PopOutState? state)
     {
         if (EnginePage is null) return;
         EnginePage = PageLayoutEngine.SetPopOut(EnginePage, instanceId, state);
+        _editSession?.RebaseAll(p => PageLayoutEngine.SetPopOut(p, instanceId, state));
         SaveActivePage();
     }
 

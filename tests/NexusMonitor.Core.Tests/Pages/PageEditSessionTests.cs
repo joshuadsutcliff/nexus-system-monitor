@@ -112,4 +112,63 @@ public class PageEditSessionTests
         s.Current.FindWidget(diskCard.InstanceId)!.Rect.Row.Should().Be(0); // pulled up to close the gap
         s.CanUndo.Should().BeTrue();
     }
+
+    // ── RebaseAll (externally-applied changes, e.g. pop-out state) ─────────────
+
+    [Fact]
+    public void RebaseAll_AppliesTransform_ToCurrentImmediately()
+    {
+        var page = Factory();
+        var id = page.Widgets[0].InstanceId;
+        var s = new PageEditSession(page);
+
+        s.RebaseAll(p => PageLayoutEngine.SetPopOut(p, id, new PopOutState(true, 1, 2, 3, 4, Topmost: false)));
+
+        s.Current.FindWidget(id)!.PopOut!.IsPoppedOut.Should().BeTrue();
+    }
+
+    [Fact]
+    public void RebaseAll_ThenCommit_PreservesTransform()
+    {
+        var page = Factory();
+        var id = page.Widgets[0].InstanceId;
+        var s = new PageEditSession(page);
+        s.Move(id, new GridRect(0, 10, 4, 2)); // an ordinary edit-session op predating the rebase
+
+        s.RebaseAll(p => PageLayoutEngine.SetPopOut(p, id, new PopOutState(true, 1, 2, 3, 4, Topmost: false)));
+
+        var committed = s.Commit();
+        committed.FindWidget(id)!.PopOut!.IsPoppedOut.Should().BeTrue();
+        committed.FindWidget(id)!.Rect.Row.Should().Be(10); // the prior edit is still present too
+    }
+
+    [Fact]
+    public void RebaseAll_ThenCancel_PreservesTransform()
+    {
+        var page = Factory();
+        var id = page.Widgets[0].InstanceId;
+        var s = new PageEditSession(page);
+        s.Move(id, new GridRect(0, 10, 4, 2));
+
+        s.RebaseAll(p => PageLayoutEngine.SetPopOut(p, id, new PopOutState(true, 1, 2, 3, 4, Topmost: false)));
+
+        var cancelled = s.Cancel();
+        cancelled.FindWidget(id)!.PopOut!.IsPoppedOut.Should().BeTrue(); // survives Cancel
+        cancelled.FindWidget(id)!.Rect.Row.Should().Be(page.Widgets[0].Rect.Row); // but the move does not
+    }
+
+    [Fact]
+    public void RebaseAll_ThenUndo_PreservesTransform()
+    {
+        var page = Factory();
+        var id = page.Widgets[0].InstanceId;
+        var s = new PageEditSession(page);
+        s.Move(id, new GridRect(0, 10, 4, 2));
+
+        s.RebaseAll(p => PageLayoutEngine.SetPopOut(p, id, new PopOutState(true, 1, 2, 3, 4, Topmost: false)));
+        s.Undo(); // undo the move
+
+        s.Current.FindWidget(id)!.PopOut!.IsPoppedOut.Should().BeTrue(); // survives Undo
+        s.Current.FindWidget(id)!.Rect.Should().Be(page.Widgets[0].Rect); // move undone
+    }
 }
