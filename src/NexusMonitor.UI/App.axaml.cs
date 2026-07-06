@@ -170,59 +170,111 @@ public class App : Application
             if (saved.Current.CheckForUpdates)
                 Services.GetRequiredService<UpdateCheckService>().Start();
 
+            // Page engine Phase 6 shutdown-crash fix: resolve every service the
+            // ShutdownRequested handler below touches into a local BEFORE wiring the handler —
+            // the exact cure MainWindow.axaml.cs applies for its `_settings` field (see that
+            // field's doc comment for the full root-cause writeup). On macOS, Cmd+Q can reach
+            // this handler at a point where App.Services is already disposed; calling
+            // GetService/GetRequiredService on a disposed IServiceProvider throws
+            // ObjectDisposedException regardless of whether the requested singleton was already
+            // constructed, so EVERY resolve in the handler was equally exposed — not just the
+            // DashboardViewModel one that actually crashed. Resolving here, while Services is
+            // still guaranteed live, means the handler itself never calls back into Services
+            // except to Dispose() it as the very last step. DashboardViewModel is an eager
+            // singleton (already constructed above via MainViewModel's eager NavItem), so this
+            // capture is effectively free.
+            var dashboardViewModel               = Services.GetRequiredService<DashboardViewModel>();
+            var foregroundBoostService           = Services.GetService<ForegroundBoostService>();
+            var idleSaverService                 = Services.GetService<IdleSaverService>();
+            var smartTrimService                 = Services.GetService<SmartTrimService>();
+            var cpuLimiterService                = Services.GetService<CpuLimiterService>();
+            var instanceBalancerService          = Services.GetService<InstanceBalancerService>();
+            var quietHoursServiceForShutdown     = Services.GetService<QuietHoursService>();
+            var updateCheckServiceForShutdown    = Services.GetService<UpdateCheckService>();
+            var sleepPreventionService           = Services.GetService<SleepPreventionService>();
+            var gamingModeService                = Services.GetService<GamingModeService>();
+            var proBalanceService                = Services.GetService<ProBalanceService>();
+            var performanceProfileService        = Services.GetService<PerformanceProfileService>();
+            var memoryLeakDetectionService       = Services.GetService<MemoryLeakDetectionService>();
+            var alertsServiceForShutdown         = Services.GetService<AlertsService>();
+            var rulesEngine                      = Services.GetService<RulesEngine>();
+            var eventMonitorService              = Services.GetRequiredService<EventMonitorService>();
+            var predictionService                = Services.GetService<PredictionService>();
+            var healthSnapshotPersistenceService = Services.GetService<HealthSnapshotPersistenceService>();
+            var metricsRollupService             = Services.GetService<MetricsRollupService>();
+            var metricsStore                     = Services.GetRequiredService<MetricsStore>();
+            var systemHealthService              = Services.GetRequiredService<SystemHealthService>();
+            var systemMetricsProvider            = Services.GetService(typeof(ISystemMetricsProvider));
+            var glassAdaptiveService             = Services.GetService<GlassAdaptiveService>();
+            var webhookNotificationService       = Services.GetService<WebhookNotificationService>();
+
             // 4A: Flush MetricsStore + dispose services on shutdown so the last buffered
             //     data points are persisted and Rx subscriptions are released cleanly.
             desktop.ShutdownRequested += (_, _) =>
             {
-                // Page engine Phase 6: close every open pop-out window FIRST, before anything else
-                // in this handler — pop-out windows host live widget bindings into the services being
-                // torn down below, so they must be gone before any of those services stop. This also
-                // persists each pop-out's final geometry (still marked popped-out) so it reopens in
-                // the same place on next launch (DashboardViewModel.AttachOwnerWindow's restore path).
-                Services.GetRequiredService<DashboardViewModel>().PersistAndCloseAllPopOuts();
+                // Page engine Phase 6 shutdown-crash fix: persisting/closing pop-outs is wrapped
+                // in its own try/catch (log, don't rethrow) so this path can never crash shutdown —
+                // window/geometry state at quit time is inherently less predictable than at any
+                // other point in the app's lifetime (a pop-out's native window may already be
+                // tearing itself down), and there's no user-facing recovery from an exception
+                // thrown here. Every step below still needs to run either way.
+                try
+                {
+                    // Close every open pop-out window FIRST, before anything else in this handler —
+                    // pop-out windows host live widget bindings into the services being torn down
+                    // below, so they must be gone before any of those services stop. This also
+                    // persists each pop-out's final geometry (still marked popped-out) so it reopens
+                    // in the same place on next launch (DashboardViewModel.AttachOwnerWindow's
+                    // restore path). Uses the instance captured above — never App.Services directly.
+                    dashboardViewModel.PersistAndCloseAllPopOuts();
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Error persisting/closing pop-out windows during shutdown");
+                }
 
                 // Remove tray icon immediately so it doesn't ghost after process exit
                 _trayIcon?.Dispose();
                 _trayIcon = null;
 
                 // Automation services (hold OS handles / modified process state)
-                Services.GetService<ForegroundBoostService>()?.Stop();
-                Services.GetService<IdleSaverService>()?.Stop();
-                Services.GetService<SmartTrimService>()?.Stop();
-                Services.GetService<CpuLimiterService>()?.Stop();
-                Services.GetService<InstanceBalancerService>()?.Stop();
-                Services.GetService<QuietHoursService>()?.Stop();
-                Services.GetService<UpdateCheckService>()?.Stop();
-                Services.GetService<SleepPreventionService>()?.Stop();
-                Services.GetService<GamingModeService>()?.Stop();
-                Services.GetService<ProBalanceService>()?.Stop();
-                Services.GetService<PerformanceProfileService>()?.DeactivateProfile();
-                Services.GetService<MemoryLeakDetectionService>()?.Stop();
+                foregroundBoostService?.Stop();
+                idleSaverService?.Stop();
+                smartTrimService?.Stop();
+                cpuLimiterService?.Stop();
+                instanceBalancerService?.Stop();
+                quietHoursServiceForShutdown?.Stop();
+                updateCheckServiceForShutdown?.Stop();
+                sleepPreventionService?.Stop();
+                gamingModeService?.Stop();
+                proBalanceService?.Stop();
+                performanceProfileService?.DeactivateProfile();
+                memoryLeakDetectionService?.Stop();
 
                 // Monitoring services
-                Services.GetService<AlertsService>()?.Stop();
-                Services.GetService<AnomalyDetectionService>()?.Stop();
-                Services.GetService<RulesEngine>()?.Stop();
+                alertsServiceForShutdown?.Stop();
+                anomalyService.Stop();
+                rulesEngine?.Stop();
 
                 // Data persistence (flush buffers last)
-                Services.GetRequiredService<EventMonitorService>().Stop();
-                Services.GetService<PredictionService>()?.Stop();
-                Services.GetService<HealthSnapshotPersistenceService>()?.Stop();
-                Services.GetService<MetricsRollupService>()?.Stop();
-                Services.GetRequiredService<MetricsStore>().Stop();
-                Services.GetRequiredService<SystemHealthService>().Stop();
+                eventMonitorService.Stop();
+                predictionService?.Stop();
+                healthSnapshotPersistenceService?.Stop();
+                metricsRollupService?.Stop();
+                metricsStore.Stop();
+                systemHealthService.Stop();
 
                 // Stop the metrics provider's upstream Observable.Timer before tearing down
                 // subscribers, so a late tick can't fire into a half-disposed system.
-                try { (Services.GetService(typeof(ISystemMetricsProvider)) as IDisposable)?.Dispose(); }
+                try { (systemMetricsProvider as IDisposable)?.Dispose(); }
                 catch (Exception ex) { Log.Error(ex, "Error disposing ISystemMetricsProvider during shutdown"); }
 
                 // Infrastructure
-                Services.GetService<GlassAdaptiveService>()?.Stop();
-                Services.GetService<PrometheusExporter>()?.Stop();
+                glassAdaptiveService?.Stop();
+                prometheusExporter.Stop();
                 _subscriptions.Dispose();
                 _memTrimTimer?.Dispose();
-                (Services.GetService<WebhookNotificationService>() as IDisposable)?.Dispose();
+                (webhookNotificationService as IDisposable)?.Dispose();
                 (Services as IDisposable)?.Dispose();
             };
 
