@@ -212,12 +212,33 @@ public sealed class WorkspaceProfileStore : IDisposable
 
     /// <summary>Deletes the named profile's file, if any. Throws <see cref="InvalidOperationException"/>
     /// when asked to delete the currently active profile — switch active elsewhere first. Same name
-    /// restriction as <see cref="Save"/>.</summary>
+    /// restriction as <see cref="Save"/>.
+    /// <para>
+    /// Also cancels a still-debouncing <see cref="Save"/> for this same name (OrdinalIgnoreCase —
+    /// the file-guard convention this class uses everywhere else): <see cref="_pending"/> is never
+    /// cleared once a flush succeeds (see <see cref="WriteToDisk"/>), so without this, deleting a
+    /// profile shortly after saving it left the deleted profile sitting in <c>_pending</c> forever —
+    /// a later flush (the debounce timer firing, or <see cref="Dispose"/>'s unconditional
+    /// flush-on-shutdown) would silently re-write the file this method just removed. The pending
+    /// slot is cleared and the timer disposed BEFORE the file is removed so no interleaving flush
+    /// (from a timer callback already queued on the threadpool) can land in between and recreate
+    /// the file after this method returns.
+    /// </para></summary>
     public void Delete(string name)
     {
         ValidateName(name);
         if (string.Equals(name, ActiveProfileName, StringComparison.Ordinal))
             throw new InvalidOperationException($"Cannot delete '{name}' because it is the active profile.");
+
+        lock (_lock)
+        {
+            if (_pending is not null && string.Equals(_pending.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                _debounce?.Dispose();
+                _debounce = null;
+                _pending = null;
+            }
+        }
 
         var path = PathFor(name);
         if (File.Exists(path)) File.Delete(path);
