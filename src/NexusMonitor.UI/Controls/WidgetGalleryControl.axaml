@@ -7,6 +7,16 @@
              x:CompileBindings="False"
              IsVisible="{Binding IsGalleryOpen}">
 
+  <!-- Phase 8 Task 3 gate fix: fades in on open, same idiom as CommandPaletteControl's own
+       IsVisible-driven overlay fade — see WidgetGalleryControl.axaml.cs's OnPropertyChanged for
+       the 0→1 Opacity kick this Transition animates, gated on
+       DashboardViewModel.EditChromeMotionEnabled (MotionEffect.EditChrome). -->
+  <UserControl.Transitions>
+    <Transitions>
+      <DoubleTransition Property="Opacity" Duration="{DynamicResource MotionBase}"/>
+    </Transitions>
+  </UserControl.Transitions>
+
   <!-- Full-screen panel: backdrop layer + card layer -->
   <Panel>
 

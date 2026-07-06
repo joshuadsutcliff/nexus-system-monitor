@@ -926,7 +926,7 @@
           <StackPanel Grid.Column="0">
             <TextBlock Text="Edit Chrome" FontSize="{DynamicResource NxFont13}"
                        Foreground="{DynamicResource TextPrimaryBrush}"/>
-            <TextBlock Text="Fade animation for the edit-mode toolbar and add-widget gallery"
+            <TextBlock Text="Fade-in animation when opening the edit-mode toolbar or add-widget gallery"
                        FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"
                        TextWrapping="Wrap" Margin="0,2,0,0"/>
           </StackPanel>
@@ -938,7 +938,7 @@
           <StackPanel Grid.Column="0">
             <TextBlock Text="Value Changes" FontSize="{DynamicResource NxFont13}"
                        Foreground="{DynamicResource TextPrimaryBrush}"/>
-            <TextBlock Text="Animated transitions when a displayed metric value changes"
+            <TextBlock Text="Reserved for value-change animations (coming to charts and metrics)"
                        FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"
                        TextWrapping="Wrap" Margin="0,2,0,0"/>
           </StackPanel>

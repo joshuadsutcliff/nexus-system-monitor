@@ -12,7 +12,9 @@ namespace NexusMonitor.UI.Controls;
 /// Backdrop click dismisses the gallery; the card itself stops the click from reaching the backdrop.
 /// Focus management mirrors <see cref="CommandPaletteControl"/>: opening the gallery captures the
 /// previously-focused element and moves focus to the card so Escape is routed here immediately;
-/// closing restores focus to whatever was focused beforehand.
+/// closing restores focus to whatever was focused beforehand. Fade-in on open mirrors
+/// <see cref="CommandPaletteControl"/> too (see <see cref="OnPropertyChanged"/>), gated on
+/// <see cref="DashboardViewModel.EditChromeMotionEnabled"/> (Phase 8 Task 3 gate fix).
 /// </summary>
 public partial class WidgetGalleryControl : UserControl
 {
@@ -40,6 +42,24 @@ public partial class WidgetGalleryControl : UserControl
         {
             if (IsVisible)
             {
+                // Phase 8 Task 3 gate fix: fade in — same 0→1 Opacity kick CommandPaletteControl
+                // uses (Avalonia skips rendering entirely while IsVisible is false, so nothing
+                // about Opacity's value changes when IsVisible flips true; the DoubleTransition
+                // declared in this control's XAML needs an explicit kick, posted a frame later, to
+                // actually animate) — but only when the edit-chrome effect is enabled. When it's
+                // disabled, Opacity is set straight to 1 so no animated frame plays. Fade-in only:
+                // there is deliberately no fade-out (IsVisible flips to false, and the overlay is
+                // gone, before any fade-out transition could play).
+                if (DataContext is DashboardViewModel { EditChromeMotionEnabled: true })
+                {
+                    Opacity = 0;
+                    Dispatcher.UIThread.Post(() => Opacity = 1.0, DispatcherPriority.Render);
+                }
+                else
+                {
+                    Opacity = 1;
+                }
+
                 // Capture whoever had focus before we open, then steal it.
                 _previousFocus = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement();
                 Dispatcher.UIThread.Post(

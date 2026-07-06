@@ -32,8 +32,18 @@
               <TextBlock Text="✏" FontSize="{DynamicResource NxFont14}" Foreground="{DynamicResource TextSecondaryBrush}"/>
             </Button>
           </StackPanel>
-          <!-- Edit-mode toolbar -->
-          <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsEditMode}">
+          <!-- Edit-mode toolbar. Phase 8 Task 3 gate fix: fades in when entering edit mode — see
+               DashboardView.axaml.cs's OnEditToolbarPropertyChanged, gated on
+               DashboardViewModel.EditChromeMotionEnabled (MotionEffect.EditChrome). Fade-in only:
+               IsVisible flips straight to false on exit, collapsing the toolbar before any
+               fade-out transition could play — same trade-off CommandPaletteControl and
+               WidgetGalleryControl already accept for their own overlays. -->
+          <StackPanel x:Name="EditToolbar" Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsEditMode}">
+            <StackPanel.Transitions>
+              <Transitions>
+                <DoubleTransition Property="Opacity" Duration="{DynamicResource MotionBase}"/>
+              </Transitions>
+            </StackPanel.Transitions>
             <Button Classes="nx-btn" Command="{Binding OpenGalleryCommand}">
               <TextBlock Text="＋ Add widget" FontSize="{DynamicResource NxFont12}"/>
             </Button>

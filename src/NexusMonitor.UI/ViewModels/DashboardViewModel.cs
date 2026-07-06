@@ -267,11 +267,26 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
     /// Task 3 carryover B, resolving the "not wired yet" gap Task 2 originally left here.</summary>
     public bool HoverEffectsEnabled => MotionSettingsService.EffectEnabled(_settings, MotionEffect.HoverEffects);
 
-    /// <summary>Phase 8 Task 3 carryover B: re-raises <see cref="HoverEffectsEnabled"/> whenever
-    /// <see cref="MotionSettingsService.Apply"/> runs again — i.e. whenever the ANIMATIONS settings
-    /// page's speed slider or any Animate* toggle changes — so a live edit immediately re-gates the
-    /// widget-tile hover lift instead of only taking effect after a restart.</summary>
-    private void OnMotionSettingsChanged() => OnPropertyChanged(nameof(HoverEffectsEnabled));
+    /// <summary>Phase 8 Task 3 gate fix: true when the edit-mode toolbar (<see cref="Views.DashboardView"/>)
+    /// and the add-widget gallery overlay (<see cref="Controls.WidgetGalleryControl"/>) should fade
+    /// in on open — forwards to <see cref="MotionSettingsService.EffectEnabled"/> for
+    /// <see cref="MotionEffect.EditChrome"/>, same shape as <see cref="HoverEffectsEnabled"/>. Both
+    /// consumers re-read this on their own IsVisible flip (true → visible) rather than binding to it
+    /// directly, since neither is a plain Opacity binding — see each control's own fade-wiring doc
+    /// for why. Re-raised via <see cref="OnMotionSettingsChanged"/>, same mechanism as
+    /// <see cref="HoverEffectsEnabled"/>.</summary>
+    public bool EditChromeMotionEnabled => MotionSettingsService.EffectEnabled(_settings, MotionEffect.EditChrome);
+
+    /// <summary>Phase 8 Task 3 carryover B (+ Task 3 gate fix): re-raises <see cref="HoverEffectsEnabled"/>
+    /// and <see cref="EditChromeMotionEnabled"/> whenever <see cref="MotionSettingsService.Apply"/>
+    /// runs again — i.e. whenever the ANIMATIONS settings page's speed slider or any Animate*
+    /// toggle changes — so a live edit immediately re-gates the widget-tile hover lift and the
+    /// edit-chrome fade instead of only taking effect after a restart.</summary>
+    private void OnMotionSettingsChanged()
+    {
+        OnPropertyChanged(nameof(HoverEffectsEnabled));
+        OnPropertyChanged(nameof(EditChromeMotionEnabled));
+    }
 
     /// <summary>Enters edit mode over the current page.</summary>
     [RelayCommand]
