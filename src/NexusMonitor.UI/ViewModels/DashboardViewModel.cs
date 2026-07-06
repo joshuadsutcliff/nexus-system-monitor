@@ -145,8 +145,22 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
         // calls WorkspaceProfileStore.SetActive(name). Ordering matters: reversing it (persisting
         // after SetActive) would read/save into the INCOMING profile instead, corrupting it with the
         // OUTGOING page's widget layout.
+        //
+        // Post-review hardening: a live Dashboard edit session is force-exited via CancelEdit()
+        // FIRST, before PersistAndCloseAllPopOuts. Why: entering edit mode snapshots the OUTGOING
+        // profile's page into _editSession (see EnterEditMode). If a profile switch lands mid-edit,
+        // WorkspaceProfileSwitchedMessage's handler below reassigns EnginePage to the INCOMING
+        // profile's page and calls RestorePopOuts() — but it never touches _editSession/IsEditMode,
+        // which stay pointed at the outgoing profile's stale history. Any edit op fired afterward
+        // (AfterEdit, SaveEdit, CancelEdit, UndoEdit) would then read/write through that stale
+        // session and revert EnginePage back to outgoing-derived state; SaveEdit would persist that
+        // corrupted layout INTO the incoming profile. CancelEdit() already no-ops when _editSession
+        // is null, so calling it unconditionally here is a no-op when the switch happens outside
+        // edit mode. Its Cancel semantics are intentional: any uncommitted in-progress edit to the
+        // OUTGOING profile is discarded, and that profile simply keeps its last-saved layout.
         WeakReferenceMessenger.Default.Register<WorkspaceProfileSwitchingMessage>(this, (_, _) =>
         {
+            CancelEdit();
             PersistAndCloseAllPopOuts();
         });
 
