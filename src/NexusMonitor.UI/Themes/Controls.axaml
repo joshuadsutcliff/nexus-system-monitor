@@ -99,23 +99,41 @@
     <Setter Property="Background" Value="Transparent" />
   </Style>
 
-  <!-- Active nav item — System Settings parity (Phase 8 UI polish, Task 6): p8-macos-ref.md
-       line 12 — "solid accent blue ... with white label when the item is the direct sidebar
-       selection". Previously a light accent-tint pill (AccentBlueDimBrush) with accent-colored
-       text; now a SOLID accent fill with a white label, matching the Settings grammar. Reuses
-       the existing AccentBlueBrush resource (not a hardcoded blue) per the brief's "preserve the
-       theme system" directive — the nav icon chip (MainWindow.axaml) already shares this same
-       token. Foreground="White" cascades to the icon-chip glyph's sibling label TextBlock via
-       inherited Foreground (the chip glyph itself is explicitly white regardless of selection,
-       see MainWindow.axaml). -->
+  <!-- Active nav item — accent pill background + accent text + bold -->
   <Style Selector="Button.nx-btn-ghost.active">
-    <Setter Property="Foreground" Value="White" />
+    <Setter Property="Foreground" Value="{DynamicResource AccentBlueBrush}" />
   </Style>
   <Style Selector="Button.nx-btn-ghost.active /template/ ContentPresenter">
-    <Setter Property="Background" Value="{DynamicResource AccentBlueBrush}" />
+    <Setter Property="Background" Value="{DynamicResource AccentBlueDimBrush}" />
   </Style>
   <Style Selector="Button.nx-btn-ghost.active TextBlock">
     <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+
+  <!-- Active SIDEBAR nav item — System Settings parity (Phase 8 UI polish, Task 6): p8-macos-ref.md
+       line 12 — "solid accent blue ... with white label when the item is the direct sidebar
+       selection". Gate-review finding: the generic ".active" rule above is SHARED by every
+       nx-btn-ghost consumer, including HistoryView.axaml's 1h/6h/24h/7d/30d time-range chips
+       (Classes="nx-btn-ghost" Classes.active, no "nav-item"), which silently inherited this solid
+       pill when it was applied there directly — an unreviewed visual change outside this task's
+       scope. Rescoped to ".nav-item" (set alongside "nx-btn-ghost" only on MainWindow.axaml's nav
+       Button, see MainWindow.axaml:310) so ONLY sidebar nav rows get the solid capsule; History's
+       chips (and every other nx-btn-ghost.active consumer) now render the original light
+       accent-tint pill above, unchanged. Same scoping technique — and the same reason — as the
+       ".nav-item"-scoped hover-suppression rule earlier in this file. Kept AFTER the generic
+       ".active" rule so this more-specific selector (3 selector-parts: Button + 2 classes) wins
+       for nav rows over the generic one (2 selector-parts), per this file's own established
+       Avalonia specificity/order precedent (see the hover-suppression comment above). Reuses the
+       existing AccentBlueBrush resource (not a hardcoded blue) per the brief's "preserve the theme
+       system" directive — the nav icon chip (MainWindow.axaml) already shares this same token.
+       Foreground="White" cascades to the icon-chip glyph's sibling label TextBlock via inherited
+       Foreground (the chip glyph itself is explicitly white regardless of selection, see
+       MainWindow.axaml). -->
+  <Style Selector="Button.nx-btn-ghost.nav-item.active">
+    <Setter Property="Foreground" Value="White" />
+  </Style>
+  <Style Selector="Button.nx-btn-ghost.nav-item.active /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource AccentBlueBrush}" />
   </Style>
 
   <!-- ===== TEXT INPUT ===== -->
