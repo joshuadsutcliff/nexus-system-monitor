@@ -43,7 +43,7 @@
 
 ### Task 5: Alignment audit + logo treatment
 
-**Files:** audit pass over `MainWindow.axaml` (titlebar/sidebar), `DashboardView.axaml` chrome, `SettingsView.axaml` rows, gallery: consistent gutter/padding tokens, header baselines, right-edge control alignment; logo: 28×28 (use nexus-icon-256 downscale — verify crispness @2x), spacing 10→12, optical alignment with sidebar edge. Produce fix list + BEFORE/AFTER screenshots (conductor reviews the logo shots personally).
+**Files:** audit pass over `MainWindow.axaml` (titlebar/sidebar), `DashboardView.axaml` chrome, `SettingsView.axaml` rows, gallery: consistent gutter/padding tokens, header baselines, right-edge control alignment; logo (Josh's annotated screenshot 2026-07-06, +Inbox/signal-2026-07-06-04-11-39-169.png — THE defining requirement): the logo+wordmark currently straddles the sidebar/content divider aligned to nothing. Fix: anchor logo+"Nexus Monitor" to the SIDEBAR column of the titlebar, left-aligned to the exact sidebar content gutter (same left edge as the nav pill and MONITOR section header — one shared vertical line, System Settings grammar), fully clear of the divider; content-pane titlebar stays clean so the page title owns the content gutter. Size 28×28 + spacing 12 secondary to the alignment. Produce fix list + BEFORE/AFTER screenshots (conductor + Josh review).
 - [ ] Implement → screenshots → build 0 warnings, suite green → commit `fix(ui): alignment audit and logo treatment`
 
 ### Task 6: Sidebar & controls — System Settings parity
