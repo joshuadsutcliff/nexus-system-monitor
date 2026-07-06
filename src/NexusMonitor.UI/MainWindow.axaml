@@ -96,55 +96,92 @@
              center line at y=13.5, well above the 52px titlebar's geometric center (y=26).
              Mirroring the 8px inset on the right, and matching the measured center line
              instead of the titlebar's own center, is why the logo group is Top-aligned
-             with a small Margin.Top rather than simply VerticalAlignment="Center". -->
+             with a small Margin.Top rather than simply VerticalAlignment="Center".
+
+             Gate-fix note (Phase 8 Task 5 review, 2026-07-06): the 8px right inset above is
+             DELIBERATELY shared by all platforms, not a macOS-only leftover — it mirrors the
+             macOS traffic-light-derived inset but is intentionally reused as the Windows/Linux
+             WindowControls inset too (previously 18px; keeping it at 8px on every platform is
+             an intentional decision, not an oversight). -->
         <Grid x:Name="TitleBarGrid"
-              ColumnDefinitions="Auto,*,Auto"
+              ColumnDefinitions="Auto,*,Auto,Auto"
               Margin="18,0,8,0">
 
           <!-- Column 0 intentionally left empty — see comment above: traffic lights only
                on the left, titlebar center stays clean for the drag region. -->
 
+          <!-- Gate-fix note (Phase 8 Task 5 review, 2026-07-06): logo and WindowControls used
+               to share ONE wrapper StackPanel in a single Auto column (VerticalAlignment="Top").
+               That was correct for the logo (matches the measured y=13.5 center-line above) but
+               wrong for WindowControls on Windows/Linux: a Top-aligned wrapper only takes up its
+               content's own DesiredSize height. Since WindowControls is invisible on macOS
+               (IsVisible=false, excluded from layout) and doesn't contribute there, but IS
+               visible on Windows/Linux, the wrapper's height differed by platform — on
+               Windows/Linux it was just tall enough for the ~28px logo, not the full 52px bar,
+               so WindowControls' own VerticalAlignment="Center" centered it within that
+               too-short wrapper instead of the true 52px titlebar, landing the buttons roughly
+               10-12px too high (centered around y≈15 instead of y=26).
+
+               Fix: split the logo and WindowControls into their OWN Grid columns so each aligns
+               independently against the FULL 52px row — Grid always gives a column its row's
+               full height regardless of the column's Auto width, so there is no shared-wrapper
+               height to fight over:
+                 - Logo (column 2): kept Top + no extra margin — already tuned to the measured
+                   13.5px center-line (renders ~14.0px, ~0.5px off, accepted as sub-pixel in the
+                   prior task-5 pass) — completely unaffected by this change.
+                 - WindowControls (column 3): plain VerticalAlignment="Center" against the full
+                   52px row now truly centers it at y=26 on Windows/Linux.
+               On macOS, WindowControls stays hidden (ApplyMacOSTitleBarPadding sets
+               IsVisible=false) so its now-empty Auto column simply collapses to 0 width — the
+               logo's position and prior pixel-probed tuning are untouched. Verified empirically
+               on macOS (re-measured, still ≈13.5px center-line); Windows/Linux verified
+               structurally via this layout argument (see task-5-report.md "## Gate fix" —
+               no Windows/Linux runtime available in this environment). Considered a margin-only
+               fix (negative Margin.Top on the logo to compensate once the wrapper is re-centered)
+               but rejected it: it requires the wrapper's arrange math to behave in a very specific
+               way under a negative margin, is fragile if either child's intrinsic height ever
+               changes, and only works by accident of the two children sharing one wrapper at all
+               — the split-column shape removes the coupling entirely. -->
+
           <StackPanel Grid.Column="2"
                       Orientation="Horizontal"
-                      Spacing="20"
+                      Spacing="12"
                       VerticalAlignment="Top">
+            <Image Source="avares://NexusMonitor/Assets/nexus-icon-256.png"
+                   Width="28" Height="28"/>
+            <TextBlock Text="Nexus Monitor"
+                       FontSize="{DynamicResource NxFont13}"
+                       FontWeight="SemiBold"
+                       Foreground="{DynamicResource TextPrimaryBrush}"
+                       VerticalAlignment="Center"/>
+          </StackPanel>
 
-            <!-- App icon + name — 28×28 icon, 12px spacing, per Josh's directive -->
-            <StackPanel Orientation="Horizontal"
-                        Spacing="12"
-                        VerticalAlignment="Center">
-              <Image Source="avares://NexusMonitor/Assets/nexus-icon-256.png"
-                     Width="28" Height="28"/>
-              <TextBlock Text="Nexus Monitor"
-                         FontSize="{DynamicResource NxFont13}"
-                         FontWeight="SemiBold"
-                         Foreground="{DynamicResource TextPrimaryBrush}"
-                         VerticalAlignment="Center"/>
-            </StackPanel>
-
-            <!-- Window controls — hidden on macOS (ApplyMacOSTitleBarPadding sets
-                 IsVisible=false so the native traffic lights are the only controls);
-                 stays visible and anchored at the true right edge on Windows/Linux. -->
-            <StackPanel x:Name="WindowControls"
-                        Orientation="Horizontal"
-                        Spacing="2"
-                        VerticalAlignment="Center">
-              <Button Classes="nx-btn-ghost" Padding="10,7"
-                      Click="OnMinimize"
-                      ToolTip.Tip="Minimize">
-                <TextBlock Text="—" FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextSecondaryBrush}"/>
-              </Button>
-              <Button Classes="nx-btn-ghost" Padding="10,7"
-                      Click="OnMaximize"
-                      ToolTip.Tip="Maximize">
-                <TextBlock Text="⬜" FontSize="{DynamicResource NxFont10}" Foreground="{DynamicResource TextSecondaryBrush}"/>
-              </Button>
-              <Button Classes="nx-btn-ghost" Padding="10,7"
-                      Click="OnClose"
-                      ToolTip.Tip="Close">
-                <TextBlock Text="✕" FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextSecondaryBrush}"/>
-              </Button>
-            </StackPanel>
+          <!-- Window controls — hidden on macOS (ApplyMacOSTitleBarPadding sets
+               IsVisible=false so the native traffic lights are the only controls);
+               stays visible and now truly vertically centered (y=26 of the 52px bar) at the
+               true right edge on Windows/Linux. Margin.Left=20 reproduces the same visual gap
+               the old shared-wrapper's Spacing="20" gave between the logo and these buttons. -->
+          <StackPanel x:Name="WindowControls"
+                      Grid.Column="3"
+                      Orientation="Horizontal"
+                      Spacing="2"
+                      VerticalAlignment="Center"
+                      Margin="20,0,0,0">
+            <Button Classes="nx-btn-ghost" Padding="10,7"
+                    Click="OnMinimize"
+                    ToolTip.Tip="Minimize">
+              <TextBlock Text="—" FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextSecondaryBrush}"/>
+            </Button>
+            <Button Classes="nx-btn-ghost" Padding="10,7"
+                    Click="OnMaximize"
+                    ToolTip.Tip="Maximize">
+              <TextBlock Text="⬜" FontSize="{DynamicResource NxFont10}" Foreground="{DynamicResource TextSecondaryBrush}"/>
+            </Button>
+            <Button Classes="nx-btn-ghost" Padding="10,7"
+                    Click="OnClose"
+                    ToolTip.Tip="Close">
+              <TextBlock Text="✕" FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextSecondaryBrush}"/>
+            </Button>
           </StackPanel>
 
         </Grid>
