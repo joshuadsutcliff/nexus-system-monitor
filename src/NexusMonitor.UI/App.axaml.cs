@@ -174,6 +174,13 @@ public class App : Application
             //     data points are persisted and Rx subscriptions are released cleanly.
             desktop.ShutdownRequested += (_, _) =>
             {
+                // Page engine Phase 6: close every open pop-out window FIRST, before anything else
+                // in this handler — pop-out windows host live widget bindings into the services being
+                // torn down below, so they must be gone before any of those services stop. This also
+                // persists each pop-out's final geometry (still marked popped-out) so it reopens in
+                // the same place on next launch (DashboardViewModel.AttachOwnerWindow's restore path).
+                Services.GetRequiredService<DashboardViewModel>().PersistAndCloseAllPopOuts();
+
                 // Remove tray icon immediately so it doesn't ghost after process exit
                 _trayIcon?.Dispose();
                 _trayIcon = null;

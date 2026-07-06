@@ -1115,9 +1115,20 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     /// <item>Named <see cref="ThemeRef.PresetId"/>: routed through the existing <see cref="ApplyPreset"/>.</item>
     /// <item>Neither set (neutral): appearance is left untouched.</item>
     /// </list>
+    /// <para>
+    /// Page engine Phase 6 (pop-out windows): <see cref="WorkspaceProfileSwitchingMessage"/> is sent
+    /// FIRST, before <see cref="WorkspaceProfileStore.SetActive"/> flips the active pointer below.
+    /// DashboardViewModel owns the pop-out coordinator (this VM deliberately doesn't reach into it),
+    /// and its synchronous handler for that message persists every open pop-out's geometry into the
+    /// still-active OUTGOING profile and closes its windows — sending it any later, after
+    /// <c>SetActive</c>, would persist that same geometry into the newly-active INCOMING profile
+    /// instead, corrupting it with the outgoing page's widget layout.
+    /// </para>
     /// </summary>
     private void SwitchWorkspaceProfile(string name)
     {
+        WeakReferenceMessenger.Default.Send(new WorkspaceProfileSwitchingMessage(name));
+
         _profileStore.SetActive(name);
         var profile = _profileStore.LoadActive();
 

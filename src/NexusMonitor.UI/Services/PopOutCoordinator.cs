@@ -95,9 +95,11 @@ public sealed class PopOutCoordinator
     /// without opening a second one.
     /// </summary>
     /// <param name="widget">The widget to pop out. If <see cref="WidgetInstance.PopOut"/> already
-    /// holds remembered geometry (X/Y/Width/Height from a previous pop-out), that geometry is
-    /// reused, clamped to the live screen layout; otherwise the window is cascaded from the main
-    /// window's position at the default size.</param>
+    /// holds remembered geometry with a positive Width and Height (from a previous pop-out), that
+    /// geometry is reused, clamped to the live screen layout; otherwise — including a marked-popped-out
+    /// widget whose geometry is all-zero (a crash between marking it and this coordinator's first
+    /// capture; see <see cref="ViewModels.DashboardViewModel.PopOutWidget"/>) — the window is cascaded
+    /// from the main window's position at the default size.</param>
     public bool TryPopOut(WidgetInstance widget)
     {
         if (_open.ContainsKey(widget.InstanceId))
@@ -129,7 +131,15 @@ public sealed class PopOutCoordinator
         // Both branches clamp in physical space: remembered geometry may be stale (its monitor
         // could be gone), and a cascade default anchored near the main window can still land
         // partially off-screen close to an edge.
-        var geometry = widget.PopOut is { } remembered
+        //
+        // Width/Height > 0 is required (not just PopOut being non-null): a widget can be marked
+        // IsPoppedOut with all-zero geometry if the app crashes between PopOutWidget's initial
+        // zeroed-placeholder mark and the coordinator's first CaptureGeometry (see
+        // DashboardViewModel.PopOutWidget). ClampToScreens never grows a rect — ShiftTitleBarOnto
+        // only shifts position, and CenterInFallback takes Math.Min(window.Width, fallback.Width) —
+        // so feeding it a 0x0 rect would restore a 0x0 window instead of falling back to the normal
+        // cascade default. Treating that as "no remembered geometry" recovers cleanly instead.
+        var geometry = widget.PopOut is { Width: > 0, Height: > 0 } remembered
             ? WindowGeometry.ClampToScreens(
                 new ScreenRect(remembered.X, remembered.Y, remembered.Width, remembered.Height),
                 screens, fallback)

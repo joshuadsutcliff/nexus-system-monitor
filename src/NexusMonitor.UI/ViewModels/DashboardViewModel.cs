@@ -137,12 +137,28 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
             _healthService.Start(msg.Interval);
         });
 
+        // Page engine Phase 6: BEFORE SettingsViewModel flips the active workspace profile pointer,
+        // persist every open pop-out's live geometry into the (still active) OUTGOING profile and
+        // close its OS windows. WeakReferenceMessenger.Send is synchronous, so this fully completes
+        // — including the SaveActivePage() write inside PersistAndCloseAllPopOuts's callback chain,
+        // which reads _profileStore.LoadActive() — before SwitchWorkspaceProfile's very next line
+        // calls WorkspaceProfileStore.SetActive(name). Ordering matters: reversing it (persisting
+        // after SetActive) would read/save into the INCOMING profile instead, corrupting it with the
+        // OUTGOING page's widget layout.
+        WeakReferenceMessenger.Default.Register<WorkspaceProfileSwitchingMessage>(this, (_, _) =>
+        {
+            PersistAndCloseAllPopOuts();
+        });
+
         // Page engine Phase 5: reload the dashboard layout when the user switches the active
         // workspace profile in Settings. Theme is applied separately (synchronously, before this
-        // message is sent) by SettingsViewModel — this handler only ever touches layout.
+        // message is sent) by SettingsViewModel — this handler only ever touches layout. Phase 6:
+        // also restore the incoming profile's own popped-out widgets (RestorePopOuts is idempotent
+        // and guarded on UsePageEngine, same as AttachOwnerWindow's initial restore).
         WeakReferenceMessenger.Default.Register<WorkspaceProfileSwitchedMessage>(this, (_, _) =>
         {
             EnginePage = _profileStore?.LoadActive().Pages.GetValueOrDefault("dashboard") ?? EnginePage;
+            RestorePopOuts();
         });
     }
 
@@ -267,8 +283,39 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
 
     /// <summary>Wires the main window reference <see cref="PopOutCoordinator"/> needs to open and
     /// screen-clamp pop-out windows. Called by <see cref="Views.DashboardView"/> once it loads (not
-    /// available at VM construction time). Safe to call more than once.</summary>
-    public void AttachOwnerWindow(Window window) => _ownerWindow = window;
+    /// available at VM construction time). Safe to call more than once — <see cref="Views.DashboardView"/>
+    /// is recreated on every navigation to the Dashboard tab, so this fires again on each re-Loaded.
+    /// Also triggers <see cref="RestorePopOuts"/> (restore-on-launch): the very first attach is the
+    /// earliest point at which both a loaded <see cref="EnginePage"/> AND an owner window exist —
+    /// neither is available at VM construction time.</summary>
+    public void AttachOwnerWindow(Window window)
+    {
+        _ownerWindow = window;
+        RestorePopOuts();
+    }
+
+    /// <summary>Reopens a pop-out window for every widget on <see cref="EnginePage"/> whose
+    /// <see cref="WidgetInstance.PopOut"/> has <c>IsPoppedOut</c> true — i.e. every widget that was
+    /// still popped out the last time its state was persisted (app shutdown, a profile switch, or a
+    /// crash). No-ops entirely when the page engine isn't active (<see cref="UsePageEngine"/> —
+    /// the same guard <see cref="Views.DashboardView"/>'s XAML uses to show the engine page at all)
+    /// or no page is loaded. Called from <see cref="AttachOwnerWindow"/> (restore-on-launch) and
+    /// from the <see cref="WorkspaceProfileSwitchedMessage"/> handler (restore for the profile just
+    /// switched into). Idempotent and safe to call repeatedly — <see cref="PopOutCoordinator.TryPopOut"/>
+    /// is itself a no-op (returns true without opening a second window) for a widget it already has
+    /// open, so re-attaching the owner window (e.g. tab navigation back to Dashboard) never duplicates
+    /// windows.</summary>
+    private void RestorePopOuts()
+    {
+        if (!UsePageEngine || EnginePage is null) return;
+
+        _popOutCoordinator ??= CreateCoordinator();
+        if (_popOutCoordinator is null) return; // no owner window attached yet
+
+        foreach (var widget in EnginePage.Widgets)
+            if (widget.PopOut?.IsPoppedOut == true)
+                _popOutCoordinator.TryPopOut(widget);
+    }
 
     /// <summary>Lazily builds <see cref="_popOutCoordinator"/> the first time a pop-out is
     /// requested. Returns null (and the caller no-ops the open) if no owner window has been
@@ -326,6 +373,24 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
     /// conceptually still popped out — only its OS window is being torn down) with its final
     /// geometry, so it reopens in place on restore.</summary>
     private void OnPopOutPersistedForShutdown(Guid instanceId, PopOutState state) => ApplyPopOutStateAndSave(instanceId, state);
+
+    /// <summary>Persists every open pop-out's current geometry (still marked <c>IsPoppedOut</c> true —
+    /// see <see cref="OnPopOutPersistedForShutdown"/>) and closes their OS windows. No-op if no
+    /// pop-out has ever been opened this session (<see cref="_popOutCoordinator"/> is still null).
+    /// <para>
+    /// Two callers, both requiring the pop-out windows — which host live widget bindings into
+    /// services this VM depends on — to be torn down before anything they might reference stops:
+    /// </para>
+    /// <list type="bullet">
+    /// <item>App shutdown (<c>App.axaml.cs</c>'s <c>ShutdownRequested</c> handler): called as the
+    /// first step, before any service teardown.</item>
+    /// <item>A workspace-profile switch (<see cref="WorkspaceProfileSwitchingMessage"/>, sent by
+    /// <c>SettingsViewModel.SwitchWorkspaceProfile</c> before it flips the active profile pointer):
+    /// this persists each pop-out's geometry into the still-active OUTGOING profile. The incoming
+    /// profile's own popped-out widgets are then reopened via <see cref="RestorePopOuts"/> once
+    /// <see cref="WorkspaceProfileSwitchedMessage"/> reloads <see cref="EnginePage"/> from it.</item>
+    /// </list></summary>
+    public void PersistAndCloseAllPopOuts() => _popOutCoordinator?.PersistAndCloseAll();
 
     /// <summary>Applies a pop-out state change directly to the live page and persists it into the
     /// active workspace profile immediately — shared by every pop-out transition above, none of

@@ -24,3 +24,12 @@ public record PageEditModeChangedMessage(bool IsEditMode); // No consumers yet b
 /// engine Phase 5). Appearance is applied synchronously by SettingsViewModel before this is sent;
 /// DashboardViewModel registers for this to reload its EnginePage from the same profile's pages.</summary>
 public record WorkspaceProfileSwitchedMessage(string Name);
+
+/// <summary>Broadcast by <c>SettingsViewModel.SwitchWorkspaceProfile</c> BEFORE it flips the active
+/// workspace profile pointer (page engine Phase 6 — pop-out windows). DashboardViewModel registers
+/// for this to persist every open pop-out's geometry into the still-active OUTGOING profile and
+/// close its windows, ahead of <see cref="WorkspaceProfileSwitchedMessage"/> reloading the page from
+/// the newly-active INCOMING profile. Sending (and handling) this message is synchronous — the
+/// persist-and-close completes fully before <c>SwitchWorkspaceProfile</c>'s next line runs — which
+/// is exactly what makes the ordering safe: reversing it would read/write the wrong profile.</summary>
+public record WorkspaceProfileSwitchingMessage(string Name);
