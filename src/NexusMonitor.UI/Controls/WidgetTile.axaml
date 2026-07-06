@@ -1,7 +1,8 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="NexusMonitor.UI.Controls.WidgetTile">
-  <Border Background="{DynamicResource BgElevatedBrush}"
+  <Border Classes="nx-widget-chrome"
+          Background="{DynamicResource BgElevatedBrush}"
           BorderBrush="{DynamicResource GlassBorderBrush}"
           BorderThickness="1"
           CornerRadius="{StaticResource CornerMD}"

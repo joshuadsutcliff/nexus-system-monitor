@@ -9,6 +9,7 @@ using Microsoft.Win32;
 using CommunityToolkit.Mvvm.Messaging;
 using NexusMonitor.Core.Health;
 using NexusMonitor.Core.Models;
+using NexusMonitor.Core.Motion;
 using NexusMonitor.Core.Pages;
 using NexusMonitor.Core.Services;
 using NexusMonitor.UI.Messages;
@@ -247,6 +248,16 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
     [ObservableProperty] private bool _isGalleryOpen;
     /// <summary>True when the edit session has an undoable step.</summary>
     [ObservableProperty] private bool _canUndoEdit;
+
+    /// <summary>True when widget-tile hover lift should be able to animate — forwards to
+    /// <see cref="MotionSettingsService.EffectEnabled"/> for <see cref="MotionEffect.HoverEffects"/>.
+    /// Bound to <see cref="Controls.PageHostControl.HoverLiftEnabled"/> (see that property's doc
+    /// for why gating lives there rather than per-tile). Not an <c>[ObservableProperty]</c>: there
+    /// is no live settings-change notification to re-raise it from yet (AppSettings is a plain
+    /// POCO with no change events) — wiring a live Settings-page toggle for
+    /// <c>AnimateHoverEffects</c>/<c>AnimationSpeed</c> is Task 3's scope, matching the same
+    /// boundary <c>MotionSettingsService.Apply</c>'s own single startup call documents.</summary>
+    public bool HoverEffectsEnabled => MotionSettingsService.EffectEnabled(_settings, MotionEffect.HoverEffects);
 
     /// <summary>Enters edit mode over the current page.</summary>
     [RelayCommand]

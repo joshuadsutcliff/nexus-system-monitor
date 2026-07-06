@@ -72,4 +72,17 @@ public static class MotionMath
             _ => throw new ArgumentOutOfRangeException(nameof(effect), effect, "Unknown MotionEffect."),
         };
     }
+
+    /// <summary>
+    /// Maps <see cref="AppSettings.DepthIntensity"/> (expected range 0.0–1.0, clamped
+    /// defensively) to the alpha-channel multiplier <c>MotionSettingsService.Apply</c> applies to
+    /// the <c>ElevationRaised</c>/<c>ElevationFloating</c>/<c>ElevationModal</c> BoxShadows tokens
+    /// baked into <c>Themes/Colors.axaml</c>. Those baked-in tokens ARE the DepthIntensity == 0.5
+    /// (default) values, so the mapping is <c>clamp(depthIntensity, 0, 1) * 2</c>: 0.5 → 1.0x
+    /// (unchanged), 0.0 → 0.0x ("0 = shadowless"), 1.0 → 2.0x ("1 = 2x the default alphas") — per
+    /// the Phase 8 UI-polish plan's DepthIntensity mapping.
+    /// </summary>
+    /// <param name="depthIntensity">The user's <see cref="AppSettings.DepthIntensity"/> value.</param>
+    public static double DepthMultiplier(double depthIntensity) =>
+        Math.Clamp(depthIntensity, 0.0, 1.0) * 2.0;
 }

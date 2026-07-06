@@ -9,7 +9,8 @@
        root Border), which would make a user-placed widget vanish. Per plan, that visibility
        moves off the root: the root always renders; the live content is gated on HasPredictions,
        and a "No active predictions" fallback is gated on !HasPredictions. -->
-  <Border Padding="20,16"
+  <Border Classes="nx-widget-chrome"
+          Padding="20,16"
           HorizontalAlignment="Stretch"
           VerticalAlignment="Stretch"
           Background="{DynamicResource BgElevatedBrush}"

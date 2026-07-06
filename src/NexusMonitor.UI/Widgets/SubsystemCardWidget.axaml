@@ -5,7 +5,8 @@
              x:DataType="vm:SubsystemCardViewModel"
              x:CompileBindings="False">
 
-  <Border Padding="16"
+  <Border Classes="nx-widget-chrome"
+          Padding="16"
           HorizontalAlignment="Stretch"
           VerticalAlignment="Stretch"
           Background="{DynamicResource BgElevatedBrush}"

@@ -40,7 +40,8 @@
                Foreground="{DynamicResource TextPrimaryBrush}"/>
 
     <!-- ===== APPEARANCE ===== -->
-    <Border Padding="16"
+    <Border Classes="nx-settings-card"
+            Padding="16"
             Background="{DynamicResource BgElevatedBrush}"
             BorderBrush="{DynamicResource GlassBorderBrush}"
             BorderThickness="1"
@@ -106,7 +107,8 @@
     </Border>
 
     <!-- ===== TYPOGRAPHY ===== -->
-    <Border Padding="16"
+    <Border Classes="nx-settings-card"
+            Padding="16"
             Background="{DynamicResource BgElevatedBrush}"
             BorderBrush="{DynamicResource GlassBorderBrush}"
             BorderThickness="1"
@@ -168,7 +170,8 @@
     </Border>
 
     <!-- ===== ACCENT COLORS ===== -->
-    <Border Padding="16"
+    <Border Classes="nx-settings-card"
+            Padding="16"
             Background="{DynamicResource BgElevatedBrush}"
             BorderBrush="{DynamicResource GlassBorderBrush}"
             BorderThickness="1"
@@ -408,7 +411,8 @@
     </Border>
 
     <!-- ===== BACKGROUND & SURFACE COLORS ===== -->
-    <Border Padding="16"
+    <Border Classes="nx-settings-card"
+            Padding="16"
             Background="{DynamicResource BgElevatedBrush}"
             BorderBrush="{DynamicResource GlassBorderBrush}"
             BorderThickness="1"
@@ -723,7 +727,8 @@
     </Border>
 
     <!-- ===== CRYSTAL GLASS ===== -->
-    <Border Padding="16"
+    <Border Classes="nx-settings-card"
+            Padding="16"
             Background="{DynamicResource BgElevatedBrush}"
             BorderBrush="{DynamicResource GlassBorderBrush}"
             BorderThickness="1"
@@ -823,7 +828,8 @@
     </Border>
 
     <!-- ===== DESKTOP OVERLAY ===== -->
-    <Border Padding="16"
+    <Border Classes="nx-settings-card"
+            Padding="16"
             Background="{DynamicResource BgElevatedBrush}"
             BorderBrush="{DynamicResource GlassBorderBrush}"
             BorderThickness="1"
@@ -847,7 +853,8 @@
     </Border>
 
     <!-- ===== NOTIFICATIONS ===== -->
-    <Border Padding="16"
+    <Border Classes="nx-settings-card"
+            Padding="16"
             Background="{DynamicResource BgElevatedBrush}"
             BorderBrush="{DynamicResource GlassBorderBrush}"
             BorderThickness="1"
@@ -872,7 +879,8 @@
     </Border>
 
     <!-- ===== SYSTEM TRAY ===== -->
-    <Border Padding="16"
+    <Border Classes="nx-settings-card"
+            Padding="16"
             Background="{DynamicResource BgElevatedBrush}"
             BorderBrush="{DynamicResource GlassBorderBrush}"
             BorderThickness="1"
@@ -942,7 +950,8 @@
     </Border>
 
     <!-- ===== METRICS & HISTORY ===== -->
-    <Border Padding="16"
+    <Border Classes="nx-settings-card"
+            Padding="16"
             Background="{DynamicResource BgElevatedBrush}"
             BorderBrush="{DynamicResource GlassBorderBrush}"
             BorderThickness="1"
@@ -969,7 +978,8 @@
     </Border>
 
     <!-- ===== ANOMALY DETECTION ===== -->
-    <Border Padding="16"
+    <Border Classes="nx-settings-card"
+            Padding="16"
             Background="{DynamicResource BgElevatedBrush}"
             BorderBrush="{DynamicResource GlassBorderBrush}"
             BorderThickness="1"
@@ -1062,7 +1072,8 @@
     </Border>
 
     <!-- ===== TELEMETRY ===== -->
-    <Border Padding="16"
+    <Border Classes="nx-settings-card"
+            Padding="16"
             Background="{DynamicResource BgElevatedBrush}"
             BorderBrush="{DynamicResource GlassBorderBrush}"
             BorderThickness="1"
@@ -1229,7 +1240,8 @@
     </Border>
 
     <!-- ===== WEBHOOK NOTIFICATIONS ===== -->
-    <Border Padding="16"
+    <Border Classes="nx-settings-card"
+            Padding="16"
             Background="{DynamicResource BgElevatedBrush}"
             BorderBrush="{DynamicResource GlassBorderBrush}"
             BorderThickness="1"
@@ -1298,7 +1310,8 @@
     </Border>
 
     <!-- ===== RESOURCE PREDICTIONS ===== -->
-    <Border Padding="16"
+    <Border Classes="nx-settings-card"
+            Padding="16"
             Background="{DynamicResource BgElevatedBrush}"
             BorderBrush="{DynamicResource GlassBorderBrush}"
             BorderThickness="1"
@@ -1327,7 +1340,8 @@
     </Border>
 
     <!-- ===== SAVED PROCESS PREFERENCES ===== -->
-    <Border Padding="16"
+    <Border Classes="nx-settings-card"
+            Padding="16"
             Background="{DynamicResource BgElevatedBrush}"
             BorderBrush="{DynamicResource GlassBorderBrush}"
             BorderThickness="1"
@@ -1388,7 +1402,8 @@
     </Border>
 
     <!-- ===== UPDATES ===== -->
-    <Border Padding="16"
+    <Border Classes="nx-settings-card"
+            Padding="16"
             Background="{DynamicResource BgElevatedBrush}"
             BorderBrush="{DynamicResource GlassBorderBrush}"
             BorderThickness="1"
@@ -1423,7 +1438,8 @@
     </Border>
 
     <!-- ===== WORKSPACE PROFILES ===== -->
-    <Border Padding="16"
+    <Border Classes="nx-settings-card"
+            Padding="16"
             Background="{DynamicResource BgElevatedBrush}"
             BorderBrush="{DynamicResource GlassBorderBrush}"
             BorderThickness="1"
@@ -1485,7 +1501,8 @@
     </Border>
 
     <!-- ===== ABOUT ===== -->
-    <Border Padding="16"
+    <Border Classes="nx-settings-card"
+            Padding="16"
             Background="{DynamicResource BgElevatedBrush}"
             BorderBrush="{DynamicResource GlassBorderBrush}"
             BorderThickness="1"

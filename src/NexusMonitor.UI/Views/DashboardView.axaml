@@ -73,7 +73,9 @@
                     VerticalScrollBarVisibility="Auto"
                     Padding="20,0,20,20">
         <Panel>
-          <controls:PageHostControl Page="{Binding EnginePage}"/>
+          <controls:PageHostControl Page="{Binding EnginePage}"
+                                     IsEditMode="{Binding IsEditMode}"
+                                     HoverLiftEnabled="{Binding HoverEffectsEnabled}"/>
           <controls:EditAdornerControl x:Name="EditAdorner"
                                        Page="{Binding EnginePage}"
                                        IsActive="{Binding IsEditMode}"/>

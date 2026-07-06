@@ -5,7 +5,8 @@
              x:DataType="vm:DashboardViewModel"
              x:CompileBindings="False">
 
-  <Border Padding="24,20"
+  <Border Classes="nx-widget-chrome"
+          Padding="24,20"
           HorizontalAlignment="Stretch"
           VerticalAlignment="Stretch"
           Background="{DynamicResource BgElevatedBrush}"

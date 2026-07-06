@@ -1,11 +1,13 @@
 using Avalonia;
+using Avalonia.Media;
+using Avalonia.Styling;
 using NexusMonitor.Core.Models;
 using NexusMonitor.Core.Motion;
 
 namespace NexusMonitor.UI.Services;
 
 /// <summary>
-/// Applies AppSettings' animation/motion preferences to the app's live Avalonia resource
+/// Applies AppSettings' animation/motion/depth preferences to the app's live Avalonia resource
 /// dictionary and exposes per-effect gating for XAML/code consumers.
 ///
 /// <see cref="Apply"/> writes three duration tokens into <see cref="Application.Current"/>'s
@@ -20,7 +22,21 @@ namespace NexusMonitor.UI.Services;
 /// <see cref="EffectEnabled"/> return false for every <see cref="MotionEffect"/>, regardless of
 /// the individual per-effect toggle — "0 = everything instant" per the Phase 8 UI-polish plan.
 ///
-/// The duration-scaling and per-effect gating math itself lives in
+/// <see cref="Apply"/> also writes three elevation tokens — <c>ElevationRaised</c>/
+/// <c>ElevationFloating</c>/<c>ElevationModal</c> (each a <see cref="BoxShadows"/>) — scaled by
+/// <see cref="AppSettings.DepthIntensity"/> via <see cref="MotionMath.DepthMultiplier"/>: each
+/// shadow stop's alpha channel is multiplied by the resulting 0.0–2.0x factor (0 = shadowless,
+/// 0.5 = unchanged/baked-in default, 1.0 = 2x). The BASE shadow values scaled from are this
+/// class's own <see cref="DarkElevationBase"/>/<see cref="LightElevationBase"/> constants — picked
+/// by <see cref="Application.RequestedThemeVariant"/> — NOT read back from
+/// <see cref="Application.Current"/>'s resources, so repeated <see cref="Apply"/> calls (e.g. a
+/// future live DepthIntensity-slider wiring) always recompute from the same fixed base instead of
+/// compounding an already-scaled value. <c>Themes/Colors.axaml</c>'s per-theme
+/// <c>ElevationRaised</c>/<c>Floating</c>/<c>Modal</c> ThemeDictionary entries carry the identical
+/// numeric values as design-time/preview seeds (same relationship as <c>Themes/Motion.axaml</c>
+/// to the duration constants above) and are otherwise unused once this service has run.
+///
+/// The duration-scaling, depth-multiplier, and per-effect gating math itself lives in
 /// <see cref="NexusMonitor.Core.Motion.MotionMath"/> (Core), which carries the unit tests for
 /// this logic — the UI assembly has no test project of its own.
 /// </summary>
@@ -30,13 +46,26 @@ public sealed class MotionSettingsService
     private static readonly TimeSpan BaseBaseDuration  = TimeSpan.FromMilliseconds(180);
     private static readonly TimeSpan SlowBaseDuration  = TimeSpan.FromMilliseconds(280);
 
+    // Elevation scaling bases — byte-for-byte identical to Themes/Colors.axaml's ThemeDictionary
+    // seeds (see that file's comments for the packet citation/rationale). Hardcoded here rather
+    // than read back from Application.Current's resources so Apply() is idempotent under repeat
+    // calls (see class doc).
+    private static readonly BoxShadows DarkElevationRaisedBase   = BoxShadows.Parse("0 1 2 0 #14000000");
+    private static readonly BoxShadows DarkElevationFloatingBase = BoxShadows.Parse("0 3 10 0 #2E000000, 0 1 3 0 #1F000000");
+    private static readonly BoxShadows DarkElevationModalBase    = BoxShadows.Parse("0 8 40 0 #66000000, 0 2 8 0 #33000000");
+
+    private static readonly BoxShadows LightElevationRaisedBase   = BoxShadows.Parse("0 1 3 0 #1F000000, 0 2 6 0 #14000000");
+    private static readonly BoxShadows LightElevationFloatingBase = BoxShadows.Parse("0 4 14 0 #29000000, 0 1 4 0 #1A000000");
+    private static readonly BoxShadows LightElevationModalBase    = BoxShadows.Parse("0 8 40 0 #66000000, 0 2 8 0 #33000000");
+
     /// <summary>Raised after <see cref="Apply"/> has written the recomputed durations into
     /// <see cref="Application.Current"/>'s resources.</summary>
     public event Action? MotionChanged;
 
     /// <summary>
     /// Recomputes <c>MotionFast</c>/<c>MotionBase</c>/<c>MotionSlow</c> from
-    /// <paramref name="settings"/>.AnimationSpeed and writes them into
+    /// <paramref name="settings"/>.AnimationSpeed and <c>ElevationRaised</c>/<c>Floating</c>/
+    /// <c>Modal</c> from <paramref name="settings"/>.DepthIntensity, writes them into
     /// <see cref="Application.Current"/>'s resource dictionary, then raises
     /// <see cref="MotionChanged"/>. No-ops (and does not raise the event) if
     /// <see cref="Application.Current"/> is null — e.g. if ever called before the Avalonia
@@ -44,14 +73,47 @@ public sealed class MotionSettingsService
     /// </summary>
     public void Apply(AppSettings settings)
     {
-        var resources = Application.Current?.Resources;
-        if (resources is null) return;
+        var app = Application.Current;
+        var resources = app?.Resources;
+        if (app is null || resources is null) return;
 
         resources["MotionFast"] = MotionMath.Scale(FastBaseDuration, settings.AnimationSpeed);
         resources["MotionBase"] = MotionMath.Scale(BaseBaseDuration, settings.AnimationSpeed);
         resources["MotionSlow"] = MotionMath.Scale(SlowBaseDuration, settings.AnimationSpeed);
 
+        var isLight = app.RequestedThemeVariant == ThemeVariant.Light;
+        var multiplier = MotionMath.DepthMultiplier(settings.DepthIntensity);
+        resources["ElevationRaised"]   = ScaleShadowAlpha(isLight ? LightElevationRaisedBase   : DarkElevationRaisedBase,   multiplier);
+        resources["ElevationFloating"] = ScaleShadowAlpha(isLight ? LightElevationFloatingBase : DarkElevationFloatingBase, multiplier);
+        resources["ElevationModal"]    = ScaleShadowAlpha(isLight ? LightElevationModalBase    : DarkElevationModalBase,    multiplier);
+
         MotionChanged?.Invoke();
+    }
+
+    /// <summary>Returns a copy of <paramref name="source"/> with every shadow stop's <see
+    /// cref="Color.A"/> multiplied by <paramref name="multiplier"/> (clamped to a valid byte) —
+    /// offsets, blur, spread, and inset are left untouched.</summary>
+    private static BoxShadows ScaleShadowAlpha(BoxShadows source, double multiplier)
+    {
+        if (source.Count == 0) return source;
+
+        var stops = new BoxShadow[source.Count];
+        for (var i = 0; i < source.Count; i++)
+        {
+            var stop = source[i];
+            var scaledAlpha = (byte)Math.Clamp(stop.Color.A * multiplier, 0, 255);
+            stops[i] = new BoxShadow
+            {
+                OffsetX = stop.OffsetX,
+                OffsetY = stop.OffsetY,
+                Blur    = stop.Blur,
+                Spread  = stop.Spread,
+                Color   = new Color(scaledAlpha, stop.Color.R, stop.Color.G, stop.Color.B),
+                IsInset = stop.IsInset,
+            };
+        }
+
+        return stops.Length == 1 ? new BoxShadows(stops[0]) : new BoxShadows(stops[0], stops[1..]);
     }
 
     /// <summary>

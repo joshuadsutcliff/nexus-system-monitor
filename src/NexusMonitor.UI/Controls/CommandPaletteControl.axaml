@@ -45,7 +45,7 @@
             Background="{DynamicResource GlassBgBrush}"
             BorderBrush="{DynamicResource GlassBorderBrush}"
             BorderThickness="1"
-            BoxShadow="0 8 40 0 #66000000, 0 2 8 0 #33000000"
+            BoxShadow="{DynamicResource ElevationModal}"
             PointerPressed="OnCardPointerPressed">
 
       <StackPanel>

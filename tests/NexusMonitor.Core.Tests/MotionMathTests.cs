@@ -96,4 +96,69 @@ public class MotionMathTests
         MotionMath.EffectEnabled(settings, MotionEffect.ValueChanges).Should().BeTrue();
         MotionMath.EffectEnabled(settings, MotionEffect.SpecularShimmer).Should().BeFalse();
     }
+
+    [Fact]
+    public void EffectEnabled_NegativeSpeed_AllEffectsFalse()
+    {
+        // Task 1 follow-up: EffectEnabled's speed<=0 short-circuit was only ever exercised at
+        // exactly 0.0 (EffectEnabled_SpeedZero_AllEffectsFalse_EvenIfToggleTrue above). A negative
+        // AnimationSpeed should never occur in practice (the settings UI clamps to 0.0–2.0), but
+        // the "<= 0.0" guard is written defensively — this locks that in, mirroring
+        // Scale_NegativeSpeed_ReturnsZero's coverage of the analogous Scale() guard.
+        var settings = new AppSettings
+        {
+            AnimationSpeed          = -1.0,
+            AnimatePageTransitions  = true,
+            AnimateHoverEffects     = true,
+            AnimatePopOutMotion     = true,
+            AnimateEditChrome       = true,
+            AnimateValueChanges     = true,
+            AnimateSpecularShimmer  = true,
+        };
+
+        MotionMath.EffectEnabled(settings, MotionEffect.PageTransitions).Should().BeFalse();
+        MotionMath.EffectEnabled(settings, MotionEffect.HoverEffects).Should().BeFalse();
+        MotionMath.EffectEnabled(settings, MotionEffect.PopOutMotion).Should().BeFalse();
+        MotionMath.EffectEnabled(settings, MotionEffect.EditChrome).Should().BeFalse();
+        MotionMath.EffectEnabled(settings, MotionEffect.ValueChanges).Should().BeFalse();
+        MotionMath.EffectEnabled(settings, MotionEffect.SpecularShimmer).Should().BeFalse();
+    }
+
+    // ── DepthMultiplier ──────────────────────────────────────────────────────
+
+    [Fact]
+    public void DepthMultiplier_DefaultIntensity_ReturnsOne()
+    {
+        // AppSettings.DepthIntensity defaults to 0.5 — the elevation tokens baked into
+        // Colors.axaml ARE the 0.5 values, so 0.5 must map to a 1.0x (unchanged) multiplier.
+        MotionMath.DepthMultiplier(0.5).Should().Be(1.0);
+    }
+
+    [Fact]
+    public void DepthMultiplier_Zero_ReturnsZero()
+    {
+        // "0 = shadowless" per the Phase 8 plan.
+        MotionMath.DepthMultiplier(0.0).Should().Be(0.0);
+    }
+
+    [Fact]
+    public void DepthMultiplier_One_ReturnsTwo()
+    {
+        // "1 = 2x the default alphas" per the Phase 8 plan.
+        MotionMath.DepthMultiplier(1.0).Should().Be(2.0);
+    }
+
+    [Fact]
+    public void DepthMultiplier_NegativeIntensity_ClampsToZero()
+    {
+        // Defensive: DepthIntensity is UI-range-clamped to 0.0-1.0, but the helper itself must not
+        // produce a negative multiplier (which would need a negative alpha) if ever called out of range.
+        MotionMath.DepthMultiplier(-0.5).Should().Be(0.0);
+    }
+
+    [Fact]
+    public void DepthMultiplier_AboveOne_ClampsToTwo()
+    {
+        MotionMath.DepthMultiplier(1.5).Should().Be(2.0);
+    }
 }

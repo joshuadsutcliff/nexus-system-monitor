@@ -13,7 +13,7 @@
 
   <Border x:Name="RootBorder"
           CornerRadius="16"
-          BoxShadow="0 4 24 0 #44000000, 0 1 4 0 #22000000"
+          BoxShadow="{DynamicResource ElevationModal}"
           Background="{DynamicResource GlassBgBrush}"
           BorderBrush="{DynamicResource GlassBorderBrush}"
           BorderThickness="1"

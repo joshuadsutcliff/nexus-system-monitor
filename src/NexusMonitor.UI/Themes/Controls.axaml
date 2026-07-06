@@ -1,5 +1,6 @@
 <Styles xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="using:NexusMonitor.UI.Controls">
 
   <!-- ===== BUTTON — Elevated ===== -->
   <Style Selector="Button.nx-btn">
@@ -268,6 +269,52 @@
   </Style>
   <Style Selector="DataGridColumnHeader">
     <Setter Property="MinWidth" Value="60"/>
+  </Style>
+
+  <!-- ===== SETTINGS CARD — Phase 8 elevation ===== -->
+  <!-- Applied alongside SettingsView.axaml's own explicit Background/BorderBrush/CornerRadius
+       (17 identical card Borders) — this style only adds the one thing none of them set inline:
+       the resting elevation. -->
+  <Style Selector="Border.nx-settings-card">
+    <Setter Property="BoxShadow" Value="{DynamicResource ElevationRaised}" />
+  </Style>
+
+  <!-- ===== WIDGET TILE CHROME — Phase 8 elevation + hover lift ===== -->
+  <!--
+    Shared chrome style for every dashboard widget tile's root Border (WidgetTile.axaml,
+    Widgets/*.axaml, Views/HealthTrendsView.axaml) — applied via Classes="nx-widget-chrome"
+    alongside each file's own existing Background/BorderBrush/CornerRadius (left untouched; those
+    already vary slightly — CornerMD vs CornerLG — so this style only owns the NEW elevation/lift
+    behavior, not the pre-existing chrome properties).
+
+    Hover lift is gated two ways, both required:
+      - "hover-lift-enabled" class on the ancestor PageHostControl — reflects
+        MotionSettingsService.EffectEnabled(settings, MotionEffect.HoverEffects) (see
+        DashboardViewModel.HoverEffectsEnabled / PageHostControl.HoverLiftEnabled).
+      - ":not(.edit-mode)" on the same PageHostControl — reflects DashboardViewModel.IsEditMode.
+        Belt-and-suspenders: EditAdornerControl already becomes hit-test-visible over the whole
+        page in edit mode ("adorner owns gestures"), which independently prevents the pointer from
+        ever reaching a tile's Border to trigger :pointerover in the first place — this class gate
+        makes that guarantee explicit/structural rather than relying solely on that hit-testing
+        side effect.
+    PageHostControl is the single visual-tree ancestor common to every tile regardless of the
+    tile's own DataContext (several widget types rebind DataContext away from DashboardViewModel),
+    so gating there — rather than a per-tile {Binding !IsEditMode} — works uniformly. See
+    PageHostControl.IsEditModeProperty's doc for the full rationale.
+  -->
+  <Style Selector="Border.nx-widget-chrome">
+    <Setter Property="BoxShadow" Value="{DynamicResource ElevationRaised}" />
+    <Setter Property="RenderTransform" Value="none" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <BoxShadowsTransition Property="BoxShadow" Duration="{DynamicResource MotionFast}" />
+        <TransformOperationsTransition Property="RenderTransform" Duration="{DynamicResource MotionFast}" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="controls|PageHostControl.hover-lift-enabled:not(.edit-mode) Border.nx-widget-chrome:pointerover">
+    <Setter Property="BoxShadow" Value="{DynamicResource ElevationFloating}" />
+    <Setter Property="RenderTransform" Value="translateY(-1px) scale(1.005)" />
   </Style>
 
 </Styles>

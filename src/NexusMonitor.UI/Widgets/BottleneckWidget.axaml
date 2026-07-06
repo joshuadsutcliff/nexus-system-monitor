@@ -10,7 +10,8 @@
        escape via $parent[UserControl].DataContext.RunAnalysisCommand. The inner Border
        (the classic section's own root Border, lifted verbatim) carries
        DataContext="{Binding BottleneckCard}" for everything else in the card. -->
-  <Border Padding="20,16"
+  <Border Classes="nx-widget-chrome"
+          Padding="20,16"
           HorizontalAlignment="Stretch"
           VerticalAlignment="Stretch"
           Background="{DynamicResource BgElevatedBrush}"

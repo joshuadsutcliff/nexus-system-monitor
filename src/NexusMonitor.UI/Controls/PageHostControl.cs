@@ -22,10 +22,32 @@ public sealed class PageHostControl : Panel
     public static readonly StyledProperty<double> CellGapProperty =
         AvaloniaProperty.Register<PageHostControl, double>(nameof(CellGap), PageMetrics.DefaultCellGap);
 
+    /// <summary>True while the dashboard is in edit mode. Phase 8 UI polish: toggles the
+    /// "edit-mode" style class (mirroring <see cref="EditAdornerControl.IsActiveProperty"/>'s own
+    /// class-handler idiom) so <c>Themes/Controls.axaml</c>'s widget-tile hover-lift style can gate
+    /// on <c>PageHostControl:not(.edit-mode)</c> — this control is the one visual-tree ancestor
+    /// common to every rendered widget tile regardless of the tile's own DataContext (several
+    /// widget types rebind DataContext away from DashboardViewModel, e.g. the four SubsystemCard
+    /// instances, so a per-tile <c>{Binding !IsEditMode}</c> isn't reachable uniformly — gating via
+    /// this control's own class instead sidesteps that). Bound from <see cref="Views.DashboardView"/>
+    /// to <c>DashboardViewModel.IsEditMode</c>.</summary>
+    public static readonly StyledProperty<bool> IsEditModeProperty =
+        AvaloniaProperty.Register<PageHostControl, bool>(nameof(IsEditMode));
+
+    /// <summary>True when widget-tile hover lift should be able to animate — Phase 8 UI polish:
+    /// toggles the "hover-lift-enabled" style class, gating the same hover-lift style referenced by
+    /// <see cref="IsEditModeProperty"/>'s doc independently of edit mode. Bound from <see
+    /// cref="Views.DashboardView"/> to <c>DashboardViewModel.HoverEffectsEnabled</c>, which forwards
+    /// to <c>MotionSettingsService.EffectEnabled(settings, MotionEffect.HoverEffects)</c>.</summary>
+    public static readonly StyledProperty<bool> HoverLiftEnabledProperty =
+        AvaloniaProperty.Register<PageHostControl, bool>(nameof(HoverLiftEnabled));
+
     static PageHostControl()
     {
         PageProperty.Changed.AddClassHandler<PageHostControl>((c, _) => c.RebuildChildren());
         AffectsMeasure<PageHostControl>(PageProperty, CellHeightProperty, CellGapProperty);
+        IsEditModeProperty.Changed.AddClassHandler<PageHostControl>((c, e) => c.Classes.Set("edit-mode", (bool?)e.NewValue ?? false));
+        HoverLiftEnabledProperty.Changed.AddClassHandler<PageHostControl>((c, e) => c.Classes.Set("hover-lift-enabled", (bool?)e.NewValue ?? false));
     }
 
     /// <summary>The page to render.</summary>
@@ -36,6 +58,12 @@ public sealed class PageHostControl : Panel
 
     /// <summary>Gap between cells in pixels.</summary>
     public double CellGap { get => GetValue(CellGapProperty); set => SetValue(CellGapProperty, value); }
+
+    /// <summary>True while the dashboard is in edit mode.</summary>
+    public bool IsEditMode { get => GetValue(IsEditModeProperty); set => SetValue(IsEditModeProperty, value); }
+
+    /// <summary>True when widget-tile hover lift is allowed to animate.</summary>
+    public bool HoverLiftEnabled { get => GetValue(HoverLiftEnabledProperty); set => SetValue(HoverLiftEnabledProperty, value); }
 
     private void RebuildChildren()
     {
