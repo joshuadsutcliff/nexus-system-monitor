@@ -211,6 +211,11 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     // ── Typography ────────────────────────────────────────────────────────────
     [ObservableProperty] private string _fontFamily          = "";
     [ObservableProperty] private double _fontSizeMultiplier  = 1.0;
+    /// <summary>Phase 8 UI polish (Task 4): gates DynamicTypeScale — when true, widget-tile
+    /// headline/value text scales with the tile's resized bounds on top of FontSizeMultiplier;
+    /// when false, those TextBlocks show the plain FontSizeMultiplier-scaled size (fixed,
+    /// pre-Task-4 behavior).</summary>
+    [ObservableProperty] private bool   _scaleTextWithWidgetSize = true;
 
     // ── Performance ───────────────────────────────────────────────────────────
     [ObservableProperty] private int _updateIntervalIndex = 1; // 0=500ms 1=1s 2=2s 3=5s
@@ -425,6 +430,7 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         _customSidebarBgHex = settings.Current.CustomSidebarBgHex;
         _fontFamily              = settings.Current.FontFamily;
         _fontSizeMultiplier      = settings.Current.FontSizeMultiplier;
+        _scaleTextWithWidgetSize = settings.Current.ScaleTextWithWidgetSize;
         _showOverlayWidget             = settings.Current.ShowOverlayWidget;
         _desktopNotificationsEnabled   = settings.Current.DesktopNotificationsEnabled;
         _anomalyNotificationsEnabled   = settings.Current.AnomalyNotificationsEnabled;
@@ -771,6 +777,18 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
             MarkCustomPreset();
             ApplyFont(FontFamily, value);
         }
+    }
+
+    /// <summary>Phase 8 UI polish (Task 4): persists the toggle and pokes
+    /// <see cref="Controls.DynamicTypeScale.NotifySettingsChanged"/> so every live widget-tile
+    /// headline/value TextBlock re-evaluates its gating immediately — see that method's own doc
+    /// comment for why a dedicated notification hook is used instead of
+    /// MotionSettingsService.MotionChanged (whose Apply() never touches this setting).</summary>
+    partial void OnScaleTextWithWidgetSizeChanged(bool value)
+    {
+        _settings.Current.ScaleTextWithWidgetSize = value;
+        _settings.Save();
+        Controls.DynamicTypeScale.NotifySettingsChanged();
     }
 
     partial void OnCloseActionIndexChanged(int value)

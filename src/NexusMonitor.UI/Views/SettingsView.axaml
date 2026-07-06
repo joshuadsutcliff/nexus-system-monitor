@@ -169,6 +169,19 @@
                   VerticalAlignment="Center"/>
         </Grid>
 
+        <!-- Scale text with widget size (Phase 8 UI polish, Task 4) -->
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel Grid.Column="0">
+            <TextBlock Text="Scale text with widget size" FontSize="{DynamicResource NxFont13}"
+                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+            <TextBlock Text="Widget headline and value text grows or shrinks with the tile's own size, on top of Font Size above"
+                       FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"
+                       TextWrapping="Wrap" Margin="0,2,0,0"/>
+          </StackPanel>
+          <ToggleButton Grid.Column="1" Classes="nx-toggle" IsChecked="{Binding ScaleTextWithWidgetSize}"
+                        VerticalAlignment="Center"/>
+        </Grid>
+
       </StackPanel>
     </Border>
 

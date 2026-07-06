@@ -5,6 +5,10 @@ using Avalonia.Controls.Presenters;
 using Avalonia.Input;
 using Avalonia.Media.Transformation;
 using Avalonia.Threading;
+using Microsoft.Extensions.DependencyInjection;
+using NexusMonitor.Core.Motion;
+using NexusMonitor.Core.Services;
+using NexusMonitor.UI.Services;
 using NexusMonitor.UI.ViewModels;
 
 namespace NexusMonitor.UI.Views;
@@ -21,10 +25,62 @@ public partial class PerformanceView : UserControl
     private Control? _dragGrid;
     private const double GripWidth = 16.0;
 
+    // ── Phase 8 UI polish (Task 4 fold-in): device-detail page transition ────
+    private readonly MotionSettingsService _motionSettingsService;
+
     public PerformanceView()
     {
         InitializeComponent();
         Loaded += (_, _) => SetupDrag();
+
+        // Mirrors MainWindow.axaml.cs's own PageHost wiring (Task 3): App.axaml.cs's
+        // OnFrameworkInitializationCompleted calls MotionSettingsService.Apply(saved.Current)
+        // before any window/view is constructed, so App.Services and the MotionFast resource are
+        // already live here. Unlike MainWindow (a Window with a Closed event), this is a
+        // UserControl reconstructed on every Performance nav visit — Unloaded fires when it's
+        // removed from the tree (navigating away), so the subscription is torn down each time
+        // rather than leaking a chain of dead PerformanceView instances on the singleton event.
+        _motionSettingsService = App.Services.GetRequiredService<MotionSettingsService>();
+        _motionSettingsService.MotionChanged += OnMotionSettingsChanged;
+        UpdateDeviceTransition();
+        Unloaded += (_, _) => _motionSettingsService.MotionChanged -= OnMotionSettingsChanged;
+    }
+
+    /// <summary>Phase 8 UI polish (Task 4 fold-in): raised by <see
+    /// cref="MotionSettingsService.MotionChanged"/> whenever the ANIMATIONS settings page applies
+    /// a change — re-evaluates the device-detail cross-fade gate live.</summary>
+    private void OnMotionSettingsChanged() => UpdateDeviceTransition();
+
+    /// <summary>
+    /// Sets <see cref="DeviceHost"/>'s <c>PageTransition</c> from the current settings — a <see
+    /// cref="CrossFade"/> using the live <c>MotionFast</c> duration (this cross-fade was 120ms
+    /// pre-migration, the fastest of the three Motion buckets, unlike MainWindow's 180ms
+    /// top-level page swap which uses MotionBase) when <see cref="MotionEffect.PageTransitions"/>
+    /// is enabled, or <see langword="null"/> (instant swap) when it's disabled or
+    /// <c>AnimationSpeed</c> is 0. Reuses <see cref="MotionEffect.PageTransitions"/> rather than a
+    /// new effect — this is the same class of "swap the visible content" cross-fade as
+    /// MainWindow's top-level page transition, just scoped to switching between selected
+    /// performance devices instead of top-level nav tabs. Called once from the constructor and
+    /// again on every <see cref="MotionSettingsService.MotionChanged"/>.
+    /// </summary>
+    private void UpdateDeviceTransition()
+    {
+        var settings = App.Services.GetRequiredService<SettingsService>().Current;
+        DeviceHost.PageTransition = MotionSettingsService.EffectEnabled(settings, MotionEffect.PageTransitions)
+            ? new CrossFade(ResolveMotionFast())
+            : null;
+    }
+
+    /// <summary>Reads the live <c>MotionFast</c> duration <see cref="MotionSettingsService.Apply"/>
+    /// already wrote into <see cref="Application.Current"/>'s resources (falling back to 120ms —
+    /// this cross-fade's original pre-migration literal — if it's ever missing). See
+    /// MainWindow.axaml.cs's <c>ResolveMotionBase</c> for why a CrossFade's Duration can't just be
+    /// a live XAML <c>{DynamicResource}</c> binding.</summary>
+    private static TimeSpan ResolveMotionFast()
+    {
+        if (Application.Current?.Resources.TryGetValue("MotionFast", out var raw) == true && raw is TimeSpan ts)
+            return ts;
+        return TimeSpan.FromMilliseconds(120);
     }
 
     // ── Click-to-select on the item body ─────────────────────────────────────

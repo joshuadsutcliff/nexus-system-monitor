@@ -1,10 +1,14 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:NexusMonitor.UI.ViewModels"
+             xmlns:controls="using:NexusMonitor.UI.Controls"
              x:Class="NexusMonitor.UI.Widgets.TopConsumersWidget"
              x:DataType="vm:DashboardViewModel"
              x:CompileBindings="False">
 
+  <!-- Phase 8 UI polish (Task 4): DynamicTypeScale.IsHost measures this Border's own arranged
+       bounds to drive the "Top Resource Consumers" title below (list-style widget, no single big
+       "value" — per-process Name/CPU%/Memory text is body/detail, out of dynamic-type scope). -->
   <Border Classes="nx-widget-chrome"
           Padding="20,16"
           HorizontalAlignment="Stretch"
@@ -12,12 +16,13 @@
           Background="{DynamicResource BgElevatedBrush}"
           BorderBrush="{DynamicResource GlassBorderBrush}"
           BorderThickness="1"
-          CornerRadius="{StaticResource CornerLG}">
+          CornerRadius="{StaticResource CornerLG}"
+          controls:DynamicTypeScale.IsHost="True">
     <StackPanel Spacing="10">
       <Grid ColumnDefinitions="*,Auto">
         <StackPanel Grid.Column="0" Spacing="2">
           <TextBlock Text="Top Resource Consumers"
-                     FontSize="{DynamicResource NxFont14}" FontWeight="SemiBold"
+                     controls:DynamicTypeScale.FontSizeKey="NxFont14" FontWeight="SemiBold"
                      Foreground="{DynamicResource TextPrimaryBrush}"/>
           <TextBlock Text="Apps having the biggest impact on your system"
                      FontSize="{DynamicResource NxFont12}"
