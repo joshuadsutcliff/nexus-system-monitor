@@ -1933,10 +1933,17 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
 
         // Scale all NxFont* and FontSize* resource tokens so {DynamicResource} bindings update instantly.
         double m = Math.Clamp(multiplier, 0.5, 3.0);
+        // NOTE (gate fix bundle, Finding 3): this array previously omitted NxFont15/NxFont20/
+        // NxFont28 — exactly the keys HealthScoreWidget.OverallScore, SubsystemCardWidget.Level,
+        // and BottleneckWidget.Headline consume via DynamicTypeScale.FontSizeKeyProperty — so
+        // FontSizeMultiplier was a silent no-op on the three biggest dashboard numbers. Every
+        // NxFont* key defined in Themes/Typography.axaml is now covered (verified by inspection);
+        // no other keys were missing.
         (string Key, double Base)[] fontTokens =
         [
             ("NxFont10", 12), ("NxFont11", 13), ("NxFont12", 14), ("NxFont13", 15),
-            ("NxFont14", 16), ("NxFont16", 18), ("NxFont18", 21), ("NxFont24", 30),
+            ("NxFont14", 16), ("NxFont15", 17), ("NxFont16", 18), ("NxFont18", 21),
+            ("NxFont20", 23), ("NxFont24", 30), ("NxFont28", 34),
             ("NxFontSm", 13), ("NxFontBase", 14), ("NxFontMd", 15),
             ("FontSizeXS", 12), ("FontSizeSM", 13), ("FontSizeMD", 14),
             ("FontSizeBase", 15), ("FontSizeLG", 17), ("FontSizeXL", 19),

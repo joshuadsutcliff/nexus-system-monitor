@@ -141,4 +141,19 @@ public class TypeScaleMathTests
     {
         TypeScaleMath.StepFor(79_404, TypeScaleStep.Medium).Should().Be(TypeScaleStep.Medium);
     }
+
+    // ── StepFor: first-push contract (gate fix bundle, Finding 2 regression pin) ─────────────
+
+    [Fact]
+    public void StepFor_FirstPushNoHysteresis_44000_ReturnsSmall_NotMedium()
+    {
+        // Pins the DynamicTypeScale.HostState fix: a host's very FIRST bounds push must classify
+        // via the plain (non-hysteresis) thresholds — StepFor(area), i.e. currentStep: null — not
+        // hysteresis-from-an-assumed-Medium-start. 44,000px² sits just under the raw 45,000 S/M
+        // boundary (genuinely Small) but ABOVE the hysteresis retreat threshold from Medium
+        // (45,000 * 0.95 = 42,750) — so the buggy first-push call that hysteresis-walked from an
+        // assumed Medium start would incorrectly stick at Medium (asserted below as the contrast).
+        TypeScaleMath.StepFor(44_000).Should().Be(TypeScaleStep.Small);
+        TypeScaleMath.StepFor(44_000, TypeScaleStep.Medium).Should().Be(TypeScaleStep.Medium); // the bug this fix avoids
+    }
 }
