@@ -83,44 +83,68 @@
             BoxShadow="inset 0 1 3 0 #18FFFFFF"
             PointerPressed="OnTitleBarPointerPressed">
       <Panel>
+        <!-- Phase 8 UI polish (Task 5): logo relocated to the upper-right corner (Josh's
+             final directive, 2026-07-06, supersedes an earlier sidebar-gutter idea) — the
+             titlebar's left/center now stay clean. On macOS the native traffic lights
+             (close/minimize/zoom) own the left corner (rendered by the OS itself, outside
+             this Grid — see ApplyMacOSTitleBarPadding in MainWindow.axaml.cs); on
+             Windows/Linux the custom traffic-light buttons below still anchor the window's
+             far right edge, unchanged from before. Grid.Margin's right value (8) and the
+             logo group's Margin.Top (0) below were derived by pixel-probing a launched-app
+             screenshot of the macOS native traffic lights: the three dots span x=8..59,
+             y=8..19 (12px circles) — an 8px left inset from the window edge and a vertical
+             center line at y=13.5, well above the 52px titlebar's geometric center (y=26).
+             Mirroring the 8px inset on the right, and matching the measured center line
+             instead of the titlebar's own center, is why the logo group is Top-aligned
+             with a small Margin.Top rather than simply VerticalAlignment="Center". -->
         <Grid x:Name="TitleBarGrid"
               ColumnDefinitions="Auto,*,Auto"
-              Margin="18,0">
+              Margin="18,0,8,0">
 
-          <!-- App icon + name -->
-          <StackPanel Grid.Column="0"
-                      Orientation="Horizontal"
-                      Spacing="10"
-                      VerticalAlignment="Center">
-            <Image Source="avares://NexusMonitor/Assets/nexus-icon-256.png"
-                   Width="24" Height="24"/>
-            <TextBlock Text="Nexus Monitor"
-                       FontSize="{DynamicResource NxFont13}"
-                       FontWeight="SemiBold"
-                       Foreground="{DynamicResource TextPrimaryBrush}"
-                       VerticalAlignment="Center"/>
-          </StackPanel>
+          <!-- Column 0 intentionally left empty — see comment above: traffic lights only
+               on the left, titlebar center stays clean for the drag region. -->
 
-          <!-- Window controls -->
-          <StackPanel x:Name="WindowControls" Grid.Column="2"
+          <StackPanel Grid.Column="2"
                       Orientation="Horizontal"
-                      Spacing="2"
-                      VerticalAlignment="Center">
-            <Button Classes="nx-btn-ghost" Padding="10,7"
-                    Click="OnMinimize"
-                    ToolTip.Tip="Minimize">
-              <TextBlock Text="—" FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextSecondaryBrush}"/>
-            </Button>
-            <Button Classes="nx-btn-ghost" Padding="10,7"
-                    Click="OnMaximize"
-                    ToolTip.Tip="Maximize">
-              <TextBlock Text="⬜" FontSize="{DynamicResource NxFont10}" Foreground="{DynamicResource TextSecondaryBrush}"/>
-            </Button>
-            <Button Classes="nx-btn-ghost" Padding="10,7"
-                    Click="OnClose"
-                    ToolTip.Tip="Close">
-              <TextBlock Text="✕" FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextSecondaryBrush}"/>
-            </Button>
+                      Spacing="20"
+                      VerticalAlignment="Top">
+
+            <!-- App icon + name — 28×28 icon, 12px spacing, per Josh's directive -->
+            <StackPanel Orientation="Horizontal"
+                        Spacing="12"
+                        VerticalAlignment="Center">
+              <Image Source="avares://NexusMonitor/Assets/nexus-icon-256.png"
+                     Width="28" Height="28"/>
+              <TextBlock Text="Nexus Monitor"
+                         FontSize="{DynamicResource NxFont13}"
+                         FontWeight="SemiBold"
+                         Foreground="{DynamicResource TextPrimaryBrush}"
+                         VerticalAlignment="Center"/>
+            </StackPanel>
+
+            <!-- Window controls — hidden on macOS (ApplyMacOSTitleBarPadding sets
+                 IsVisible=false so the native traffic lights are the only controls);
+                 stays visible and anchored at the true right edge on Windows/Linux. -->
+            <StackPanel x:Name="WindowControls"
+                        Orientation="Horizontal"
+                        Spacing="2"
+                        VerticalAlignment="Center">
+              <Button Classes="nx-btn-ghost" Padding="10,7"
+                      Click="OnMinimize"
+                      ToolTip.Tip="Minimize">
+                <TextBlock Text="—" FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextSecondaryBrush}"/>
+              </Button>
+              <Button Classes="nx-btn-ghost" Padding="10,7"
+                      Click="OnMaximize"
+                      ToolTip.Tip="Maximize">
+                <TextBlock Text="⬜" FontSize="{DynamicResource NxFont10}" Foreground="{DynamicResource TextSecondaryBrush}"/>
+              </Button>
+              <Button Classes="nx-btn-ghost" Padding="10,7"
+                      Click="OnClose"
+                      ToolTip.Tip="Close">
+                <TextBlock Text="✕" FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextSecondaryBrush}"/>
+              </Button>
+            </StackPanel>
           </StackPanel>
 
         </Grid>
@@ -196,11 +220,20 @@
                     <StackPanel IsVisible="{Binding IsSeparator}" Margin="0,6,0,0">
                       <Border Height="1" Margin="14,0,14,0"
                               Background="{DynamicResource SeparatorBrush}"/>
+                      <!-- Phase 8 UI polish (Task 5, alignment audit): the group label's left
+                           margin was 18 (absolute x=28 from the sidebar edge: ItemsControl's
+                           own Margin=10 + this 18), while a nav row's icon/label content
+                           starts at absolute x=40 (ItemsControl Margin=10 + the nav-row Grid's
+                           20-wide grip column + the nav Button's own Padding=10) — a 12px
+                           mismatch. Bumped to 30 (10+30=40) so section headers and nav-row
+                           content share one left edge, per the audit. The separator rule
+                           itself is left at its original inset (14) — a decorative full-width
+                           divider, not "content" the audit's shared-gutter rule targets. -->
                       <TextBlock Text="{Binding GroupLabel}"
                                  FontSize="{DynamicResource NxFont10}"
                                  FontWeight="SemiBold"
                                  Foreground="{DynamicResource TextTertiaryBrush}"
-                                 Margin="18,5,0,2"
+                                 Margin="30,5,0,2"
                                  LetterSpacing="1.2"/>
                     </StackPanel>
 

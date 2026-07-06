@@ -10,8 +10,12 @@
   <DockPanel>
 
     <!-- ══ Header ══════════════════════════════════════════════════════════ -->
+    <!-- Phase 8 UI polish (Task 5, alignment audit): left/right padding bumped from 16 to
+         20 so "System Health" aligns to the same left gutter the cards below use — the
+         content ScrollViewer's Padding="20,0,20,20" (below) is the content-pane gutter;
+         the header was previously 4px short of it. -->
     <Border DockPanel.Dock="Top"
-            Padding="16,10"
+            Padding="20,10"
             Background="{DynamicResource BgSecondaryBrush}"
             BorderBrush="{DynamicResource BorderSubtleBrush}"
             BorderThickness="0,0,0,1">

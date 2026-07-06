@@ -1620,17 +1620,24 @@
         </Grid>
 
         <!-- Save current as… -->
-        <Grid ColumnDefinitions="*,Auto">
-          <TextBox Grid.Column="0"
-                   Watermark="Save current layout + appearance as…"
+        <!-- Phase 8 UI polish (Task 5, alignment audit): was a Grid ColumnDefinitions="*,Auto"
+             with the TextBox in the "*" column capped at MaxWidth=320 and left-aligned — the
+             Save button then landed in the Auto column flush against the CARD's right edge,
+             leaving a wide dead gap between the input and its own action button (visually
+             disconnected, unlike every other input+action grouping in this card, e.g. the
+             Active Profile picker above which groups its ComboBox+Button in one StackPanel).
+             Regrouped into one horizontal StackPanel so the button sits immediately next to
+             the field it acts on; bindings/behavior unchanged. -->
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <TextBox Watermark="Save current layout + appearance as…"
                    Text="{Binding NewWorkspaceProfileName}"
-                   MaxWidth="320" HorizontalAlignment="Left"/>
-          <Button Grid.Column="1" Classes="nx-btn" Padding="8,5" Margin="8,0,0,0"
+                   Width="320"/>
+          <Button Classes="nx-btn" Padding="8,5"
                   Command="{Binding SaveCurrentWorkspaceProfileCommand}"
                   IsEnabled="{Binding NewWorkspaceProfileName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
             <TextBlock Text="Save…" FontSize="{DynamicResource NxFont11}"/>
           </Button>
-        </Grid>
+        </StackPanel>
 
         <!-- Export / Import -->
         <StackPanel Orientation="Horizontal" Spacing="8">
