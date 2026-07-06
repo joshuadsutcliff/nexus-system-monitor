@@ -1,3 +1,4 @@
+using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Data;
@@ -29,9 +30,16 @@ public static class WidgetTileFactory
     public static string ResolveTypeId(string typeId) =>
         AliasMap.TryGetValue(typeId, out var canonical) ? canonical : typeId;
 
-    /// <summary>Creates the control for one widget instance. Never returns null and never throws.</summary>
+    /// <summary>Creates the control for one widget instance. Never returns null and never throws.
+    /// Checked BEFORE the TypeId switch so it applies uniformly to every widget type: a widget
+    /// popped out into its own OS window (<see cref="WidgetInstance.PopOut"/>'s <c>IsPoppedOut</c>
+    /// true) renders a reserved-slot placeholder here instead of its real control — the live
+    /// control is instead hosted by <see cref="Windows.WidgetPopOutWindow"/>.</summary>
     public static Control Create(WidgetInstance widget)
     {
+        if (widget.PopOut?.IsPoppedOut == true)
+            return CreatePoppedOutPlaceholder(widget.WidgetTypeId);
+
         var typeId = ResolveTypeId(widget.WidgetTypeId);
 
         return typeId switch
@@ -67,4 +75,20 @@ public static class WidgetTileFactory
         Title = "Unknown widget",
         Subtitle = $"'{widgetTypeId}' isn't available in this version. Its place and settings are preserved.",
     };
+
+    /// <summary>Builds the reserved-slot placeholder shown for a widget that's currently torn off
+    /// into its own OS window: same idiom as <see cref="CreateUnknownPlaceholder"/> (a plain
+    /// <see cref="WidgetTile"/>), titled with the widget's catalog display name (resolved through
+    /// <see cref="ResolveTypeId"/> so a legacy-aliased instance still shows its real name) rather
+    /// than the raw TypeId, since this is a known, working widget — just elsewhere right now.</summary>
+    private static WidgetTile CreatePoppedOutPlaceholder(string widgetTypeId)
+    {
+        var canonicalTypeId = ResolveTypeId(widgetTypeId);
+        var name = WidgetCatalog.Entries.FirstOrDefault(e => e.TypeId == canonicalTypeId)?.Name ?? widgetTypeId;
+        return new WidgetTile
+        {
+            Title = $"{name} (popped out)",
+            Subtitle = "Close its window to return it here.",
+        };
+    }
 }
