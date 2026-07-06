@@ -74,13 +74,20 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
 
     public HealthTrendsViewModel HealthTrendsViewModel { get; }
 
-    // ── Page engine (Phase 2, flag-gated) ─────────────────────────────────────
+    // ── Page engine (Phase 7: unconditional) ──────────────────────────────────
 
-    /// <summary>True when the Dashboard renders through the page engine (EnablePageEngine at startup).</summary>
-    public bool UsePageEngine { get; }
+    /// <summary>The page rendered by the engine path; null only if no factory-default layout could
+    /// be built at all (see the constructor's catch block).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanEditLayout))]
+    private PageLayout? _enginePage;
 
-    /// <summary>The page rendered by the engine path; null when the flag is off or the factory layout failed to load.</summary>
-    [ObservableProperty] private PageLayout? _enginePage;
+    /// <summary>True when there is a loaded page to edit. False only in the catastrophic
+    /// double-failure case where even the factory-default layout failed to load (see the
+    /// constructor's nested catch), leaving <see cref="EnginePage"/> null — gates the pencil
+    /// "Edit layout" button (<see cref="Views.DashboardView"/>) so it goes disabled instead of
+    /// staying visible-but-dead with nothing left to edit.</summary>
+    public bool CanEditLayout => EnginePage is not null;
 
     // Phase 5 superseded PageLayoutStore as the read/write path here (see WorkspaceProfileStore
     // below) — PageLayoutStore itself stays registered in DI only as the legacy-pages migration
@@ -109,13 +116,39 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
         _profileStore       = profileStore;
         _notificationService = notificationService;
 
-        var usePageEngine = settings.EnablePageEngine;
-        if (usePageEngine)
+        // Subscribed BEFORE the LoadActive() call just below: WorkspaceProfileStore.ProfileRecovered
+        // can fire synchronously from inside that very call (a corrupt or stale/tampered active
+        // profile), so the handler must already be wired up or that first-launch signal is missed.
+        if (_profileStore is not null)
+            _profileStore.ProfileRecovered += OnProfileRecovered;
+
+        // Phase 7: the page engine is unconditional — there is no classic fallback left, so a
+        // load failure here must still leave the user with a renderable (factory-default) page
+        // rather than silently disabling the engine. The active profile's own on-disk file is
+        // deliberately left untouched: the user can fix it by hand, or a later launch may succeed,
+        // so this path never calls SaveActivePage()/Save() on the profile store.
+        try
         {
-            try { EnginePage = _profileStore?.LoadActive().Pages.GetValueOrDefault("dashboard") ?? TryFactoryLoad(); }
-            catch (InvalidOperationException) { usePageEngine = false; } // packaging bug — never a user path
+            EnginePage = _profileStore?.LoadActive().Pages.GetValueOrDefault("dashboard") ?? TryFactoryLoad();
         }
-        UsePageEngine = usePageEngine;
+        catch (InvalidOperationException ex)
+        {
+            // The only way this throws is BuiltInPageLayouts.Load hitting a missing/invalid
+            // embedded resource (a packaging bug — see BuiltInPageLayouts' own doc comment),
+            // whether reached directly via TryFactoryLoad() above or indirectly through
+            // WorkspaceProfileStore.LoadActive()'s internal factory-default fallback. Try once
+            // more for the factory-default page; if that ALSO throws (the same deterministic
+            // packaging bug), give up on a page rather than let the exception escape the
+            // constructor — PageHostControl already renders a null Page as an empty surface.
+            Log.Error(ex, "Failed to load the dashboard page layout; falling back to factory default.");
+            try { EnginePage = TryFactoryLoad(); }
+            catch (InvalidOperationException ex2)
+            {
+                Log.Fatal(ex2, "Factory-default dashboard layout is also unavailable — Dashboard will render empty.");
+            }
+
+            ShowLayoutNotLoadedToast();
+        }
 
         _subscription = _healthService.HealthStream
             .ObserveOn(RxApp.MainThreadScheduler)
@@ -168,8 +201,8 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
         // Page engine Phase 5: reload the dashboard layout when the user switches the active
         // workspace profile in Settings. Theme is applied separately (synchronously, before this
         // message is sent) by SettingsViewModel — this handler only ever touches layout. Phase 6:
-        // also restore the incoming profile's own popped-out widgets (RestorePopOuts is idempotent
-        // and guarded on UsePageEngine, same as AttachOwnerWindow's initial restore).
+        // also restore the incoming profile's own popped-out widgets (RestorePopOuts is idempotent,
+        // same as AttachOwnerWindow's initial restore).
         WeakReferenceMessenger.Default.Register<WorkspaceProfileSwitchedMessage>(this, (_, _) =>
         {
             EnginePage = _profileStore?.LoadActive().Pages.GetValueOrDefault("dashboard") ?? EnginePage;
@@ -179,6 +212,31 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
 
     /// <summary>Loads the factory-default "dashboard" layout (used when no layout store is available).</summary>
     private static PageLayout TryFactoryLoad() => BuiltInPageLayouts.Load("dashboard");
+
+    /// <summary>Handles <see cref="WorkspaceProfileStore.ProfileRecovered"/>: the active workspace
+    /// profile failed to load (a corrupt file preserved as .bak, or a stale/tampered active
+    /// pointer) and the caller silently fell back to a factory-default layout. Without this, the
+    /// user gets zero feedback that their own saved layout didn't apply. Reuses
+    /// <see cref="ShowLayoutNotLoadedToast"/> — the same copy the constructor's own
+    /// packaging-bug fallback shows — so there is exactly one copy of the string.
+    /// <para>
+    /// Safe to call during construction: this handler is subscribed BEFORE the constructor's own
+    /// <c>LoadActive()</c> call, since the event can fire synchronously from within that very call.
+    /// <see cref="IInAppNotificationService.Show"/> only pushes onto a plain Subject (see
+    /// <see cref="Services.InAppNotificationService"/>) — no UI-thread affinity of its own; the
+    /// actual toast rendering marshals onto the UI thread itself via <c>Dispatcher.UIThread.Post</c>
+    /// (see <see cref="Controls.NotificationHost"/>). So calling Show() synchronously here mirrors
+    /// exactly what the constructor's pre-existing packaging-bug catch already does.
+    /// </para></summary>
+    private void OnProfileRecovered(string profileName) => ShowLayoutNotLoadedToast();
+
+    /// <summary>Single copy of the "layout not loaded" toast — shown by the constructor's
+    /// packaging-bug catch and by <see cref="OnProfileRecovered"/>.</summary>
+    private void ShowLayoutNotLoadedToast() => _notificationService?.Show(new InAppNotification(
+        Title:       "Layout Not Loaded",
+        Body:        "Your saved layout could not be loaded — showing defaults. Your profile file was preserved.",
+        Severity:    InAppSeverity.Warning,
+        AutoDismiss: TimeSpan.FromSeconds(6)));
 
     // ── Page engine editing (Phase 3) ──────────────────────────────────────
     private PageEditSession? _editSession;
@@ -194,7 +252,7 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
     [RelayCommand]
     private void EnterEditMode()
     {
-        if (!UsePageEngine || EnginePage is null || IsEditMode) return;
+        if (EnginePage is null || IsEditMode) return;
         _editSession = new PageEditSession(EnginePage);
         IsEditMode = true;
         CanUndoEdit = false;
@@ -312,29 +370,27 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
     /// <summary>Reopens a pop-out window for every widget on <see cref="EnginePage"/> whose
     /// <see cref="WidgetInstance.PopOut"/> has <c>IsPoppedOut</c> true — i.e. every widget that was
     /// still popped out the last time its state was persisted (app shutdown, a profile switch, or a
-    /// crash). No-ops entirely when the page engine isn't active (<see cref="UsePageEngine"/> —
-    /// the same guard <see cref="Views.DashboardView"/>'s XAML uses to show the engine page at all)
-    /// or no page is loaded. Called from <see cref="AttachOwnerWindow"/> (restore-on-launch) and
-    /// from the <see cref="WorkspaceProfileSwitchedMessage"/> handler (restore for the profile just
-    /// switched into). Idempotent and safe to call repeatedly — <see cref="PopOutCoordinator.TryPopOut"/>
-    /// is itself a no-op (returns true without opening a second window) for a widget it already has
-    /// open, so re-attaching the owner window (e.g. tab navigation back to Dashboard) never duplicates
-    /// windows.
+    /// crash). No-ops entirely when no page is loaded. Called from <see cref="AttachOwnerWindow"/>
+    /// (restore-on-launch) and from the <see cref="WorkspaceProfileSwitchedMessage"/> handler
+    /// (restore for the profile just switched into). Idempotent and safe to call repeatedly —
+    /// <see cref="PopOutCoordinator.TryPopOut"/> is itself a no-op (returns true without opening a
+    /// second window) for a widget it already has open, so re-attaching the owner window (e.g. tab
+    /// navigation back to Dashboard) never duplicates windows.
     /// <para>
-    /// Logs a single INFO line every call, before either guard can return early — diagnostic gold
-    /// for a restore that silently opens nothing: it reports <see cref="UsePageEngine"/>, whether
-    /// <see cref="EnginePage"/> is loaded, whether <see cref="_ownerWindow"/> is attached yet, and
-    /// how many widgets on the page are actually marked popped-out, so a future no-windows-opened
-    /// report can be diagnosed from the log alone instead of needing to reproduce it live.
+    /// Logs a single INFO line every call, before the guard can return early — diagnostic gold for a
+    /// restore that silently opens nothing: it reports whether <see cref="EnginePage"/> is loaded,
+    /// whether <see cref="_ownerWindow"/> is attached yet, and how many widgets on the page are
+    /// actually marked popped-out, so a future no-windows-opened report can be diagnosed from the
+    /// log alone instead of needing to reproduce it live.
     /// </para></summary>
     private void RestorePopOuts()
     {
         var poppedOutCount = EnginePage?.Widgets.Count(w => w.PopOut?.IsPoppedOut == true) ?? 0;
         Log.Information(
-            "RestorePopOuts: UsePageEngine={UsePageEngine} EnginePageLoaded={EnginePageLoaded} OwnerWindowAttached={OwnerWindowAttached} PoppedOutWidgetCount={PoppedOutWidgetCount}",
-            UsePageEngine, EnginePage is not null, _ownerWindow is not null, poppedOutCount);
+            "RestorePopOuts: EnginePageLoaded={EnginePageLoaded} OwnerWindowAttached={OwnerWindowAttached} PoppedOutWidgetCount={PoppedOutWidgetCount}",
+            EnginePage is not null, _ownerWindow is not null, poppedOutCount);
 
-        if (!UsePageEngine || EnginePage is null) return;
+        if (EnginePage is null) return;
 
         _popOutCoordinator ??= CreateCoordinator();
         if (_popOutCoordinator is null) return; // no owner window attached yet
@@ -615,6 +671,8 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
     public void Dispose()
     {
         WeakReferenceMessenger.Default.UnregisterAll(this);
+        if (_profileStore is not null)
+            _profileStore.ProfileRecovered -= OnProfileRecovered;
         _subscription?.Dispose();
         _subscription = null;
         _predictionsSubscription?.Dispose();

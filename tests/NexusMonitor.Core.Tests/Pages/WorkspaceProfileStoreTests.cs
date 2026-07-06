@@ -106,6 +106,82 @@ public sealed class WorkspaceProfileStoreTests : IDisposable
     }
 
     [Fact]
+    public void Load_CorruptFile_RaisesProfileRecoveredWithName()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(Path.Combine(_dir, "Default.json"), "not json {{{");
+
+        using var store = new WorkspaceProfileStore(_dir);
+        var raised = new List<string>();
+        store.ProfileRecovered += raised.Add;
+
+        var profile = store.Load("Default");
+
+        profile.Should().BeNull();
+        File.Exists(Path.Combine(_dir, "Default.json.bak")).Should().BeTrue();
+        raised.Should().Equal("Default");
+    }
+
+    [Fact]
+    public void LoadActive_NoSavedProfiles_DoesNotRaiseProfileRecovered()
+    {
+        // Fresh (never-saved) setup: LoadActive's materialization of the factory default is
+        // normal first-run behavior, not a recovery — must never signal.
+        using var store = new WorkspaceProfileStore(_dir);
+        var raised = new List<string>();
+        store.ProfileRecovered += raised.Add;
+
+        store.LoadActive();
+
+        raised.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void LoadActive_CorruptActiveProfile_RaisesProfileRecoveredExactlyOnce()
+    {
+        // The active profile ("Default", the no-pointer-file fallback) exists but is corrupt —
+        // this is the exact silent-data-loss scenario the signal exists for: the user's saved
+        // layout vanishes into a factory default with zero feedback unless this fires.
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(Path.Combine(_dir, "Default.json"), "not json {{{");
+
+        using var store = new WorkspaceProfileStore(_dir);
+        var raised = new List<string>();
+        store.ProfileRecovered += raised.Add;
+
+        var loaded = store.LoadActive();
+
+        loaded.Name.Should().Be("Default");
+        loaded.Pages.Keys.Should().BeEquivalentTo(BuiltInPageLayouts.BuiltInPageIds);
+        File.Exists(Path.Combine(_dir, "Default.json.bak")).Should().BeTrue();
+        raised.Should().Equal("Default");
+    }
+
+    [Fact]
+    public void LoadActive_TamperedPointerWithOtherProfileExisting_RaisesProfileRecovered()
+    {
+        // Companion to LoadActive_TamperedPointerWithOtherProfileExisting_ReturnsFactoryDefaultWithoutPersisting:
+        // same setup (a real profile exists, the active pointer resolves to nothing), but pins
+        // that this non-fresh fallback IS signalled — the "tampered-pointer" half of the
+        // recovery signal's contract, distinct from the corrupt-file half covered above.
+        var storeDir = Path.Combine(_dir, "store");
+        Directory.CreateDirectory(storeDir);
+        using (var seed = new WorkspaceProfileStore(storeDir))
+        {
+            seed.Save(SampleProfile("Mine"));
+        }
+        File.WriteAllText(Path.Combine(storeDir, "active-profile"), "../evil");
+
+        using var store = new WorkspaceProfileStore(storeDir);
+        var raised = new List<string>();
+        store.ProfileRecovered += raised.Add;
+
+        store.LoadActive();
+
+        raised.Should().Equal("Default");
+    }
+
+    [Fact]
     public void Load_MissingFile_ReturnsNull()
     {
         using var store = new WorkspaceProfileStore(_dir);
@@ -133,6 +209,40 @@ public sealed class WorkspaceProfileStoreTests : IDisposable
         reopened.Delete("Other");
 
         File.Exists(Path.Combine(_dir, "Other.json")).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Delete_CancelsPendingDebouncedSave()
+    {
+        // Reproduces the "deleted profile resurrects on quit" bug: Save() queues a 250ms
+        // debounced write and leaves it sitting in `_pending` — Delete() used to remove the
+        // on-disk file without touching `_pending`, so a later flush (Dispose(), or the timer
+        // itself firing) would silently re-write the very file Delete() just removed.
+        var store = new WorkspaceProfileStore(_dir);
+        store.Save(SampleProfile("T4Smoke")); // Debounced — nothing on disk yet.
+
+        store.Delete("T4Smoke"); // Must cancel/clear the matching pending save, not just no-op
+                                  // on a file that doesn't exist on disk yet.
+
+        store.Dispose(); // Forces a synchronous flush of whatever is still pending.
+
+        File.Exists(Path.Combine(_dir, "T4Smoke.json")).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Delete_DoesNotCancelUnrelatedPending()
+    {
+        // Companion to Delete_CancelsPendingDebouncedSave: Delete must only cancel a pending
+        // save for the SAME name (OrdinalIgnoreCase) — an unrelated profile's still-debouncing
+        // save must still flush normally.
+        var store = new WorkspaceProfileStore(_dir);
+        store.Save(SampleProfile("Y")); // Debounced — nothing on disk yet.
+
+        store.Delete("X"); // Unrelated name (never saved) — must not touch Y's pending save.
+
+        store.Dispose(); // Forces a synchronous flush — Y must still be written.
+
+        File.Exists(Path.Combine(_dir, "Y.json")).Should().BeTrue();
     }
 
     [Theory]

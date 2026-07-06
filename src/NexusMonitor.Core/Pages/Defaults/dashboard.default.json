@@ -9,52 +9,52 @@
       {
         "instanceId": "0b5e0002-0000-4000-8000-000000000001",
         "widgetTypeId": "nexus.widget.healthScore",
-        "rect": { "col": 0, "row": 0, "colSpan": 4, "rowSpan": 4 }
+        "rect": { "col": 0, "row": 0, "colSpan": 12, "rowSpan": 2 }
       },
       {
         "instanceId": "0b5e0002-0000-4000-8000-000000000002",
         "widgetTypeId": "nexus.widget.cpuCard",
-        "rect": { "col": 4, "row": 0, "colSpan": 4, "rowSpan": 2 }
+        "rect": { "col": 0, "row": 2, "colSpan": 6, "rowSpan": 2 }
       },
       {
         "instanceId": "0b5e0002-0000-4000-8000-000000000003",
         "widgetTypeId": "nexus.widget.memoryCard",
-        "rect": { "col": 8, "row": 0, "colSpan": 4, "rowSpan": 2 }
+        "rect": { "col": 6, "row": 2, "colSpan": 6, "rowSpan": 2 }
       },
       {
         "instanceId": "0b5e0002-0000-4000-8000-000000000004",
         "widgetTypeId": "nexus.widget.diskCard",
-        "rect": { "col": 4, "row": 2, "colSpan": 4, "rowSpan": 2 }
+        "rect": { "col": 0, "row": 4, "colSpan": 6, "rowSpan": 2 }
       },
       {
         "instanceId": "0b5e0002-0000-4000-8000-000000000005",
         "widgetTypeId": "nexus.widget.gpuCard",
-        "rect": { "col": 8, "row": 2, "colSpan": 4, "rowSpan": 2 }
+        "rect": { "col": 6, "row": 4, "colSpan": 6, "rowSpan": 2 }
       },
       {
         "instanceId": "0b5e0002-0000-4000-8000-000000000006",
         "widgetTypeId": "nexus.widget.bottleneck",
-        "rect": { "col": 0, "row": 4, "colSpan": 12, "rowSpan": 4 }
+        "rect": { "col": 0, "row": 6, "colSpan": 12, "rowSpan": 4 }
       },
       {
         "instanceId": "0b5e0002-0000-4000-8000-000000000007",
         "widgetTypeId": "nexus.widget.topConsumers",
-        "rect": { "col": 0, "row": 8, "colSpan": 6, "rowSpan": 4 }
+        "rect": { "col": 0, "row": 10, "colSpan": 12, "rowSpan": 4 }
       },
       {
         "instanceId": "0b5e0002-0000-4000-8000-000000000008",
         "widgetTypeId": "nexus.widget.recommendations",
-        "rect": { "col": 6, "row": 8, "colSpan": 6, "rowSpan": 4 }
+        "rect": { "col": 0, "row": 14, "colSpan": 12, "rowSpan": 4 }
       },
       {
         "instanceId": "0b5e0002-0000-4000-8000-000000000009",
         "widgetTypeId": "nexus.widget.predictions",
-        "rect": { "col": 0, "row": 12, "colSpan": 12, "rowSpan": 3 }
+        "rect": { "col": 0, "row": 18, "colSpan": 12, "rowSpan": 3 }
       },
       {
         "instanceId": "0b5e0002-0000-4000-8000-000000000010",
         "widgetTypeId": "nexus.widget.healthTrends",
-        "rect": { "col": 0, "row": 15, "colSpan": 12, "rowSpan": 5 }
+        "rect": { "col": 0, "row": 21, "colSpan": 12, "rowSpan": 5 }
       }
     ]
   }

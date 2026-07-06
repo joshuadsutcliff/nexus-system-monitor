@@ -209,9 +209,6 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     // ── Metrics & History ─────────────────────────────────────────────────────
     [ObservableProperty] private bool _metricsEnabled;
 
-    // ── Page Engine ───────────────────────────────────────────────────────────
-    [ObservableProperty] private bool _enablePageEngine;
-
     // ── Anomaly Detection ─────────────────────────────────────────────────────
     [ObservableProperty] private bool    _anomalyDetectionEnabled;
     [ObservableProperty] private string  _anomalySensitivity = "Medium";
@@ -350,6 +347,13 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         // Subscribe to luminance changes from GlassAdaptiveService
         _glassAdaptive.LuminanceChanged += OnLuminanceChanged;
 
+        // Subscribed BEFORE the LoadActive() call near the end of this constructor (and before
+        // any other WorkspaceProfileStore call that can trigger it): WorkspaceProfileStore.ProfileRecovered
+        // can fire synchronously from inside those (a corrupt profile file or a stale/tampered active
+        // pointer) — mirrors DashboardViewModel's own subscribe-before-LoadActive ordering. See
+        // OnWorkspaceProfileRecovered for why this re-scans the Active Profile picker.
+        _profileStore.ProfileRecovered += OnWorkspaceProfileRecovered;
+
         // Subscribe to update checker — populates the passive "vX.Y.Z available" text line
         if (_updateCheckService is not null)
         {
@@ -401,9 +405,6 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
 
         // ── Metrics & History ─────────────────────────────────────────────────
         _metricsEnabled = settings.Current.MetricsEnabled;
-
-        // ── Page Engine ───────────────────────────────────────────────────────
-        _enablePageEngine = settings.Current.EnablePageEngine;
 
         // ── Anomaly Detection ─────────────────────────────────────────────────
         _anomalyDetectionEnabled     = settings.Current.AnomalyDetectionEnabled;
@@ -458,6 +459,16 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         UpdateSurfaceSwatches();
 
         // ── Workspace profiles (Phase 5) ───────────────────────────────────────
+        // LoadActive() first: on a fresh/never-saved setup it MATERIALIZES the factory-default
+        // "Default" profile onto disk (and sets it active) as a side effect of loading it — see
+        // WorkspaceProfileStore.LoadActive's own doc comment. Calling it here, before the disk
+        // scan below, guarantees ListProfiles() sees "Default" regardless of whether this VM
+        // constructs before DashboardViewModel's own (also idempotent) LoadActive() call has had
+        // a chance to run — otherwise the Active Profile picker's one-time constructor-time scan
+        // (RefreshWorkspaceProfileNames is never re-scanned wholesale afterward; see its own doc
+        // comment) could permanently miss "Default". The returned profile itself is unused here —
+        // only the materialization side effect matters.
+        _profileStore.LoadActive();
         RefreshWorkspaceProfileNames();
     }
 
@@ -768,12 +779,6 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
             _predictionService?.Stop();
         }
         WeakReferenceMessenger.Default.Send(new MetricsEnabledChangedMessage(value));
-    }
-
-    partial void OnEnablePageEngineChanged(bool value)
-    {
-        _settings.Current.EnablePageEngine = value;
-        _settings.Save();
     }
 
     partial void OnAnomalyDetectionEnabledChanged(bool value)
@@ -1102,6 +1107,15 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         SelectedWorkspaceProfileName = _profileStore.ActiveProfileName;
         _suppressWorkspaceProfileCallback = false;
     }
+
+    /// <summary>Handles <see cref="WorkspaceProfileStore.ProfileRecovered"/>: a saved profile failed
+    /// to load (a corrupt file preserved as .bak, or a stale/tampered active-profile pointer) and the
+    /// store silently fell back to something else. The on-disk profile set — and which name is
+    /// active — can both change at exactly this moment, and this VM's own
+    /// <see cref="RefreshWorkspaceProfileNames"/> scan only ever runs once, at construction (see its
+    /// own doc comment) — without re-scanning here, the Active Profile picker could go stale
+    /// relative to disk for the rest of the session.</summary>
+    private void OnWorkspaceProfileRecovered(string profileName) => RefreshWorkspaceProfileNames();
 
     /// <summary>
     /// Switches the active workspace profile: persists the new active pointer, applies its
@@ -1838,6 +1852,7 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     {
         _osThemeCleanup?.Invoke();
         _glassAdaptive.LuminanceChanged -= OnLuminanceChanged;
+        _profileStore.ProfileRecovered -= OnWorkspaceProfileRecovered;
         _updateSubscription?.Dispose();
     }
 }
