@@ -1215,11 +1215,12 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         // instead of silently no-op'ing (the prior behavior, which left users wondering why
         // nothing happened).
         try { _profileStore.Save(profile); }
-        catch (ArgumentException ex)
+        catch (ArgumentException)
         {
+            // Developer-facing exception detail intentionally not shown to the user.
             _notificationService?.Show(new InAppNotification(
                 Title:       "Profile Not Saved",
-                Body:        $"Could not save profile '{name}': {ex.Message}",
+                Body:        "That name can't be used. Try a different one.",
                 Severity:    InAppSeverity.Warning,
                 AutoDismiss: TimeSpan.FromSeconds(6)));
             return;

@@ -282,6 +282,41 @@ public sealed class WorkspaceProfileStoreTests : IDisposable
     }
 
     [Fact]
+    public void LoadActive_TamperedPointerWithOtherProfileExisting_ReturnsFactoryDefaultWithoutPersisting()
+    {
+        var storeDir = Path.Combine(_dir, "store");
+        Directory.CreateDirectory(storeDir);
+
+        // A real saved profile means this is NOT a fresh (never-saved) setup — LoadActive's
+        // other-profiles-exist branch must NOT materialize a competing "Default" onto disk.
+        using (var seed = new WorkspaceProfileStore(storeDir))
+        {
+            seed.Save(SampleProfile("Mine"));
+        } // Dispose flushes `Mine` to disk synchronously.
+
+        // Tampered/stale active pointer: resolves to nothing real (fails the same name
+        // validation ActiveProfileName enforces), so it falls back to "Default" — but no
+        // "Default" profile was ever saved.
+        File.WriteAllText(Path.Combine(storeDir, "active-profile"), "../evil");
+
+        using var store = new WorkspaceProfileStore(storeDir);
+
+        var loaded = store.LoadActive();
+
+        loaded.Name.Should().Be("Default");
+        loaded.Pages.Keys.Should().BeEquivalentTo(BuiltInPageLayouts.BuiltInPageIds);
+        loaded.Theme.PresetId.Should().BeNull();
+        loaded.Theme.Snapshot.Should().BeNull();
+
+        // The real proof this pins the NON-persist branch (distinct from
+        // LoadActive_NoSavedProfiles_ReturnsFactoryDefault, which pins the fresh-start
+        // PERSIST branch): with another profile ("Mine") already on disk, the factory default
+        // must be returned WITHOUT being written to disk as "Default".
+        store.ListProfiles().Should().NotContain("Default");
+        File.Exists(Path.Combine(storeDir, "Default.json")).Should().BeFalse();
+    }
+
+    [Fact]
     public void Load_WithinDebounceWindow_ReturnsPendingWrite()
     {
         var original = SampleProfile();
