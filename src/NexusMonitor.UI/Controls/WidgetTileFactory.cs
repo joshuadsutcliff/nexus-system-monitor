@@ -21,10 +21,18 @@ public static class WidgetTileFactory
         ["nexus.widget.memoryChart"] = "nexus.widget.memoryCard",
     };
 
+    /// <summary>Resolves a possibly-legacy <paramref name="typeId"/> to its canonical replacement
+    /// via <see cref="AliasMap"/>, or returns it unchanged if it isn't a known legacy alias. This
+    /// is the single normalization path — <see cref="Create"/> and any other caller that needs to
+    /// reason about a widget's canonical type (e.g. resolving its catalog display name) must both
+    /// go through this method rather than re-implementing alias lookup.</summary>
+    public static string ResolveTypeId(string typeId) =>
+        AliasMap.TryGetValue(typeId, out var canonical) ? canonical : typeId;
+
     /// <summary>Creates the control for one widget instance. Never returns null and never throws.</summary>
     public static Control Create(WidgetInstance widget)
     {
-        var typeId = AliasMap.TryGetValue(widget.WidgetTypeId, out var canonical) ? canonical : widget.WidgetTypeId;
+        var typeId = ResolveTypeId(widget.WidgetTypeId);
 
         return typeId switch
         {

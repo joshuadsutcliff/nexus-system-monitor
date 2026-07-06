@@ -1,6 +1,12 @@
 namespace NexusMonitor.Core.Pages;
 
 /// <summary>Persisted geometry/state of a widget torn off into its own OS window.</summary>
+/// <param name="IsPoppedOut">Whether the widget is currently torn off into its own window.</param>
+/// <param name="X">Physical-pixel X position of the window (not logical/DIP).</param>
+/// <param name="Y">Physical-pixel Y position of the window (not logical/DIP).</param>
+/// <param name="Width">Physical-pixel width of the window (not logical/DIP).</param>
+/// <param name="Height">Physical-pixel height of the window (not logical/DIP).</param>
+/// <param name="Topmost">Reserved; unused in v1 — always false.</param>
 public sealed record PopOutState(bool IsPoppedOut, int X, int Y, int Width, int Height, bool Topmost);
 
 /// <summary>One placed widget on a page. ConfigJson is opaque raw JSON owned by the widget type (preserved verbatim by serialization).</summary>

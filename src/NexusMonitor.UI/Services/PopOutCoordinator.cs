@@ -113,24 +113,33 @@ public sealed class PopOutCoordinator
             return false;
         }
 
+        // Screen.Bounds and Window.Position are PHYSICAL pixels; Window.Width/Height are LOGICAL
+        // DIPs. ScreenRect/PopOutState are standardized on physical pixels (see CaptureGeometry),
+        // so the main window's logical size is converted to physical via its own RenderScaling
+        // before it's used as the fallback rect or the cascade-default basis — otherwise clamp
+        // math silently breaks whenever RenderScaling != 1 (e.g. a Retina display).
         var screens = _ownerWindow.Screens.All
             .Select(s => new ScreenRect(s.Bounds.X, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height))
             .ToList();
+        var ownerScaling = _ownerWindow.RenderScaling;
         var fallback = new ScreenRect(
             _ownerWindow.Position.X, _ownerWindow.Position.Y,
-            (int)_ownerWindow.Width, (int)_ownerWindow.Height);
+            ToPhysical(_ownerWindow.Width, ownerScaling), ToPhysical(_ownerWindow.Height, ownerScaling));
 
+        // Both branches clamp in physical space: remembered geometry may be stale (its monitor
+        // could be gone), and a cascade default anchored near the main window can still land
+        // partially off-screen close to an edge.
         var geometry = widget.PopOut is { } remembered
             ? WindowGeometry.ClampToScreens(
                 new ScreenRect(remembered.X, remembered.Y, remembered.Width, remembered.Height),
                 screens, fallback)
-            : CascadeDefault(fallback);
+            : WindowGeometry.ClampToScreens(CascadeDefault(fallback), screens, fallback);
 
         var window = new WidgetPopOutWindow(widget, _dashboardViewModel)
         {
             Position = new PixelPoint(geometry.X, geometry.Y),
-            Width    = geometry.Width,
-            Height   = geometry.Height,
+            Width    = ToLogical(geometry.Width, ownerScaling),
+            Height   = ToLogical(geometry.Height, ownerScaling),
         };
         window.Closing += (_, _) => OnWindowClosing(window);
 
@@ -145,23 +154,51 @@ public sealed class PopOutCoordinator
     /// <c>onReturned</c>. Call this on app shutdown or before switching workspace profiles, so
     /// pop-outs reopen in place next time rather than silently returning to the page.
     /// </summary>
+    /// <remarks>
+    /// Isolated per window: the suppression-flag add, the <c>onPersistedForShutdown</c> callback,
+    /// and <see cref="Window.Close"/> are treated as one unit per window, and a callback throwing
+    /// for one window can never stop the rest from being persisted and closed. If the callback
+    /// throws for a window, that window is left open rather than closed with a stale flag, and its
+    /// suppression flag is removed so a later close of it (manual or otherwise) still fires
+    /// <c>onReturned</c> normally instead of silently losing its geometry.
+    /// </remarks>
     public void PersistAndCloseAll()
     {
         foreach (var (instanceId, window) in _open.ToList())
         {
             _suppressReturnOnClose.Add(instanceId);
-            _onPersistedForShutdown(instanceId, CaptureGeometry(window, isPoppedOut: true));
+            try
+            {
+                _onPersistedForShutdown(instanceId, CaptureGeometry(window, isPoppedOut: true));
+            }
+            catch
+            {
+                // The callback threw before Close() ran: leave this window open (rather than
+                // closing it with unpersisted state) and drop the suppression flag we just added
+                // so it doesn't linger and get silently consumed by a later, unrelated close of
+                // this same window. Every other open window still gets persisted and closed below.
+                _suppressReturnOnClose.Remove(instanceId);
+                continue;
+            }
+
             window.Close();
         }
     }
 
-    /// <summary>Cascade placement for a widget with no remembered geometry: offset from
-    /// <paramref name="fallback"/> (the main window's bounds) by <see cref="CascadeBaseOffsetPx"/>
-    /// plus <see cref="CascadeStepPx"/> per already-open pop-out, at the default size.</summary>
+    /// <summary>Cascade placement (in physical pixels) for a widget with no remembered geometry:
+    /// offset from <paramref name="fallback"/> (the main window's bounds, already physical) by
+    /// <see cref="CascadeBaseOffsetPx"/> plus <see cref="CascadeStepPx"/> per already-open pop-out,
+    /// at the default size — <see cref="DefaultWidth"/>/<see cref="DefaultHeight"/> are logical
+    /// DIPs (matching <see cref="WidgetPopOutWindow"/>'s XAML-declared min size), so they're
+    /// converted to physical pixels via the owner window's <see cref="Window.RenderScaling"/>
+    /// before being placed into the returned <see cref="ScreenRect"/>.</summary>
     private ScreenRect CascadeDefault(ScreenRect fallback)
     {
         var offset = CascadeBaseOffsetPx + CascadeStepPx * _open.Count;
-        return new ScreenRect(fallback.X + offset, fallback.Y + offset, DefaultWidth, DefaultHeight);
+        var scaling = _ownerWindow.RenderScaling;
+        return new ScreenRect(
+            fallback.X + offset, fallback.Y + offset,
+            ToPhysical(DefaultWidth, scaling), ToPhysical(DefaultHeight, scaling));
     }
 
     /// <summary>Shared handler wired to every pop-out window's <see cref="Window.Closing"/>:
@@ -178,9 +215,26 @@ public sealed class PopOutCoordinator
         _onReturned(instanceId, CaptureGeometry(window, isPoppedOut: false));
     }
 
-    /// <summary>Reads a window's current position/size into a <see cref="PopOutState"/>.
-    /// <c>Topmost</c> is always false — reserved, unused in v1.</summary>
-    private static PopOutState CaptureGeometry(WidgetPopOutWindow window, bool isPoppedOut) =>
-        new(isPoppedOut, window.Position.X, window.Position.Y,
-            (int)window.Width, (int)window.Height, Topmost: false);
+    /// <summary>Reads a window's current position/size into a <see cref="PopOutState"/>, whose
+    /// X/Y/Width/Height are all physical pixels. <see cref="Window.Position"/> is already
+    /// physical; <see cref="Window.Width"/>/<see cref="Window.Height"/> are logical DIPs and are
+    /// converted via the window's own <see cref="Window.RenderScaling"/> (falling back to the
+    /// owner window's scaling if the pop-out's is unavailable, e.g. not yet realized on a
+    /// screen). <c>Topmost</c> is always false — reserved, unused in v1.</summary>
+    private PopOutState CaptureGeometry(WidgetPopOutWindow window, bool isPoppedOut)
+    {
+        var scaling = window.RenderScaling > 0 ? window.RenderScaling : _ownerWindow.RenderScaling;
+        return new(isPoppedOut, window.Position.X, window.Position.Y,
+            ToPhysical(window.Width, scaling), ToPhysical(window.Height, scaling), Topmost: false);
+    }
+
+    /// <summary>Converts a logical DIP length (e.g. <see cref="Window.Width"/>/<see cref="Window.Height"/>)
+    /// to physical pixels using <paramref name="scaling"/> (a <see cref="Window.RenderScaling"/> value)
+    /// — the unit <see cref="ScreenRect"/> and <see cref="PopOutState"/> are standardized on.</summary>
+    private static int ToPhysical(double logicalDips, double scaling) => (int)Math.Round(logicalDips * scaling);
+
+    /// <summary>Converts a physical pixel length back to logical DIPs using <paramref name="scaling"/>
+    /// (a <see cref="Window.RenderScaling"/> value), for assignment to <see cref="Window.Width"/>/
+    /// <see cref="Window.Height"/>.</summary>
+    private static double ToLogical(int physicalPx, double scaling) => physicalPx / scaling;
 }

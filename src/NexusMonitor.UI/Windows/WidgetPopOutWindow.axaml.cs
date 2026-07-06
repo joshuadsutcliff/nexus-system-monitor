@@ -57,12 +57,32 @@ public partial class WidgetPopOutWindow : Window
         Title          = ResolveTitle(widget.WidgetTypeId);
         DataContext    = dashboardViewModel;
         CardHost.Child = WidgetTileFactory.Create(widget);
+        Closed        += OnClosed;
     }
 
-    /// <summary>Looks up the widget catalog's display Name for <paramref name="widgetTypeId"/>;
-    /// falls back to the raw type id for any TypeId the catalog doesn't recognize (mirrors
+    /// <summary>Looks up the widget catalog's display Name for <paramref name="widgetTypeId"/>,
+    /// resolving legacy alias TypeIds (e.g. <c>nexus.widget.cpuChart</c>) to their canonical entry
+    /// via <see cref="WidgetTileFactory.ResolveTypeId"/> first — the same normalization
+    /// <see cref="WidgetTileFactory.Create"/> uses to pick the rendered control, so a legacy
+    /// instance's pop-out title matches the widget it's actually showing. Falls back to the raw
+    /// type id for any TypeId the catalog doesn't recognize even after normalization (mirrors
     /// <see cref="WidgetTileFactory"/>'s never-broken-tile guarantee — an unrecognized type still
     /// gets a readable title instead of a blank one).</summary>
-    private static string ResolveTitle(string widgetTypeId) =>
-        WidgetCatalog.Entries.FirstOrDefault(e => e.TypeId == widgetTypeId)?.Name ?? widgetTypeId;
+    private static string ResolveTitle(string widgetTypeId)
+    {
+        var canonicalTypeId = WidgetTileFactory.ResolveTypeId(widgetTypeId);
+        return WidgetCatalog.Entries.FirstOrDefault(e => e.TypeId == canonicalTypeId)?.Name ?? widgetTypeId;
+    }
+
+    /// <summary>Disposes the hosted widget control on window teardown, mirroring
+    /// <see cref="Controls.PageHostControl"/>.RebuildChildren's invariant: a widget's Dispose may
+    /// release only widget-owned resources — never its bound VM (widgets bind shared singleton
+    /// VMs such as card VMs, so disposing those here would corrupt live state app-wide). Runs on
+    /// <see cref="Window.Closed"/>, after <see cref="PopOutCoordinator"/>'s <c>Closing</c>-based
+    /// geometry capture has already happened. Also unsubscribes itself.</summary>
+    private void OnClosed(object? sender, EventArgs e)
+    {
+        Closed -= OnClosed;
+        (CardHost.Child as IDisposable)?.Dispose();
+    }
 }
