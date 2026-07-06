@@ -5,7 +5,7 @@ namespace NexusMonitor.Core.Pages;
 /// untouched original, Commit the final state. Engine no-ops (unknown ids) record no undo entry.</summary>
 public sealed class PageEditSession
 {
-    private readonly PageLayout _original;
+    private PageLayout _original;
     private readonly Stack<PageLayout> _undo = new();
 
     /// <summary>Begins a session over the given layout.</summary>
@@ -50,6 +50,31 @@ public sealed class PageEditSession
 
     /// <summary>Finalizes the session and returns the edited layout.</summary>
     public PageLayout Commit() => Current;
+
+    /// <summary>Applies <paramref name="transform"/> to every snapshot this session holds — the
+    /// original, every undo-stack entry, and <see cref="Current"/> — rather than to just the
+    /// working layout. Use this for state that is applied to the live page from OUTSIDE the edit
+    /// session (e.g. pop-out window state, set directly via <see cref="PageLayoutEngine.SetPopOut"/>
+    /// while an edit is in progress): such state is orthogonal to whatever the user is editing, so
+    /// it must survive no matter how the session resolves. Rebasing every snapshot — not just
+    /// <see cref="Current"/> — is what makes that true: <see cref="Commit"/> returns the rebased
+    /// <see cref="Current"/>, <see cref="Cancel"/> returns the rebased original instead of the
+    /// stale pre-transform one, and <see cref="Undo"/> pops rebased undo entries — so none of the
+    /// three can ever revert an externally-applied change back to a pre-transform snapshot.</summary>
+    public void RebaseAll(Func<PageLayout, PageLayout> transform)
+    {
+        _original = transform(_original);
+
+        if (_undo.Count > 0)
+        {
+            var snapshots = _undo.ToArray(); // enumerates top (most recent) first
+            _undo.Clear();
+            for (var i = snapshots.Length - 1; i >= 0; i--)
+                _undo.Push(transform(snapshots[i])); // push oldest→newest so top ends up newest again
+        }
+
+        Current = transform(Current);
+    }
 
     private void Apply(PageLayout next)
     {

@@ -8,7 +8,7 @@ using NexusMonitor.Core.Pages;
 namespace NexusMonitor.UI.Controls;
 
 /// <summary>Edit-mode overlay for PageHostControl: draws per-tile chrome (outline, remove box,
-/// resize grip), owns all edit pointer interaction, and drives drag/resize gestures with a
+/// pop-out box, resize grip), owns all edit pointer interaction, and drives drag/resize gestures with a
 /// ghost preview. Rendering and hit-testing share the same geometry (PageGeometry) so they can
 /// never diverge. Inactive → invisible and hit-test-transparent (enforced via IsHitTestVisible).
 /// Implements <see cref="ICustomHitTest"/> because most of the chrome is stroke-only (the tile
@@ -57,6 +57,12 @@ public sealed class EditAdornerControl : Control, ICustomHitTest
     /// <summary>Raised when the user clicks a tile's remove box.</summary>
     public event Action<Guid>? RemoveRequested;
 
+    /// <summary>Raised when the user clicks a tile's pop-out box (edit-chrome pop-out entry point,
+    /// v1 — the view-mode context-menu entry point is deferred, see the Phase 6 plan). The VM
+    /// decides what popping out means (mark <see cref="PopOutState"/>, persist, ask the coordinator
+    /// to open the window) — this control only reports the gesture.</summary>
+    public event Action<Guid>? PopOutRequested;
+
     /// <summary>Raised once per drag/resize gesture, on release, with the committed target rect
     /// (pre-push-down — the engine resolves collisions on commit). Never raised mid-gesture: the
     /// ghost preview is adorner-drawn only, so the layout mutates once per gesture, not per pointer-move.</summary>
@@ -65,6 +71,7 @@ public sealed class EditAdornerControl : Control, ICustomHitTest
     // ── Chrome constants ──────────────────────────────────────────────────────
 
     private const double RemoveBox = 20;
+    private const double PopOutBox = 20;
     private const double Grip = 16;
 
     // Hoisted render objects: all inputs to these pens/brushes/glyph are compile-time constants,
@@ -75,6 +82,8 @@ public sealed class EditAdornerControl : Control, ICustomHitTest
     private static readonly SolidColorBrush DimBrush = new(Color.FromArgb(0x66, 0x00, 0x00, 0x00));
     private static readonly SolidColorBrush GlyphBrush = new(Colors.White);
     private static readonly FormattedText RemoveGlyphText = new("✕", System.Globalization.CultureInfo.InvariantCulture,
+        FlowDirection.LeftToRight, Typeface.Default, 12, GlyphBrush);
+    private static readonly FormattedText PopOutGlyphText = new("↗", System.Globalization.CultureInfo.InvariantCulture,
         FlowDirection.LeftToRight, Typeface.Default, 12, GlyphBrush);
 
     // Ghost tint: blue = clean drop onto empty cells, amber = will push other tiles down.
@@ -128,7 +137,8 @@ public sealed class EditAdornerControl : Control, ICustomHitTest
     /// the specific zone (body/remove/grip) via <see cref="HitTest"/> below.</summary>
     bool ICustomHitTest.HitTest(Point point) => IsActive && new Rect(Bounds.Size).Contains(point);
 
-    /// <summary>Zone hit for a point: (tile index, zone) or null. Zones: 0=body, 1=remove, 2=grip.</summary>
+    /// <summary>Zone hit for a point: (tile index, zone) or null. Zones: 0=body, 1=remove, 2=grip,
+    /// 3=pop-out.</summary>
     private (int Index, int Zone)? HitTest(Point p)
     {
         if (!IsActive || Page is null) return null;
@@ -137,6 +147,7 @@ public sealed class EditAdornerControl : Control, ICustomHitTest
             var r = TileRect(i);
             if (!r.Contains(p)) continue;
             if (new Rect(r.Right - RemoveBox, r.Y, RemoveBox, RemoveBox).Contains(p)) return (i, 1);
+            if (new Rect(r.Right - RemoveBox - PopOutBox, r.Y, PopOutBox, PopOutBox).Contains(p)) return (i, 3);
             if (new Rect(r.Right - Grip, r.Bottom - Grip, Grip, Grip).Contains(p)) return (i, 2);
             return (i, 0);
         }
@@ -171,7 +182,8 @@ public sealed class EditAdornerControl : Control, ICustomHitTest
         return new GridRect(w.Rect.Col, w.Rect.Row, colSpan, rowSpan).ClampTo(Page!.GridColumns);
     }
 
-    /// <summary>Draws per-tile chrome: accent outline, remove box with a centered ✕, and a diagonal-hatch resize grip,
+    /// <summary>Draws per-tile chrome: accent outline, remove box with a centered ✕, a pop-out box
+    /// (beside the remove box, offset left) with a centered ↗, and a diagonal-hatch resize grip,
     /// then — mid-gesture — the candidate ghost rect tinted per <see cref="PageLayoutEngine.IsValidPlacement"/>.
     /// No-op when inactive or the page is unset.</summary>
     public override void Render(DrawingContext ctx)
@@ -187,6 +199,11 @@ public sealed class EditAdornerControl : Control, ICustomHitTest
             ctx.DrawRectangle(DimBrush, null, remove, 4, 4);
             ctx.DrawText(RemoveGlyphText, new Point(remove.X + (RemoveBox - RemoveGlyphText.Width) / 2,
                 remove.Y + (RemoveBox - RemoveGlyphText.Height) / 2));
+
+            var popOut = new Rect(r.Right - RemoveBox - PopOutBox, r.Y, PopOutBox, PopOutBox);
+            ctx.DrawRectangle(DimBrush, null, popOut, 4, 4);
+            ctx.DrawText(PopOutGlyphText, new Point(popOut.X + (PopOutBox - PopOutGlyphText.Width) / 2,
+                popOut.Y + (PopOutBox - PopOutGlyphText.Height) / 2));
 
             var grip = new Rect(r.Right - Grip, r.Bottom - Grip, Grip, Grip);
             for (var g = 4; g <= 12; g += 4)
@@ -225,11 +242,13 @@ public sealed class EditAdornerControl : Control, ICustomHitTest
         InvalidateVisual();
     }
 
-    /// <summary>Hit-tests the press point: a remove-box hit raises <see cref="RemoveRequested"/> and marks the
-    /// event handled; a body/grip hit begins a drag/resize gesture and captures the pointer (capture happens
-    /// only after the zone check succeeds — the ColorWheelControl idiom — so a miss never steals input from
-    /// controls beneath the adorner). Any miss (inactive, no page, or outside all zones) leaves the event
-    /// unhandled so scroll/pointer input continues to reach controls beneath the adorner.</summary>
+    /// <summary>Hit-tests the press point: a remove-box hit raises <see cref="RemoveRequested"/>, a
+    /// pop-out-box hit raises <see cref="PopOutRequested"/> (neither begins a gesture — both are
+    /// one-shot actions), and either marks the event handled; a body/grip hit begins a drag/resize
+    /// gesture and captures the pointer (capture happens only after the zone check succeeds — the
+    /// ColorWheelControl idiom — so a miss never steals input from controls beneath the adorner).
+    /// Any miss (inactive, no page, or outside all zones) leaves the event unhandled so
+    /// scroll/pointer input continues to reach controls beneath the adorner.</summary>
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
@@ -240,6 +259,11 @@ public sealed class EditAdornerControl : Control, ICustomHitTest
         if (hit.Value.Zone == 1)
         {
             RemoveRequested?.Invoke(Page!.Widgets[hit.Value.Index].InstanceId);
+            e.Handled = true;
+        }
+        else if (hit.Value.Zone == 3)
+        {
+            PopOutRequested?.Invoke(Page!.Widgets[hit.Value.Index].InstanceId);
             e.Handled = true;
         }
         else

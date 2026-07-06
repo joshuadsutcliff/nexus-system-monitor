@@ -1,3 +1,4 @@
+using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Data;
@@ -21,10 +22,41 @@ public static class WidgetTileFactory
         ["nexus.widget.memoryChart"] = "nexus.widget.memoryCard",
     };
 
-    /// <summary>Creates the control for one widget instance. Never returns null and never throws.</summary>
-    public static Control Create(WidgetInstance widget)
+    /// <summary>Resolves a possibly-legacy <paramref name="typeId"/> to its canonical replacement
+    /// via <see cref="AliasMap"/>, or returns it unchanged if it isn't a known legacy alias. This
+    /// is the single normalization path — <see cref="Create"/> and any other caller that needs to
+    /// reason about a widget's canonical type (e.g. resolving its catalog display name) must both
+    /// go through this method rather than re-implementing alias lookup.</summary>
+    public static string ResolveTypeId(string typeId) =>
+        AliasMap.TryGetValue(typeId, out var canonical) ? canonical : typeId;
+
+    /// <summary>Creates the control for one widget instance. Never returns null and never throws.
+    /// The popped-out placeholder check is skipped BEFORE the TypeId switch so it applies
+    /// uniformly to every widget type: on the page grid (<paramref name="asPopOutContent"/> false,
+    /// the default), a widget torn off into its own OS window (<see cref="WidgetInstance.PopOut"/>'s
+    /// <c>IsPoppedOut</c> true) renders a reserved-slot placeholder here instead of its real
+    /// control — the live control is instead hosted by <see cref="Windows.WidgetPopOutWindow"/>,
+    /// which calls this same method with <paramref name="asPopOutContent"/> true to build ITS
+    /// content, bypassing the placeholder so the pop-out window shows the live widget instead of a
+    /// second copy of the placeholder. Without this parameter, every restore path (launch,
+    /// profile switch) — which constructs <see cref="Windows.WidgetPopOutWindow"/> from a widget
+    /// instance whose <c>IsPoppedOut</c> flag is already true — would render the placeholder
+    /// inside the pop-out window itself instead of the live control; only a same-session fresh
+    /// pop-out avoided this by coincidence, since its caller grabs the widget instance before
+    /// flipping the flag.</summary>
+    /// <param name="widget">The widget instance to render.</param>
+    /// <param name="asPopOutContent">True when building the control that will be hosted INSIDE a
+    /// <see cref="Windows.WidgetPopOutWindow"/> — skips the popped-out placeholder branch
+    /// regardless of <paramref name="widget"/>'s <see cref="WidgetInstance.PopOut"/> state, since
+    /// that window IS where the widget lives right now. False (the default) for the page-grid
+    /// path (<see cref="PageHostControl"/>), which still needs the placeholder for a popped-out
+    /// widget's reserved slot.</param>
+    public static Control Create(WidgetInstance widget, bool asPopOutContent = false)
     {
-        var typeId = AliasMap.TryGetValue(widget.WidgetTypeId, out var canonical) ? canonical : widget.WidgetTypeId;
+        if (!asPopOutContent && widget.PopOut?.IsPoppedOut == true)
+            return CreatePoppedOutPlaceholder(widget.WidgetTypeId);
+
+        var typeId = ResolveTypeId(widget.WidgetTypeId);
 
         return typeId switch
         {
@@ -59,4 +91,20 @@ public static class WidgetTileFactory
         Title = "Unknown widget",
         Subtitle = $"'{widgetTypeId}' isn't available in this version. Its place and settings are preserved.",
     };
+
+    /// <summary>Builds the reserved-slot placeholder shown for a widget that's currently torn off
+    /// into its own OS window: same idiom as <see cref="CreateUnknownPlaceholder"/> (a plain
+    /// <see cref="WidgetTile"/>), titled with the widget's catalog display name (resolved through
+    /// <see cref="ResolveTypeId"/> so a legacy-aliased instance still shows its real name) rather
+    /// than the raw TypeId, since this is a known, working widget — just elsewhere right now.</summary>
+    private static WidgetTile CreatePoppedOutPlaceholder(string widgetTypeId)
+    {
+        var canonicalTypeId = ResolveTypeId(widgetTypeId);
+        var name = WidgetCatalog.Entries.FirstOrDefault(e => e.TypeId == canonicalTypeId)?.Name ?? widgetTypeId;
+        return new WidgetTile
+        {
+            Title = $"{name} (popped out)",
+            Subtitle = "Close its window to return it here.",
+        };
+    }
 }

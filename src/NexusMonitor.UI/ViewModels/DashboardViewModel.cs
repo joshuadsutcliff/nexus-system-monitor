@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reactive.Linq;
+using Avalonia.Controls;
 using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -9,8 +10,11 @@ using CommunityToolkit.Mvvm.Messaging;
 using NexusMonitor.Core.Health;
 using NexusMonitor.Core.Models;
 using NexusMonitor.Core.Pages;
+using NexusMonitor.Core.Services;
 using NexusMonitor.UI.Messages;
+using NexusMonitor.UI.Services;
 using ReactiveUI;
+using Serilog;
 
 namespace NexusMonitor.UI.ViewModels;
 
@@ -83,13 +87,27 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
     // source (App.axaml.cs); DashboardViewModel no longer reads or writes it.
     private readonly WorkspaceProfileStore? _profileStore;
 
-    public DashboardViewModel(SystemHealthService healthService, MemoryLeakDetectionService leakService, AppSettings settings, HealthTrendsViewModel healthTrendsViewModel, PredictionService? predictionService = null, WorkspaceProfileStore? profileStore = null)
+    // ── Page engine (Phase 6) — pop-out windows ───────────────────────────────
+
+    private readonly IInAppNotificationService? _notificationService;
+
+    /// <summary>The main window, needed to open/clamp pop-out windows. Set once <see cref="Views.DashboardView"/>
+    /// loads (unavailable at VM construction time); see <see cref="AttachOwnerWindow"/>.</summary>
+    private Window? _ownerWindow;
+
+    /// <summary>Owns open pop-out windows. Created lazily on the first <see cref="PopOutWidget"/> call —
+    /// most sessions never pop anything out, and it needs <see cref="_ownerWindow"/>, which isn't
+    /// available yet at construction time.</summary>
+    private PopOutCoordinator? _popOutCoordinator;
+
+    public DashboardViewModel(SystemHealthService healthService, MemoryLeakDetectionService leakService, AppSettings settings, HealthTrendsViewModel healthTrendsViewModel, PredictionService? predictionService = null, WorkspaceProfileStore? profileStore = null, IInAppNotificationService? notificationService = null)
     {
         _healthService      = healthService;
         _leakService        = leakService;
         _settings           = settings;
         HealthTrendsViewModel = healthTrendsViewModel;
         _profileStore       = profileStore;
+        _notificationService = notificationService;
 
         var usePageEngine = settings.EnablePageEngine;
         if (usePageEngine)
@@ -120,12 +138,42 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
             _healthService.Start(msg.Interval);
         });
 
+        // Page engine Phase 6: BEFORE SettingsViewModel flips the active workspace profile pointer,
+        // persist every open pop-out's live geometry into the (still active) OUTGOING profile and
+        // close its OS windows. WeakReferenceMessenger.Send is synchronous, so this fully completes
+        // — including the SaveActivePage() write inside PersistAndCloseAllPopOuts's callback chain,
+        // which reads _profileStore.LoadActive() — before SwitchWorkspaceProfile's very next line
+        // calls WorkspaceProfileStore.SetActive(name). Ordering matters: reversing it (persisting
+        // after SetActive) would read/save into the INCOMING profile instead, corrupting it with the
+        // OUTGOING page's widget layout.
+        //
+        // Post-review hardening: a live Dashboard edit session is force-exited via CancelEdit()
+        // FIRST, before PersistAndCloseAllPopOuts. Why: entering edit mode snapshots the OUTGOING
+        // profile's page into _editSession (see EnterEditMode). If a profile switch lands mid-edit,
+        // WorkspaceProfileSwitchedMessage's handler below reassigns EnginePage to the INCOMING
+        // profile's page and calls RestorePopOuts() — but it never touches _editSession/IsEditMode,
+        // which stay pointed at the outgoing profile's stale history. Any edit op fired afterward
+        // (AfterEdit, SaveEdit, CancelEdit, UndoEdit) would then read/write through that stale
+        // session and revert EnginePage back to outgoing-derived state; SaveEdit would persist that
+        // corrupted layout INTO the incoming profile. CancelEdit() already no-ops when _editSession
+        // is null, so calling it unconditionally here is a no-op when the switch happens outside
+        // edit mode. Its Cancel semantics are intentional: any uncommitted in-progress edit to the
+        // OUTGOING profile is discarded, and that profile simply keeps its last-saved layout.
+        WeakReferenceMessenger.Default.Register<WorkspaceProfileSwitchingMessage>(this, (_, _) =>
+        {
+            CancelEdit();
+            PersistAndCloseAllPopOuts();
+        });
+
         // Page engine Phase 5: reload the dashboard layout when the user switches the active
         // workspace profile in Settings. Theme is applied separately (synchronously, before this
-        // message is sent) by SettingsViewModel — this handler only ever touches layout.
+        // message is sent) by SettingsViewModel — this handler only ever touches layout. Phase 6:
+        // also restore the incoming profile's own popped-out widgets (RestorePopOuts is idempotent
+        // and guarded on UsePageEngine, same as AttachOwnerWindow's initial restore).
         WeakReferenceMessenger.Default.Register<WorkspaceProfileSwitchedMessage>(this, (_, _) =>
         {
             EnginePage = _profileStore?.LoadActive().Pages.GetValueOrDefault("dashboard") ?? EnginePage;
+            RestorePopOuts();
         });
     }
 
@@ -224,12 +272,189 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
         AfterEdit();
     }
 
-    /// <summary>Adorner callback: remove a widget.</summary>
+    /// <summary>Adorner callback: remove a widget. If the widget is currently popped out into its
+    /// own OS window (or the coordinator otherwise still has one open for it), that window is
+    /// closed first — suppressing its <c>onReturned</c> callback, since the widget is being
+    /// deleted outright and there is no page-side widget left to persist returned geometry into —
+    /// so removing a widget from the page never orphans an open pop-out window.</summary>
     public void EditRemove(Guid id)
     {
         if (_editSession is null) return;
+
+        var poppedOut = _editSession.Current.FindWidget(id)?.PopOut?.IsPoppedOut == true;
+        if (poppedOut || (_popOutCoordinator?.Open.ContainsKey(id) ?? false))
+            _popOutCoordinator?.CloseWindow(id, suppressReturn: true);
+
         _editSession.Remove(id);
         AfterEdit();
+    }
+
+    // ── Page engine (Phase 6) — pop-out windows ───────────────────────────────
+    // Pop-out changes are NOT edit-session ops (no undo stack): PageLayoutEngine.SetPopOut applies
+    // directly to the live EnginePage and is persisted immediately via SaveActivePage, mirroring
+    // its own doc'd contract. Entry point v1 is the edit-chrome pop-out button only — a view-mode
+    // context-menu entry point is deferred (see the Phase 6 plan's Task 3 note): it needs per-widget
+    // menu plumbing across nine separate widget controls, out of scope for this task.
+
+    /// <summary>Wires the main window reference <see cref="PopOutCoordinator"/> needs to open and
+    /// screen-clamp pop-out windows. Called by <see cref="Views.DashboardView"/> once it loads (not
+    /// available at VM construction time). Safe to call more than once — <see cref="Views.DashboardView"/>
+    /// is recreated on every navigation to the Dashboard tab, so this fires again on each re-Loaded.
+    /// Also triggers <see cref="RestorePopOuts"/> (restore-on-launch): the very first attach is the
+    /// earliest point at which both a loaded <see cref="EnginePage"/> AND an owner window exist —
+    /// neither is available at VM construction time.</summary>
+    public void AttachOwnerWindow(Window window)
+    {
+        _ownerWindow = window;
+        RestorePopOuts();
+    }
+
+    /// <summary>Reopens a pop-out window for every widget on <see cref="EnginePage"/> whose
+    /// <see cref="WidgetInstance.PopOut"/> has <c>IsPoppedOut</c> true — i.e. every widget that was
+    /// still popped out the last time its state was persisted (app shutdown, a profile switch, or a
+    /// crash). No-ops entirely when the page engine isn't active (<see cref="UsePageEngine"/> —
+    /// the same guard <see cref="Views.DashboardView"/>'s XAML uses to show the engine page at all)
+    /// or no page is loaded. Called from <see cref="AttachOwnerWindow"/> (restore-on-launch) and
+    /// from the <see cref="WorkspaceProfileSwitchedMessage"/> handler (restore for the profile just
+    /// switched into). Idempotent and safe to call repeatedly — <see cref="PopOutCoordinator.TryPopOut"/>
+    /// is itself a no-op (returns true without opening a second window) for a widget it already has
+    /// open, so re-attaching the owner window (e.g. tab navigation back to Dashboard) never duplicates
+    /// windows.
+    /// <para>
+    /// Logs a single INFO line every call, before either guard can return early — diagnostic gold
+    /// for a restore that silently opens nothing: it reports <see cref="UsePageEngine"/>, whether
+    /// <see cref="EnginePage"/> is loaded, whether <see cref="_ownerWindow"/> is attached yet, and
+    /// how many widgets on the page are actually marked popped-out, so a future no-windows-opened
+    /// report can be diagnosed from the log alone instead of needing to reproduce it live.
+    /// </para></summary>
+    private void RestorePopOuts()
+    {
+        var poppedOutCount = EnginePage?.Widgets.Count(w => w.PopOut?.IsPoppedOut == true) ?? 0;
+        Log.Information(
+            "RestorePopOuts: UsePageEngine={UsePageEngine} EnginePageLoaded={EnginePageLoaded} OwnerWindowAttached={OwnerWindowAttached} PoppedOutWidgetCount={PoppedOutWidgetCount}",
+            UsePageEngine, EnginePage is not null, _ownerWindow is not null, poppedOutCount);
+
+        if (!UsePageEngine || EnginePage is null) return;
+
+        _popOutCoordinator ??= CreateCoordinator();
+        if (_popOutCoordinator is null) return; // no owner window attached yet
+
+        foreach (var widget in EnginePage.Widgets)
+            if (widget.PopOut?.IsPoppedOut == true)
+                _popOutCoordinator.TryPopOut(widget);
+    }
+
+    /// <summary>Lazily builds <see cref="_popOutCoordinator"/> the first time a pop-out is
+    /// requested. Returns null (and the caller no-ops the open) if no owner window has been
+    /// attached yet — shouldn't happen in practice since the pop-out button only exists once the
+    /// view is loaded, but is handled defensively so the model never lies about an open window.</summary>
+    private PopOutCoordinator? CreateCoordinator() =>
+        _ownerWindow is null
+            ? null
+            : new PopOutCoordinator(_ownerWindow, this, _notificationService, OnPopOutReturned, OnPopOutPersistedForShutdown);
+
+    /// <summary>Edit-chrome pop-out button callback (<see cref="Controls.EditAdornerControl.PopOutRequested"/>,
+    /// wired in <see cref="Views.DashboardView"/>): tears <paramref name="instanceId"/>'s widget off
+    /// into its own OS window. Marks the widget popped-out and persists immediately — reusing its
+    /// last remembered geometry if this widget has been popped out before, otherwise a zeroed
+    /// placeholder purely for the "is it popped out" fact, since the coordinator below is handed the
+    /// widget instance as it was BEFORE that update (so a first-time pop-out still resolves as "no
+    /// remembered geometry" to the coordinator, which then computes its own cascade-default
+    /// placement/size, rather than seeing these persisted zeros as real remembered geometry). If
+    /// <see cref="PopOutCoordinator.TryPopOut"/> refuses (the open-pop-out cap was hit, already
+    /// toasted by the coordinator, or no owner window is attached yet), the pop-out mark is reverted
+    /// to its exact pre-call value so the model never claims a window is open when none actually is.
+    /// Double-click/redundant-call guard: if the widget is already marked popped-out AND the
+    /// coordinator still has its window open, this is a no-op — there's nothing to rebuild or
+    /// re-persist. A widget that's marked popped-out but NOT actually open in the coordinator (e.g.
+    /// right after a cap-refusal revert, or recovering from a crash between "marked popped out" and
+    /// "window opened") still falls through to the normal path below so it can actually open.</summary>
+    public void PopOutWidget(Guid instanceId)
+    {
+        if (EnginePage is null) return;
+        var widget = EnginePage.FindWidget(instanceId);
+        if (widget is null) return;
+
+        if (widget.PopOut?.IsPoppedOut == true && (_popOutCoordinator?.Open.ContainsKey(instanceId) ?? false))
+            return;
+
+        var markedPoppedOut = widget.PopOut is { } prior
+            ? prior with { IsPoppedOut = true }
+            : new PopOutState(true, 0, 0, 0, 0, false);
+        ApplyPopOutStateAndSave(instanceId, markedPoppedOut);
+
+        _popOutCoordinator ??= CreateCoordinator();
+        if (_popOutCoordinator is null || !_popOutCoordinator.TryPopOut(widget))
+            ApplyPopOutStateAndSave(instanceId, widget.PopOut);
+    }
+
+    /// <summary>Coordinator callback: fires when the user closes a pop-out window directly. The
+    /// delivered <paramref name="state"/> already has <c>IsPoppedOut</c> false with its final
+    /// X/Y/Width/Height retained (per <see cref="PopOutCoordinator"/>'s contract), so the widget
+    /// reopens where it was left next time.</summary>
+    private void OnPopOutReturned(Guid instanceId, PopOutState state) => ApplyPopOutStateAndSave(instanceId, state);
+
+    /// <summary>Coordinator callback wired for <see cref="PopOutCoordinator.PersistAndCloseAll"/>
+    /// (Task 4's shutdown/profile-switch path calls it via the coordinator): the delivered
+    /// <paramref name="state"/> already has <c>IsPoppedOut</c> still true (the widget is
+    /// conceptually still popped out — only its OS window is being torn down) with its final
+    /// geometry, so it reopens in place on restore.</summary>
+    private void OnPopOutPersistedForShutdown(Guid instanceId, PopOutState state) => ApplyPopOutStateAndSave(instanceId, state);
+
+    /// <summary>Persists every open pop-out's current geometry (still marked <c>IsPoppedOut</c> true —
+    /// see <see cref="OnPopOutPersistedForShutdown"/>) and closes their OS windows. No-op if no
+    /// pop-out has ever been opened this session (<see cref="_popOutCoordinator"/> is still null).
+    /// <para>
+    /// Two callers, both requiring the pop-out windows — which host live widget bindings into
+    /// services this VM depends on — to be torn down before anything they might reference stops:
+    /// </para>
+    /// <list type="bullet">
+    /// <item>App shutdown (<c>App.axaml.cs</c>'s <c>ShutdownRequested</c> handler): called as the
+    /// first step, before any service teardown.</item>
+    /// <item>A workspace-profile switch (<see cref="WorkspaceProfileSwitchingMessage"/>, sent by
+    /// <c>SettingsViewModel.SwitchWorkspaceProfile</c> before it flips the active profile pointer):
+    /// this persists each pop-out's geometry into the still-active OUTGOING profile. The incoming
+    /// profile's own popped-out widgets are then reopened via <see cref="RestorePopOuts"/> once
+    /// <see cref="WorkspaceProfileSwitchedMessage"/> reloads <see cref="EnginePage"/> from it.</item>
+    /// </list></summary>
+    public void PersistAndCloseAllPopOuts() => _popOutCoordinator?.PersistAndCloseAll();
+
+    /// <summary>Applies a pop-out state change directly to the live page and persists it into the
+    /// active workspace profile immediately — shared by every pop-out transition above, none of
+    /// which are edit-session ops. Reassigning <see cref="EnginePage"/> re-triggers PageHostControl's
+    /// rebuild (same mechanism <see cref="AfterEdit"/> relies on), so the placeholder tile
+    /// appears/disappears immediately on both the pop-out and the return transition.
+    /// <para>
+    /// Pop-out state is applied here regardless of edit mode — the pop-out button is edit-chrome-only,
+    /// so a live <see cref="_editSession"/> always exists when this fires. Without rebasing, the
+    /// session's stale snapshot (captured on <see cref="EnterEditMode"/>, before this pop-out
+    /// happened) would silently win on <see cref="SaveEdit"/> (its Commit overwrites this exact
+    /// change back to disk), <see cref="CancelEdit"/>, or <see cref="UndoEdit"/> — reverting the
+    /// pop-out on the model while the OS window stays open. So when a session is live, the same
+    /// transform is also rebased into it via <see cref="PageEditSession.RebaseAll"/>, which applies
+    /// to the session's original, every undo entry, and its current snapshot — pop-out state is
+    /// orthogonal metadata applied from outside the edit session, so no session outcome (Commit,
+    /// Cancel, or Undo) should ever be able to revert it.
+    /// </para></summary>
+    private void ApplyPopOutStateAndSave(Guid instanceId, PopOutState? state)
+    {
+        if (EnginePage is null) return;
+        EnginePage = PageLayoutEngine.SetPopOut(EnginePage, instanceId, state);
+        _editSession?.RebaseAll(p => PageLayoutEngine.SetPopOut(p, instanceId, state));
+        SaveActivePage();
+    }
+
+    /// <summary>Persists <see cref="EnginePage"/> into the active workspace profile's "dashboard"
+    /// page slot (load-modify-save via the store; the profile's other pages and theme are left
+    /// untouched) — the same persistence shape <see cref="SaveEdit"/> uses for edit-session commits.
+    /// No-op when no profile store is configured or no page is loaded.</summary>
+    private void SaveActivePage()
+    {
+        if (_profileStore is null || EnginePage is null) return;
+        var active = _profileStore.LoadActive();
+        var pages = active.Pages.ToDictionary(kv => kv.Key, kv => kv.Value);
+        pages["dashboard"] = EnginePage;
+        _profileStore.Save(active with { Pages = pages });
     }
 
     private void AfterEdit()
