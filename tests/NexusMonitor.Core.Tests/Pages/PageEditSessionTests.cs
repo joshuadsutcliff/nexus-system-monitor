@@ -102,14 +102,16 @@ public class PageEditSessionTests
     public void CompactPage_ClosesGaps_AndPushesUndoEntry()
     {
         var page = Factory();
-        var diskCard = page.Widgets[3]; // nexus.widget.diskCard at (4,2,4,2)
-        var cpuCard = page.Widgets[1]; // nexus.widget.cpuCard at (4,0,4,2) — top row, directly above diskCard
+        var diskCard = page.Widgets[3]; // nexus.widget.diskCard at (0,4,6,2)
+        var cpuCard = page.Widgets[1]; // nexus.widget.cpuCard at (0,2,6,2) — directly above diskCard, same column
         var s = new PageEditSession(page);
-        s.Remove(cpuCard.InstanceId); // opens a gap at (4,0,4,2)
+        s.Remove(cpuCard.InstanceId); // opens a gap at (0,2,6,2)
 
         s.CompactPage();
 
-        s.Current.FindWidget(diskCard.InstanceId)!.Rect.Row.Should().Be(0); // pulled up to close the gap
+        // Pulled up to close the gap, but blocked from reaching row 0 by the full-width
+        // health banner (0,0,12,2) that now occupies the top of the grid.
+        s.Current.FindWidget(diskCard.InstanceId)!.Rect.Row.Should().Be(2);
         s.CanUndo.Should().BeTrue();
     }
 

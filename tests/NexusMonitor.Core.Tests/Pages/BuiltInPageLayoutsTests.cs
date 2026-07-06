@@ -1,3 +1,4 @@
+using System.Linq;
 using FluentAssertions;
 using NexusMonitor.Core.Pages;
 using Xunit;
@@ -22,6 +23,37 @@ public class BuiltInPageLayoutsTests
             for (var j = i + 1; j < page.Widgets.Count; j++)
                 page.Widgets[i].Rect.Intersects(page.Widgets[j].Rect).Should().BeFalse();
         }
+    }
+
+    [Fact]
+    public void Dashboard_TopBlockMirrorsClassicDashboardProportions()
+    {
+        // The classic (non-page-engine) dashboard renders: a full-width health banner,
+        // then CPU+Memory as a half/half row, then Disk+GPU as a half/half row. The
+        // page-engine default must mirror those proportions on the 12-column grid.
+        var page = BuiltInPageLayouts.Load("dashboard");
+
+        RectOf(page, "nexus.widget.healthScore").Should().Be(new GridRect(0, 0, 12, 2));
+        RectOf(page, "nexus.widget.cpuCard").Should().Be(new GridRect(0, 2, 6, 2));
+        RectOf(page, "nexus.widget.memoryCard").Should().Be(new GridRect(6, 2, 6, 2));
+        RectOf(page, "nexus.widget.diskCard").Should().Be(new GridRect(0, 4, 6, 2));
+        RectOf(page, "nexus.widget.gpuCard").Should().Be(new GridRect(6, 4, 6, 2));
+
+        static GridRect RectOf(PageLayout page, string widgetTypeId) =>
+            page.Widgets.Single(w => w.WidgetTypeId == widgetTypeId).Rect;
+    }
+
+    [Fact]
+    public void Dashboard_AllWidgetsAreValidPlacementsPerEngine()
+    {
+        // Belt-and-suspenders on top of the pairwise Intersects check above: run every
+        // widget's rect through the same PageLayoutEngine.IsValidPlacement the UI uses
+        // for drag/drop, ignoring the widget's own instance so it only reports
+        // grid-fit + collisions against the *other* widgets.
+        var page = BuiltInPageLayouts.Load("dashboard");
+
+        foreach (var widget in page.Widgets)
+            PageLayoutEngine.IsValidPlacement(page, widget.Rect, widget.InstanceId).Should().BeTrue();
     }
 
     [Fact]
