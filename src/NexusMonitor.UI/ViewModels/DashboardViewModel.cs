@@ -76,12 +76,6 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
 
     // ── Page engine (Phase 7: unconditional) ──────────────────────────────────
 
-    /// <summary>Always true — the page engine is the Dashboard unconditionally (Phase 7). Retained
-    /// as a property (rather than deleted outright) purely for XAML binding compatibility with
-    /// <see cref="Views.DashboardView"/>'s remaining classic-vs-engine binds; a later cleanup
-    /// (Phase 7 Task 3, classic Dashboard deletion) may remove it entirely once those binds are gone.</summary>
-    public bool UsePageEngine => true;
-
     /// <summary>The page rendered by the engine path; null only if no factory-default layout could
     /// be built at all (see the constructor's catch block).</summary>
     [ObservableProperty]
@@ -207,8 +201,8 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
         // Page engine Phase 5: reload the dashboard layout when the user switches the active
         // workspace profile in Settings. Theme is applied separately (synchronously, before this
         // message is sent) by SettingsViewModel — this handler only ever touches layout. Phase 6:
-        // also restore the incoming profile's own popped-out widgets (RestorePopOuts is idempotent
-        // and guarded on UsePageEngine, same as AttachOwnerWindow's initial restore).
+        // also restore the incoming profile's own popped-out widgets (RestorePopOuts is idempotent,
+        // same as AttachOwnerWindow's initial restore).
         WeakReferenceMessenger.Default.Register<WorkspaceProfileSwitchedMessage>(this, (_, _) =>
         {
             EnginePage = _profileStore?.LoadActive().Pages.GetValueOrDefault("dashboard") ?? EnginePage;
@@ -258,7 +252,7 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
     [RelayCommand]
     private void EnterEditMode()
     {
-        if (!UsePageEngine || EnginePage is null || IsEditMode) return;
+        if (EnginePage is null || IsEditMode) return;
         _editSession = new PageEditSession(EnginePage);
         IsEditMode = true;
         CanUndoEdit = false;
@@ -376,29 +370,27 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
     /// <summary>Reopens a pop-out window for every widget on <see cref="EnginePage"/> whose
     /// <see cref="WidgetInstance.PopOut"/> has <c>IsPoppedOut</c> true — i.e. every widget that was
     /// still popped out the last time its state was persisted (app shutdown, a profile switch, or a
-    /// crash). No-ops entirely when the page engine isn't active (<see cref="UsePageEngine"/> —
-    /// the same guard <see cref="Views.DashboardView"/>'s XAML uses to show the engine page at all)
-    /// or no page is loaded. Called from <see cref="AttachOwnerWindow"/> (restore-on-launch) and
-    /// from the <see cref="WorkspaceProfileSwitchedMessage"/> handler (restore for the profile just
-    /// switched into). Idempotent and safe to call repeatedly — <see cref="PopOutCoordinator.TryPopOut"/>
-    /// is itself a no-op (returns true without opening a second window) for a widget it already has
-    /// open, so re-attaching the owner window (e.g. tab navigation back to Dashboard) never duplicates
-    /// windows.
+    /// crash). No-ops entirely when no page is loaded. Called from <see cref="AttachOwnerWindow"/>
+    /// (restore-on-launch) and from the <see cref="WorkspaceProfileSwitchedMessage"/> handler
+    /// (restore for the profile just switched into). Idempotent and safe to call repeatedly —
+    /// <see cref="PopOutCoordinator.TryPopOut"/> is itself a no-op (returns true without opening a
+    /// second window) for a widget it already has open, so re-attaching the owner window (e.g. tab
+    /// navigation back to Dashboard) never duplicates windows.
     /// <para>
-    /// Logs a single INFO line every call, before either guard can return early — diagnostic gold
-    /// for a restore that silently opens nothing: it reports <see cref="UsePageEngine"/>, whether
-    /// <see cref="EnginePage"/> is loaded, whether <see cref="_ownerWindow"/> is attached yet, and
-    /// how many widgets on the page are actually marked popped-out, so a future no-windows-opened
-    /// report can be diagnosed from the log alone instead of needing to reproduce it live.
+    /// Logs a single INFO line every call, before the guard can return early — diagnostic gold for a
+    /// restore that silently opens nothing: it reports whether <see cref="EnginePage"/> is loaded,
+    /// whether <see cref="_ownerWindow"/> is attached yet, and how many widgets on the page are
+    /// actually marked popped-out, so a future no-windows-opened report can be diagnosed from the
+    /// log alone instead of needing to reproduce it live.
     /// </para></summary>
     private void RestorePopOuts()
     {
         var poppedOutCount = EnginePage?.Widgets.Count(w => w.PopOut?.IsPoppedOut == true) ?? 0;
         Log.Information(
-            "RestorePopOuts: UsePageEngine={UsePageEngine} EnginePageLoaded={EnginePageLoaded} OwnerWindowAttached={OwnerWindowAttached} PoppedOutWidgetCount={PoppedOutWidgetCount}",
-            UsePageEngine, EnginePage is not null, _ownerWindow is not null, poppedOutCount);
+            "RestorePopOuts: EnginePageLoaded={EnginePageLoaded} OwnerWindowAttached={OwnerWindowAttached} PoppedOutWidgetCount={PoppedOutWidgetCount}",
+            EnginePage is not null, _ownerWindow is not null, poppedOutCount);
 
-        if (!UsePageEngine || EnginePage is null) return;
+        if (EnginePage is null) return;
 
         _popOutCoordinator ??= CreateCoordinator();
         if (_popOutCoordinator is null) return; // no owner window attached yet
