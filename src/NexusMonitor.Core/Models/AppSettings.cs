@@ -160,7 +160,8 @@ public class AppSettings
     public bool CheckForUpdates { get; set; } = true;
 
     // Page Engine (Phase 2)
-    /// <summary>Renders the Dashboard through the page engine (Phase 2, experimental). Read at startup; takes effect after restart.</summary>
+    /// <summary>Retired (Phase 7): the page engine is now the unconditional Dashboard renderer.
+    /// Kept for settings-file migration only; not read anywhere.</summary>
     public bool EnablePageEngine { get; set; } = false;
 
     // ── Session persistence ─────────────────────────────────────────────────────

@@ -74,12 +74,16 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
 
     public HealthTrendsViewModel HealthTrendsViewModel { get; }
 
-    // ── Page engine (Phase 2, flag-gated) ─────────────────────────────────────
+    // ── Page engine (Phase 7: unconditional) ──────────────────────────────────
 
-    /// <summary>True when the Dashboard renders through the page engine (EnablePageEngine at startup).</summary>
-    public bool UsePageEngine { get; }
+    /// <summary>Always true — the page engine is the Dashboard unconditionally (Phase 7). Retained
+    /// as a property (rather than deleted outright) purely for XAML binding compatibility with
+    /// <see cref="Views.DashboardView"/>'s remaining classic-vs-engine binds; a later cleanup
+    /// (Phase 7 Task 3, classic Dashboard deletion) may remove it entirely once those binds are gone.</summary>
+    public bool UsePageEngine => true;
 
-    /// <summary>The page rendered by the engine path; null when the flag is off or the factory layout failed to load.</summary>
+    /// <summary>The page rendered by the engine path; null only if no factory-default layout could
+    /// be built at all (see the constructor's catch block).</summary>
     [ObservableProperty] private PageLayout? _enginePage;
 
     // Phase 5 superseded PageLayoutStore as the read/write path here (see WorkspaceProfileStore
@@ -109,13 +113,37 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
         _profileStore       = profileStore;
         _notificationService = notificationService;
 
-        var usePageEngine = settings.EnablePageEngine;
-        if (usePageEngine)
+        // Phase 7: the page engine is unconditional — there is no classic fallback left, so a
+        // load failure here must still leave the user with a renderable (factory-default) page
+        // rather than silently disabling the engine. The active profile's own on-disk file is
+        // deliberately left untouched: the user can fix it by hand, or a later launch may succeed,
+        // so this path never calls SaveActivePage()/Save() on the profile store.
+        try
         {
-            try { EnginePage = _profileStore?.LoadActive().Pages.GetValueOrDefault("dashboard") ?? TryFactoryLoad(); }
-            catch (InvalidOperationException) { usePageEngine = false; } // packaging bug — never a user path
+            EnginePage = _profileStore?.LoadActive().Pages.GetValueOrDefault("dashboard") ?? TryFactoryLoad();
         }
-        UsePageEngine = usePageEngine;
+        catch (InvalidOperationException ex)
+        {
+            // The only way this throws is BuiltInPageLayouts.Load hitting a missing/invalid
+            // embedded resource (a packaging bug — see BuiltInPageLayouts' own doc comment),
+            // whether reached directly via TryFactoryLoad() above or indirectly through
+            // WorkspaceProfileStore.LoadActive()'s internal factory-default fallback. Try once
+            // more for the factory-default page; if that ALSO throws (the same deterministic
+            // packaging bug), give up on a page rather than let the exception escape the
+            // constructor — PageHostControl already renders a null Page as an empty surface.
+            Log.Error(ex, "Failed to load the dashboard page layout; falling back to factory default.");
+            try { EnginePage = TryFactoryLoad(); }
+            catch (InvalidOperationException ex2)
+            {
+                Log.Fatal(ex2, "Factory-default dashboard layout is also unavailable — Dashboard will render empty.");
+            }
+
+            _notificationService?.Show(new InAppNotification(
+                Title:       "Layout Not Loaded",
+                Body:        "Your saved layout could not be loaded — showing defaults. Your profile file was preserved.",
+                Severity:    InAppSeverity.Warning,
+                AutoDismiss: TimeSpan.FromSeconds(6)));
+        }
 
         _subscription = _healthService.HealthStream
             .ObserveOn(RxApp.MainThreadScheduler)
