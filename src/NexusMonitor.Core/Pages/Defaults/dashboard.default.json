@@ -39,22 +39,22 @@
       {
         "instanceId": "0b5e0002-0000-4000-8000-000000000007",
         "widgetTypeId": "nexus.widget.topConsumers",
-        "rect": { "col": 0, "row": 10, "colSpan": 6, "rowSpan": 4 }
+        "rect": { "col": 0, "row": 10, "colSpan": 12, "rowSpan": 4 }
       },
       {
         "instanceId": "0b5e0002-0000-4000-8000-000000000008",
         "widgetTypeId": "nexus.widget.recommendations",
-        "rect": { "col": 6, "row": 10, "colSpan": 6, "rowSpan": 4 }
+        "rect": { "col": 0, "row": 14, "colSpan": 12, "rowSpan": 4 }
       },
       {
         "instanceId": "0b5e0002-0000-4000-8000-000000000009",
         "widgetTypeId": "nexus.widget.predictions",
-        "rect": { "col": 0, "row": 14, "colSpan": 12, "rowSpan": 3 }
+        "rect": { "col": 0, "row": 18, "colSpan": 12, "rowSpan": 3 }
       },
       {
         "instanceId": "0b5e0002-0000-4000-8000-000000000010",
         "widgetTypeId": "nexus.widget.healthTrends",
-        "rect": { "col": 0, "row": 17, "colSpan": 12, "rowSpan": 5 }
+        "rect": { "col": 0, "row": 21, "colSpan": 12, "rowSpan": 5 }
       }
     ]
   }

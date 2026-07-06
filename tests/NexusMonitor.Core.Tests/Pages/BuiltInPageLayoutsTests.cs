@@ -44,6 +44,26 @@ public class BuiltInPageLayoutsTests
     }
 
     [Fact]
+    public void Dashboard_BottomBlockMirrorsClassicDashboardProportions()
+    {
+        // The classic (non-page-engine) dashboard renders "Top Resource Consumers" and
+        // "Recommendations" as two stacked full-width sections, not side-by-side. The
+        // page-engine default must mirror that: full-width consumers, then full-width
+        // recommendations directly below, with predictions/healthTrends shifted down
+        // to follow.
+        var page = BuiltInPageLayouts.Load("dashboard");
+
+        RectOf(page, "nexus.widget.bottleneck").Should().Be(new GridRect(0, 6, 12, 4));
+        RectOf(page, "nexus.widget.topConsumers").Should().Be(new GridRect(0, 10, 12, 4));
+        RectOf(page, "nexus.widget.recommendations").Should().Be(new GridRect(0, 14, 12, 4));
+        RectOf(page, "nexus.widget.predictions").Should().Be(new GridRect(0, 18, 12, 3));
+        RectOf(page, "nexus.widget.healthTrends").Should().Be(new GridRect(0, 21, 12, 5));
+
+        static GridRect RectOf(PageLayout page, string widgetTypeId) =>
+            page.Widgets.Single(w => w.WidgetTypeId == widgetTypeId).Rect;
+    }
+
+    [Fact]
     public void Dashboard_AllWidgetsAreValidPlacementsPerEngine()
     {
         // Belt-and-suspenders on top of the pairwise Intersects check above: run every
