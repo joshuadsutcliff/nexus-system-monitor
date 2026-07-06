@@ -178,7 +178,7 @@
                        FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"
                        TextWrapping="Wrap" Margin="0,2,0,0"/>
           </StackPanel>
-          <ToggleButton Grid.Column="1" Classes="nx-toggle" IsChecked="{Binding ScaleTextWithWidgetSize}"
+          <ToggleButton Grid.Column="1" Classes="nx-switch" IsChecked="{Binding ScaleTextWithWidgetSize}"
                         VerticalAlignment="Center"/>
         </Grid>
 
@@ -763,9 +763,19 @@
                        FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"
                        TextWrapping="Wrap" Margin="0,2,0,0"/>
           </StackPanel>
-          <ToggleButton Grid.Column="1" Classes="nx-toggle" IsChecked="{Binding IsGlassEnabled}"
+          <ToggleButton Grid.Column="1" Classes="nx-switch" IsChecked="{Binding IsGlassEnabled}"
                         VerticalAlignment="Center"/>
         </Grid>
+
+        <!-- Hairline row separators — Phase 8 UI polish (Task 6), row-grammar pattern-setter
+             (2nd of the two named sections, alongside ANIMATIONS above). Packet: "Intra-group
+             spacing (row-to-row within a card) is tight (hairline only)" (p8-macos-ref.md
+             "Alignment standards"). Applied between the three top-level Crystal Glass rows
+             (main toggle / opacity / backdrop mode) and, further below, within the SPECULAR
+             HIGHLIGHTS sub-group — NOT between subheader-delimited clusters (SPECULAR
+             HIGHLIGHTS / SMART TINT / DEPTH), since those boundaries already read as the
+             packet's "clearly larger" inter-group gap. -->
+        <Border Height="1" Margin="0,2" Background="{DynamicResource BorderSubtleBrush}"/>
 
         <!-- Glass Opacity slider -->
         <StackPanel IsEnabled="{Binding IsGlassEnabled}" Spacing="2">
@@ -782,6 +792,8 @@
                      FontSize="{DynamicResource NxFont10}" Foreground="{DynamicResource TextTertiaryBrush}"
                      Margin="0,0,0,4"/>
         </StackPanel>
+
+        <Border Height="1" Margin="0,2" Background="{DynamicResource BorderSubtleBrush}"/>
 
         <!-- Backdrop blur mode -->
         <Grid ColumnDefinitions="*,Auto" IsEnabled="{Binding IsGlassEnabled}">
@@ -809,9 +821,12 @@
                          FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"
                          TextWrapping="Wrap" Margin="0,2,0,0"/>
             </StackPanel>
-            <ToggleButton Grid.Column="1" Classes="nx-toggle" IsChecked="{Binding IsSpecularEnabled}"
+            <ToggleButton Grid.Column="1" Classes="nx-switch" IsChecked="{Binding IsSpecularEnabled}"
                           VerticalAlignment="Center"/>
           </Grid>
+
+          <Border Height="1" Margin="0,2" Background="{DynamicResource BorderSubtleBrush}"/>
+
           <StackPanel IsEnabled="{Binding IsSpecularEnabled}" Spacing="2">
             <Grid ColumnDefinitions="*,Auto">
               <TextBlock Grid.Column="0" Text="Intensity" FontSize="{DynamicResource NxFont12}"
@@ -836,7 +851,7 @@
                        FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"
                        TextWrapping="Wrap" Margin="0,2,0,0"/>
           </StackPanel>
-          <ToggleButton Grid.Column="1" Classes="nx-toggle" IsChecked="{Binding SmartTintEnabled}"
+          <ToggleButton Grid.Column="1" Classes="nx-switch" IsChecked="{Binding SmartTintEnabled}"
                         VerticalAlignment="Center"/>
         </Grid>
 
@@ -907,9 +922,18 @@
                        FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"
                        TextWrapping="Wrap" Margin="0,2,0,0"/>
           </StackPanel>
-          <ToggleButton Grid.Column="1" Classes="nx-toggle" IsChecked="{Binding AnimatePageTransitions}"
+          <ToggleButton Grid.Column="1" Classes="nx-switch" IsChecked="{Binding AnimatePageTransitions}"
                         VerticalAlignment="Center"/>
         </Grid>
+
+        <!-- Hairline row separators — Phase 8 UI polish (Task 6), row-grammar pattern-setter.
+             Packet: "Intra-group spacing (row-to-row within a card) is tight (hairline only)"
+             (p8-macos-ref.md "Alignment standards"); BorderSubtleBrush is the existing 1px
+             hairline token already used for the card-title Separator above. Applied between
+             the six EFFECTS toggle rows below (one cohesive sub-group); NOT inserted between
+             "Speed" and the "EFFECTS" subheader above, since that subheader boundary already
+             reads as the packet's "clearly larger" inter-group gap. -->
+        <Border Height="1" Margin="0,2" Background="{DynamicResource BorderSubtleBrush}"/>
 
         <Grid ColumnDefinitions="*,Auto">
           <StackPanel Grid.Column="0">
@@ -919,9 +943,11 @@
                        FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"
                        TextWrapping="Wrap" Margin="0,2,0,0"/>
           </StackPanel>
-          <ToggleButton Grid.Column="1" Classes="nx-toggle" IsChecked="{Binding AnimateHoverEffects}"
+          <ToggleButton Grid.Column="1" Classes="nx-switch" IsChecked="{Binding AnimateHoverEffects}"
                         VerticalAlignment="Center"/>
         </Grid>
+
+        <Border Height="1" Margin="0,2" Background="{DynamicResource BorderSubtleBrush}"/>
 
         <Grid ColumnDefinitions="*,Auto">
           <StackPanel Grid.Column="0">
@@ -931,9 +957,11 @@
                        FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"
                        TextWrapping="Wrap" Margin="0,2,0,0"/>
           </StackPanel>
-          <ToggleButton Grid.Column="1" Classes="nx-toggle" IsChecked="{Binding AnimatePopOutMotion}"
+          <ToggleButton Grid.Column="1" Classes="nx-switch" IsChecked="{Binding AnimatePopOutMotion}"
                         VerticalAlignment="Center"/>
         </Grid>
+
+        <Border Height="1" Margin="0,2" Background="{DynamicResource BorderSubtleBrush}"/>
 
         <Grid ColumnDefinitions="*,Auto">
           <StackPanel Grid.Column="0">
@@ -943,9 +971,11 @@
                        FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"
                        TextWrapping="Wrap" Margin="0,2,0,0"/>
           </StackPanel>
-          <ToggleButton Grid.Column="1" Classes="nx-toggle" IsChecked="{Binding AnimateEditChrome}"
+          <ToggleButton Grid.Column="1" Classes="nx-switch" IsChecked="{Binding AnimateEditChrome}"
                         VerticalAlignment="Center"/>
         </Grid>
+
+        <Border Height="1" Margin="0,2" Background="{DynamicResource BorderSubtleBrush}"/>
 
         <Grid ColumnDefinitions="*,Auto">
           <StackPanel Grid.Column="0">
@@ -955,9 +985,11 @@
                        FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"
                        TextWrapping="Wrap" Margin="0,2,0,0"/>
           </StackPanel>
-          <ToggleButton Grid.Column="1" Classes="nx-toggle" IsChecked="{Binding AnimateValueChanges}"
+          <ToggleButton Grid.Column="1" Classes="nx-switch" IsChecked="{Binding AnimateValueChanges}"
                         VerticalAlignment="Center"/>
         </Grid>
+
+        <Border Height="1" Margin="0,2" Background="{DynamicResource BorderSubtleBrush}"/>
 
         <Grid ColumnDefinitions="*,Auto">
           <StackPanel Grid.Column="0">
@@ -967,7 +999,7 @@
                        FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"
                        TextWrapping="Wrap" Margin="0,2,0,0"/>
           </StackPanel>
-          <ToggleButton Grid.Column="1" Classes="nx-toggle" IsChecked="{Binding AnimateSpecularShimmer}"
+          <ToggleButton Grid.Column="1" Classes="nx-switch" IsChecked="{Binding AnimateSpecularShimmer}"
                         VerticalAlignment="Center"/>
         </Grid>
 
@@ -993,7 +1025,7 @@
                        FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"
                        TextWrapping="Wrap" Margin="0,2,0,0"/>
           </StackPanel>
-          <ToggleButton Grid.Column="1" Classes="nx-toggle" IsChecked="{Binding ShowOverlayWidget}"
+          <ToggleButton Grid.Column="1" Classes="nx-switch" IsChecked="{Binding ShowOverlayWidget}"
                         VerticalAlignment="Center"/>
         </Grid>
       </StackPanel>
@@ -1018,7 +1050,7 @@
                        FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"
                        TextWrapping="Wrap" Margin="0,2,0,0"/>
           </StackPanel>
-          <ToggleButton Grid.Column="1" Classes="nx-toggle"
+          <ToggleButton Grid.Column="1" Classes="nx-switch"
                         IsChecked="{Binding DesktopNotificationsEnabled}"
                         VerticalAlignment="Center"/>
         </Grid>
@@ -1058,7 +1090,7 @@
             <TextBlock Text="Enables the tray icon and minimize-to-tray behavior"
                        FontSize="{DynamicResource NxFont10}" Foreground="{DynamicResource TextTertiaryBrush}" Margin="0,2,0,0"/>
           </StackPanel>
-          <ToggleButton Grid.Column="1" Classes="nx-toggle"
+          <ToggleButton Grid.Column="1" Classes="nx-switch"
                         IsChecked="{Binding MinimizeToTray}"
                         VerticalAlignment="Center"/>
         </Grid>
@@ -1071,7 +1103,7 @@
             <TextBlock Text="Hides the desktop overlay widget when the app goes to tray"
                        FontSize="{DynamicResource NxFont10}" Foreground="{DynamicResource TextTertiaryBrush}" Margin="0,2,0,0"/>
           </StackPanel>
-          <ToggleButton Grid.Column="1" Classes="nx-toggle"
+          <ToggleButton Grid.Column="1" Classes="nx-switch"
                         IsChecked="{Binding HideWidgetOnMinimize}"
                         VerticalAlignment="Center"/>
         </Grid>
@@ -1116,7 +1148,7 @@
                        FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"
                        TextWrapping="Wrap" Margin="0,2,0,0"/>
           </StackPanel>
-          <ToggleButton Grid.Column="1" Classes="nx-toggle"
+          <ToggleButton Grid.Column="1" Classes="nx-switch"
                         IsChecked="{Binding MetricsEnabled}"
                         VerticalAlignment="Center"/>
         </Grid>
@@ -1145,7 +1177,7 @@
                        FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"
                        TextWrapping="Wrap" Margin="0,2,0,0"/>
           </StackPanel>
-          <ToggleButton Grid.Column="1" Classes="nx-toggle"
+          <ToggleButton Grid.Column="1" Classes="nx-switch"
                         IsChecked="{Binding AnomalyDetectionEnabled}"
                         VerticalAlignment="Center"/>
         </Grid>
@@ -1159,7 +1191,7 @@
                        FontSize="{DynamicResource NxFont10}" Foreground="{DynamicResource TextTertiaryBrush}"
                        TextWrapping="Wrap" Margin="0,2,0,0"/>
           </StackPanel>
-          <ToggleButton Grid.Column="1" Classes="nx-toggle"
+          <ToggleButton Grid.Column="1" Classes="nx-switch"
                         IsChecked="{Binding AnomalyNotificationsEnabled}"
                         VerticalAlignment="Center"/>
         </Grid>
@@ -1239,7 +1271,7 @@
                        FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"
                        TextWrapping="Wrap" Margin="0,2,0,0"/>
           </StackPanel>
-          <ToggleButton Grid.Column="1" Classes="nx-toggle"
+          <ToggleButton Grid.Column="1" Classes="nx-switch"
                         IsChecked="{Binding PrometheusEnabled}"
                         VerticalAlignment="Center"/>
         </Grid>
@@ -1407,7 +1439,7 @@
                        FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"
                        TextWrapping="Wrap" Margin="0,2,0,0"/>
           </StackPanel>
-          <ToggleButton Grid.Column="1" Classes="nx-toggle"
+          <ToggleButton Grid.Column="1" Classes="nx-switch"
                         IsChecked="{Binding WebhookEnabled}"
                         VerticalAlignment="Center"/>
         </Grid>
@@ -1479,7 +1511,7 @@
                        Foreground="{DynamicResource TextSecondaryBrush}"
                        TextWrapping="Wrap"/>
           </StackPanel>
-          <ToggleButton Grid.Column="1" Classes="nx-toggle"
+          <ToggleButton Grid.Column="1" Classes="nx-switch"
                         IsChecked="{Binding PredictionsEnabled}"
                         VerticalAlignment="Center"/>
         </Grid>
@@ -1571,7 +1603,7 @@
                        Foreground="{DynamicResource TextSecondaryBrush}"
                        TextWrapping="Wrap"/>
           </StackPanel>
-          <ToggleButton Grid.Column="1" Classes="nx-toggle"
+          <ToggleButton Grid.Column="1" Classes="nx-switch"
                         IsChecked="{Binding CheckForUpdates}"
                         VerticalAlignment="Center"/>
         </Grid>

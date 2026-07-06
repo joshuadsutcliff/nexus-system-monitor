@@ -274,13 +274,19 @@
                                  LetterSpacing="1.2"/>
                     </StackPanel>
 
-                    <!-- ── Nav item row — shown when IsSeparator=false ── -->
+                    <!-- ── Nav item row — shown when IsSeparator=false ──
+                         Phase 8 UI polish (Task 6): Height="32" matches the System Settings
+                         sidebar row height measured via Accessibility API in p8-macos-ref.md
+                         line 8 ("size of row = {215, 32}"). -->
                     <Grid ColumnDefinitions="20,*"
                           Classes="nav-row"
                           Classes.dragging="{Binding IsDragging}"
                           IsVisible="{Binding !IsSeparator}"
+                          Height="32"
                           Background="Transparent">
-                      <!-- Drag grip — hidden for pinned items -->
+                      <!-- Drag grip — hidden for pinned items. Nexus-specific reorder affordance
+                           with no System Settings equivalent; kept as-is (including its own
+                           hover treatment below) per the task's explicit exemption. -->
                       <TextBlock Grid.Column="0"
                                  Classes="nav-grip"
                                  IsVisible="{Binding !IsPinned}"
@@ -291,24 +297,48 @@
                                  Foreground="{DynamicResource TextTertiaryBrush}"
                                  Cursor="Hand"
                                  ToolTip.Tip="Drag to reorder"/>
-                      <!-- Navigation button -->
+                      <!-- Navigation button — "nav-item" is an additional static class (alongside
+                           the shared "nx-btn-ghost") so Controls.axaml can target ONLY sidebar nav
+                           rows for the packet's "no hover" rule (p8-macos-ref.md line 16) without
+                           touching nx-btn-ghost's hover treatment everywhere else it's used
+                           (titlebar buttons, "Save…"/"Delete" buttons, etc.) — see the
+                           ".nav-item:pointerover" override in Controls.axaml.
+                           CornerRadius="15": with Margin="0,1" on a Height="32" row the button's
+                           own rendered height is 30, so radius = height/2 gives the packet's
+                           "fully rounded capsule" selection pill (p8-macos-ref.md line 11). -->
                       <Button Grid.Column="1"
-                              Classes="nx-btn-ghost"
+                              Classes="nx-btn-ghost nav-item"
                               Classes.active="{Binding IsActive}"
                               HorizontalAlignment="Stretch"
                               HorizontalContentAlignment="Left"
-                              Padding="10,10"
+                              VerticalContentAlignment="Center"
+                              Padding="10,0"
                               Margin="0,1"
-                              CornerRadius="10"
+                              CornerRadius="15"
                               Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).NavigateCommand}"
                               CommandParameter="{Binding}">
                         <StackPanel Orientation="Horizontal" Spacing="10">
-                          <TextBlock Text="{Binding Icon}"
-                                     FontFamily="{StaticResource NexusIcons}"
-                                     FontSize="{DynamicResource NxFont16}"
-                                     Width="20"
-                                     TextAlignment="Center"
-                                     VerticalAlignment="Center"/>
+                          <!-- Icon chip — packet: ~21-23pt rounded-square chip behind the glyph,
+                               shown for BOTH selected and unselected rows (p8-macos-ref.md line
+                               10); replaces the previous bare glyph. 22x22 sits in the packet's
+                               measured range; CornerSM (8, Typography.axaml) is the nearest
+                               existing corner token to the packet's "~6" chip-corner guidance
+                               (brief's own fallback) rather than inventing a new token. Glyph is
+                               always white on the accent chip regardless of row selection, so its
+                               Foreground is set explicitly here rather than inherited from the
+                               Button (which only turns white when .active). -->
+                          <Border Width="22" Height="22"
+                                  CornerRadius="{StaticResource CornerSM}"
+                                  Background="{DynamicResource AccentBlueBrush}"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Center">
+                            <TextBlock Text="{Binding Icon}"
+                                       FontFamily="{StaticResource NexusIcons}"
+                                       FontSize="{DynamicResource NxFont16}"
+                                       Foreground="White"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                          </Border>
                           <TextBlock Text="{Binding Label}"
                                      FontSize="{DynamicResource NxFont13}"
                                      VerticalAlignment="Center"/>
