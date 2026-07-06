@@ -79,6 +79,12 @@ public class App : Application
             _       => DetectSystemTheme(),
         };
 
+        // Phase 8 UI polish: compute MotionFast/Base/Slow duration resources from the saved
+        // AnimationSpeed and write them into this Application's resources BEFORE MainWindow is
+        // constructed below, so the very first render already reflects the user's saved speed
+        // instead of the Themes/Motion.axaml design-time defaults.
+        Services.GetRequiredService<MotionSettingsService>().Apply(saved.Current);
+
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             var mainWindow = new MainWindow
@@ -531,6 +537,9 @@ public class App : Application
         services.AddSingleton<IInAppNotificationService>(sp =>
             sp.GetRequiredService<InAppNotificationService>());
         services.AddSingleton<GlassAdaptiveService>();
+        // Phase 8 UI polish — motion duration tokens (MotionFast/Base/Slow) + per-effect gating.
+        // No Start()/Stop()/IDisposable — nothing to capture in the shutdown handler below.
+        services.AddSingleton<MotionSettingsService>();
 
         // -- ViewModels --
         services.AddSingleton<HealthTrendsViewModel>();
