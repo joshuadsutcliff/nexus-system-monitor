@@ -24,6 +24,7 @@ Process Lasso is Windows-only. WizTree is Windows-only. Activity Monitor is macO
 
 <!-- TODO: Add screenshots of:
   - System Health Dashboard (health score, sparklines, bottleneck detection)
+  - Dashboard edit mode (drag/resize widgets, widget gallery, pop-out windows)
   - Process list (color-coded categories, Impact Score, rules indicators)
   - Crystal Glass theme dark + light
   - Theme customization panel
@@ -124,6 +125,14 @@ This isn't a lowest-common-denominator approach. Nexus aims for the **union** of
 - 4 subsystem cards with at-a-glance status and top-5 process consumers
 - Bottleneck Detection: identifies the performance-limiting component for Gaming, Streaming, Video Editing, 3D Rendering, and CAD workloads
 - Plain-English contextual recommendations
+- Ships as the default layout of the fully customizable dashboard below — every card here is an independent widget you can rearrange, resize, remove, or pop out
+
+### Customizable Dashboard
+- **Edit mode** — toggle the pencil button to drag widgets into place, resize by their edges, add or remove widgets, and undo any edit step-by-step; **Tidy** auto-compacts the grid to close gaps
+- **Widget gallery** — add any available widget to the layout: health score, subsystem cards, bottleneck detection, top consumers, recommendations, predictions, health trends, and more
+- **Workspace profiles** — save named bundles of layout *and* full theme (accent, surface colors, blur mode, everything under Appearance & Theming); switch profiles instantly from Settings
+- **Export / Import** — share a profile as a `.nexusprofile` file, with a theme-only export option for distributing just the look without the layout
+- **Pop-out windows** — pop any widget out into its own OS window; each pop-out's position and size persist per profile, up to 6 open at once
 
 ### LAN Scanner
 - Nmap-based network scan for hosts, open ports, OS detection, and latency

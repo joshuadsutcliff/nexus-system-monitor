@@ -191,6 +191,12 @@ Exhaustive checklist of every implemented feature, organized by category. Versio
 - [x] System Health Dashboard as default landing tab (v0.1.5)
   - Health score widget, 4 subsystem cards, top-5 process consumers
   - Plain-English contextual recommendations
+- [x] Customizable dashboard: page-engine widget grid replaces the fixed layout (Unreleased)
+  - Edit mode: drag to reposition, resize by edges, add/remove widgets, step-by-step Undo, Tidy auto-compact
+  - Widget gallery covering every available dashboard widget
+  - Workspace profiles: named layout + full-theme bundles, switchable from Settings, export/import as `.nexusprofile` (theme-only export supported)
+  - Pop-out windows: any widget → its own OS window, position/size persisted per profile, up to 6 simultaneous
+  - `EnablePageEngine` experimental flag retired — always on; layout-load failures fall back to factory defaults with an in-app notice, corrupt profile files preserved as `.bak`
 
 ---
 

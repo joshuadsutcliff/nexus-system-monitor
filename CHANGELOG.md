@@ -8,14 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Page engine (experimental, off by default): the Dashboard can render through the new
-  grid layout engine (`Settings → Experimental → Enable page engine`). Phase 2 of the
-  page-customization system — placeholder tiles now, real widgets and edit mode next.
-- Page engine edit mode (experimental): rearrange, resize, add, and remove Dashboard
-  widgets with drag-and-drop, undo, and persistent layouts (requires "Enable page engine").
-- Page engine now renders the real Dashboard: all ten sections are live, draggable widgets (experimental flag).
-- Workspace profiles (experimental): save, switch, export and import named layout+theme bundles (.nexusprofile).
-- Pop out any dashboard widget into its own window; positions persist per profile (experimental).
+- **Customizable dashboard:** the Dashboard is now a fully editable widget grid — enter edit
+  mode to drag, resize, add, and remove widgets, with step-by-step Undo and a one-click Tidy
+  to auto-compact the layout. Add widgets from a gallery covering every available card (health
+  score, subsystem cards, bottleneck detection, top consumers, recommendations, predictions,
+  health trends, and more). Stable and on by default.
+- **Workspace profiles:** save named bundles of layout + full theme, switch between them
+  instantly from Settings, and export/import them as `.nexusprofile` files — including a
+  theme-only export for sharing just the look without the layout.
+- **Pop-out widgets:** pop any dashboard widget into its own OS window; position and size
+  persist per profile, with up to 6 pop-outs open simultaneously.
+
+### Removed
+- **`EnablePageEngine` experimental flag:** the customizable dashboard is always on now — the
+  Settings → Experimental toggle is gone. The `EnablePageEngine` field remains on old settings
+  files purely so they still deserialize; nothing reads it anymore.
+
+### Changed
+- **Dashboard layout-load failures** now fall back to the factory-default layout with an in-app
+  notice instead of failing silently; a corrupt workspace-profile file is preserved alongside
+  the original as a `.bak` copy rather than being overwritten or discarded.
 
 ## [0.5.2] - 2026-06-18
 
