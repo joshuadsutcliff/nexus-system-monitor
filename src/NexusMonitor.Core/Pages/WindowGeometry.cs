@@ -20,6 +20,10 @@ public static class WindowGeometry
     /// (position only) so its top 32px title-bar region is fully on that screen. If it intersects
     /// no screen at all (its monitor was unplugged), it is centered inside <paramref name="fallback"/>,
     /// shrunk first if needed so neither dimension exceeds the fallback's.</summary>
+    /// <remarks>When <paramref name="window"/> qualifies against more than one screen in
+    /// <paramref name="screens"/>, the first qualifying screen in <paramref name="screens"/> order
+    /// is used — callers control tie-breaking (e.g. "prefer the primary monitor") via that list's
+    /// ordering.</remarks>
     public static ScreenRect ClampToScreens(ScreenRect window, IReadOnlyList<ScreenRect> screens, ScreenRect fallback)
     {
         foreach (var screen in screens)

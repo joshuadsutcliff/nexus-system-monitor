@@ -1,0 +1,22 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="NexusMonitor.UI.Windows.WidgetPopOutWindow"
+        MinWidth="240"
+        MinHeight="160"
+        Width="240"
+        Height="160"
+        SystemDecorations="Full"
+        ShowInTaskbar="True"
+        Background="{DynamicResource BgBaseBrush}">
+
+  <!-- Card-chrome border — the same look as an on-page WidgetTile — hosting the widget's live
+       control. Child is assigned in code-behind once the widget instance is known; Position,
+       Width and Height are set by PopOutCoordinator before Show() is called. -->
+  <Border x:Name="CardHost"
+          Background="{DynamicResource BgElevatedBrush}"
+          BorderBrush="{DynamicResource GlassBorderBrush}"
+          BorderThickness="1"
+          CornerRadius="{StaticResource CornerMD}"
+          Padding="16,12"/>
+
+</Window>
