@@ -12,9 +12,11 @@ using Avalonia.VisualTree;
 using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.DependencyInjection;
 using NexusMonitor.Core.Models;
+using NexusMonitor.Core.Motion;
 using NexusMonitor.Core.Services;
 using NexusMonitor.Core.ViewModels;
 using NexusMonitor.UI.Messages;
+using NexusMonitor.UI.Services;
 using NexusMonitor.UI.ViewModels;
 
 namespace NexusMonitor.UI;
@@ -41,7 +43,11 @@ public partial class MainWindow : Window
     private double _specNy;  // smoothed normalised cursor y (0‥1)
     private DispatcherTimer? _shimmerTimer;
     private double _shimmerPhase; // 0‥2π, drives prismatic cycling
-    private bool   _shimmerEnabled; // tracks whether glass is logically active
+    private bool   _shimmerEnabled;       // tracks whether glass is logically active (SetGlassActive)
+    private bool   _motionShimmerEnabled; // tracks MotionEffect.SpecularShimmer (Phase 8 Task 3)
+
+    // ── Phase 8 UI polish (Task 3): motion/animation settings ────────────────
+    private readonly MotionSettingsService _motionSettingsService;
 
     public MainWindow()
     {
@@ -64,11 +70,23 @@ public partial class MainWindow : Window
         // and Avalonia defaults IsVisible to true — showing the backdrop overlay on startup.
         InitializeCommandPalette();
 
+        // Phase 8 UI polish (Task 3): resolve the saved motion settings and the live-update
+        // service. App.axaml.cs's OnFrameworkInitializationCompleted calls
+        // MotionSettingsService.Apply(saved.Current) BEFORE `new MainWindow()`, so both
+        // App.Services and the MotionFast/Base/Slow resources are already live by the time this
+        // constructor runs — safe to resolve here rather than deferring to Loaded.
+        var initialSettings = App.Services.GetRequiredService<SettingsService>().Current;
+        _motionSettingsService = App.Services.GetRequiredService<MotionSettingsService>();
+        _motionShimmerEnabled  = MotionSettingsService.EffectEnabled(initialSettings, MotionEffect.SpecularShimmer);
+        _motionSettingsService.MotionChanged += OnMotionSettingsChanged;
+        UpdatePageTransition();
+
         // Dispose all cached ViewModels when the window closes.
         Closed += (_, _) =>
         {
             (DataContext as IDisposable)?.Dispose();
             _shimmerTimer?.Stop();
+            _motionSettingsService.MotionChanged -= OnMotionSettingsChanged;
         };
 
         // Hook drag-to-reorder once the visual tree is ready.
@@ -133,8 +151,7 @@ public partial class MainWindow : Window
             }
             else
             {
-                if (_shimmerEnabled)
-                    _shimmerTimer?.Start();
+                UpdateShimmerRunState();
                 WeakReferenceMessenger.Default.Send(new WindowVisibilityChangedMessage(true));
             }
         };
@@ -409,13 +426,28 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Called by <see cref="SettingsViewModel"/> when the glass/backdrop setting changes.
-    /// Starts the shimmer timer when glass is active, stops it otherwise.
-    /// Also pauses automatically when the window is minimized.
+    /// Records whether glass is logically active and re-evaluates the shimmer timer's run state
+    /// via <see cref="UpdateShimmerRunState"/> — the timer also requires
+    /// <see cref="MotionEffect.SpecularShimmer"/> to be enabled (Phase 8 Task 3) and the window to
+    /// not be minimized, so this alone does not unconditionally start it.
     /// </summary>
     public void SetGlassActive(bool active)
     {
         _shimmerEnabled = active;
-        if (active)
+        UpdateShimmerRunState();
+    }
+
+    /// <summary>
+    /// Phase 8 UI polish (Task 3): re-evaluates whether the prismatic shimmer timer should be
+    /// running from all three of its independent gates — glass logically active
+    /// (<see cref="SetGlassActive"/>), <see cref="MotionEffect.SpecularShimmer"/> enabled (which is
+    /// itself false whenever <c>AnimationSpeed</c> is 0, per <see cref="MotionMath.EffectEnabled"/>),
+    /// and the window not minimized. Lazily creates the timer on its first-ever start; stops
+    /// (never disposes) it otherwise so a later re-enable doesn't need to rebuild the tick handler.
+    /// </summary>
+    private void UpdateShimmerRunState()
+    {
+        if (_shimmerEnabled && _motionShimmerEnabled)
         {
             if (_shimmerTimer is null)
             {
@@ -444,6 +476,59 @@ public partial class MainWindow : Window
         {
             _shimmerTimer?.Stop();
         }
+    }
+
+    /// <summary>
+    /// Phase 8 UI polish (Task 3): raised by <see cref="MotionSettingsService.MotionChanged"/>
+    /// whenever the ANIMATIONS settings page applies a change (speed slider or any Animate*
+    /// toggle). Re-reads the current <see cref="MotionEffect.SpecularShimmer"/> gate and the
+    /// current page-transition gate, applying both live.
+    /// </summary>
+    private void OnMotionSettingsChanged()
+    {
+        var settings = App.Services.GetRequiredService<SettingsService>().Current;
+        _motionShimmerEnabled = MotionSettingsService.EffectEnabled(settings, MotionEffect.SpecularShimmer);
+        UpdateShimmerRunState();
+        UpdatePageTransition();
+    }
+
+    /// <summary>
+    /// Phase 8 UI polish (Task 3): sets <see cref="PageHost"/>'s <c>PageTransition</c> from the
+    /// current settings — a <see cref="CrossFade"/> using the live <c>MotionBase</c> duration when
+    /// <see cref="MotionEffect.PageTransitions"/> is enabled, or <see langword="null"/> (an instant
+    /// swap, no cross-fade) when it's disabled or <c>AnimationSpeed</c> is 0. Called once from the
+    /// constructor and again on every <see cref="MotionSettingsService.MotionChanged"/> — see
+    /// <see cref="ResolveMotionBase"/> for why <c>CrossFade.Duration</c> can't just be a
+    /// <c>{DynamicResource MotionBase}</c> XAML binding the way an ordinary Transition's Duration
+    /// can.
+    /// </summary>
+    private void UpdatePageTransition()
+    {
+        var settings = App.Services.GetRequiredService<SettingsService>().Current;
+        PageHost.PageTransition = MotionSettingsService.EffectEnabled(settings, MotionEffect.PageTransitions)
+            ? new CrossFade(ResolveMotionBase())
+            : null;
+    }
+
+    /// <summary>
+    /// Reads the live <c>MotionBase</c> duration <see cref="MotionSettingsService.Apply"/> already
+    /// wrote into <see cref="Application.Current"/>'s resources (falling back to 180ms — the same
+    /// 1.0x-speed default <c>Themes/Motion.axaml</c> seeds — if it's ever missing). Used instead of
+    /// re-deriving the scale directly because <see cref="Avalonia.Animation.CrossFade"/>'s
+    /// <c>Duration</c> is a plain CLR property (not an <c>AvaloniaProperty</c>) — confirmed via
+    /// reflection: <c>CrossFade</c>'s base type is <see cref="object"/>, unlike
+    /// <c>DoubleTransition</c>/<c>TransformOperationsTransition</c>/<c>BoxShadowsTransition</c>,
+    /// which ARE full Avalonia objects and support <c>{DynamicResource}</c> tracking directly in
+    /// XAML (the idiom every other migrated Transition in this codebase uses). A CrossFade's
+    /// Duration is therefore read once, here, at the moment a new one is constructed — never
+    /// live-updated after that — which is fine because a new CrossFade is always (re)built on the
+    /// next settings change via <see cref="UpdatePageTransition"/> anyway.
+    /// </summary>
+    private static TimeSpan ResolveMotionBase()
+    {
+        if (Application.Current?.Resources.TryGetValue("MotionBase", out var raw) == true && raw is TimeSpan ts)
+            return ts;
+        return TimeSpan.FromMilliseconds(180);
     }
 
     private static void RotatePrismatic(Border? target, double sx, double sy, double ex, double ey)

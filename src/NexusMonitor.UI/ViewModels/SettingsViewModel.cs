@@ -35,6 +35,7 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     private readonly GlassAdaptiveService         _glassAdaptive;
     private readonly ThemePresetService           _presetService;
     private readonly WorkspaceProfileStore        _profileStore;
+    private readonly MotionSettingsService        _motionSettingsService;
     private readonly ProcessPreferenceStore?      _preferenceStore;
     private readonly WebhookNotificationService              _webhookService;
     private readonly PredictionService?                      _predictionService;
@@ -130,6 +131,33 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     [ObservableProperty] private string _backdropBlurMode = "Acrylic";
     [ObservableProperty] private bool   _isSpecularEnabled;
     [ObservableProperty] private double _specularIntensity = 0.55;
+
+    // ── Depth (Phase 8 UI polish) — shadow/elevation intensity, independent of Crystal Glass;
+    // shown in the Crystal Glass card since that's where the app's other layering/depth controls
+    // already live, but applies to ordinary flat-mode card shadows too.
+    [ObservableProperty] private double _depthIntensity = 0.5;
+
+    // ── Animations (Phase 8 UI polish) ──────────────────────────────────────────
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(AnimationSpeedLabel))]
+    private double _animationSpeed = 1.0;
+    [ObservableProperty] private bool _animatePageTransitions = true;
+    [ObservableProperty] private bool _animateHoverEffects    = true;
+    [ObservableProperty] private bool _animatePopOutMotion    = true;
+    [ObservableProperty] private bool _animateEditChrome      = true;
+    [ObservableProperty] private bool _animateValueChanges    = true;
+    [ObservableProperty] private bool _animateSpecularShimmer = true;
+
+    /// <summary>Human-readable label for the current <see cref="AnimationSpeed"/> snap point
+    /// (0 / 0.5 / 1 / 1.5 / 2 → Off / Slower / Normal / Fast / Fastest).</summary>
+    public string AnimationSpeedLabel => AnimationSpeed switch
+    {
+        <= 0.0 => "Off",
+        <= 0.5 => "Slower",
+        <= 1.0 => "Normal",
+        <= 1.5 => "Fast",
+        _      => "Fastest",
+    };
 
     // ── Accent ────────────────────────────────────────────────────────────────
     [ObservableProperty] private string _accentColorHex     = "#0A84FF";
@@ -316,6 +344,7 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         ThemePresetService           presetService,
         WorkspaceProfileStore        profileStore,
         WebhookNotificationService   webhookService,
+        MotionSettingsService        motionSettingsService,
         PredictionService?                      predictionService = null,
         ProcessPreferenceStore?                 preferenceStore = null,
         HealthSnapshotPersistenceService?       healthSnapshotService = null,
@@ -331,6 +360,7 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         _glassAdaptive    = glassAdaptive;
         _presetService    = presetService;
         _profileStore     = profileStore;
+        _motionSettingsService = motionSettingsService;
         _webhookService        = webhookService;
         _predictionService     = predictionService;
         _preferenceStore       = preferenceStore;
@@ -371,6 +401,17 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         _backdropBlurMode   = settings.Current.BackdropBlurMode;
         _isSpecularEnabled  = settings.Current.IsSpecularEnabled;
         _specularIntensity  = settings.Current.SpecularIntensity;
+        _depthIntensity     = settings.Current.DepthIntensity;
+
+        // ── Animations (Phase 8 UI polish) ─────────────────────────────────────
+        _animationSpeed             = settings.Current.AnimationSpeed;
+        _animatePageTransitions     = settings.Current.AnimatePageTransitions;
+        _animateHoverEffects        = settings.Current.AnimateHoverEffects;
+        _animatePopOutMotion        = settings.Current.AnimatePopOutMotion;
+        _animateEditChrome          = settings.Current.AnimateEditChrome;
+        _animateValueChanges        = settings.Current.AnimateValueChanges;
+        _animateSpecularShimmer     = settings.Current.AnimateSpecularShimmer;
+
         _accentColorHex     = settings.Current.AccentColorHex;
         _textAccentColorHex = settings.Current.TextAccentColorHex;
         // Initialise picker from stored accent
@@ -597,6 +638,80 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
             MarkCustomPreset();
             ApplySpecular(IsGlassEnabled, IsSpecularEnabled, value);
         }
+    }
+
+    // ── Depth (Phase 8 UI polish) ───────────────────────────────────────────────
+
+    /// <summary>Persists <see cref="DepthIntensity"/> and re-applies it live via
+    /// <see cref="MotionSettingsService.Apply"/>, which scales the ElevationRaised/Floating/
+    /// Modal/Toast shadow tokens' alpha channels from this value (0 = shadowless, 0.5 = the
+    /// baked-in default, 1.0 = 2x). Bound directly from the Settings page's slider — runs on the
+    /// UI thread already, so no dispatcher hop is needed (unlike e.g. OnLuminanceChanged, which is
+    /// driven by a background sampling service).</summary>
+    partial void OnDepthIntensityChanged(double value)
+    {
+        _settings.Current.DepthIntensity = value;
+        _settings.Save();
+        _motionSettingsService.Apply(_settings.Current);
+    }
+
+    // ── Animations (Phase 8 UI polish) ──────────────────────────────────────────
+    // Every handler below persists into AppSettings then re-applies MotionSettingsService.Apply,
+    // which recomputes the MotionFast/Base/Slow duration tokens (from AnimationSpeed) and the
+    // elevation tokens (from DepthIntensity, unaffected by these fields) and raises MotionChanged —
+    // the live-update signal MainWindow (shimmer/page-transition), DashboardViewModel
+    // (HoverEffectsEnabled), Border.nx-widget-chrome's hover lift, and every migrated Transition's
+    // DynamicResource-bound Duration all react to. All bound directly from Settings-page controls
+    // (Slider/ToggleButton), so — like OnDepthIntensityChanged above — these already run on the UI
+    // thread; no dispatcher hop needed.
+
+    partial void OnAnimationSpeedChanged(double value)
+    {
+        _settings.Current.AnimationSpeed = value;
+        _settings.Save();
+        _motionSettingsService.Apply(_settings.Current);
+    }
+
+    partial void OnAnimatePageTransitionsChanged(bool value)
+    {
+        _settings.Current.AnimatePageTransitions = value;
+        _settings.Save();
+        _motionSettingsService.Apply(_settings.Current);
+    }
+
+    partial void OnAnimateHoverEffectsChanged(bool value)
+    {
+        _settings.Current.AnimateHoverEffects = value;
+        _settings.Save();
+        _motionSettingsService.Apply(_settings.Current);
+    }
+
+    partial void OnAnimatePopOutMotionChanged(bool value)
+    {
+        _settings.Current.AnimatePopOutMotion = value;
+        _settings.Save();
+        _motionSettingsService.Apply(_settings.Current);
+    }
+
+    partial void OnAnimateEditChromeChanged(bool value)
+    {
+        _settings.Current.AnimateEditChrome = value;
+        _settings.Save();
+        _motionSettingsService.Apply(_settings.Current);
+    }
+
+    partial void OnAnimateValueChangesChanged(bool value)
+    {
+        _settings.Current.AnimateValueChanges = value;
+        _settings.Save();
+        _motionSettingsService.Apply(_settings.Current);
+    }
+
+    partial void OnAnimateSpecularShimmerChanged(bool value)
+    {
+        _settings.Current.AnimateSpecularShimmer = value;
+        _settings.Save();
+        _motionSettingsService.Apply(_settings.Current);
     }
 
     partial void OnAccentColorHexChanged(string value)

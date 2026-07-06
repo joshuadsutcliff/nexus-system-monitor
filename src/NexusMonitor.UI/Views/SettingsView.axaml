@@ -16,9 +16,12 @@
                   Background="{TemplateBinding Background}"
                   Cursor="Hand"
                   Opacity="{TemplateBinding Opacity}">
+            <!-- Phase 8 UI polish (Task 3): migrated to MotionFast (100ms falls in the
+                 "≤120ms → Fast" bucket) — MotionSettingsService.Apply scales this from
+                 AnimationSpeed and zeroes it at speed 0. -->
             <Border.Transitions>
               <Transitions>
-                <DoubleTransition Property="Opacity" Duration="0:0:0.1"/>
+                <DoubleTransition Property="Opacity" Duration="{DynamicResource MotionFast}"/>
               </Transitions>
             </Border.Transitions>
           </Border>
@@ -821,6 +824,137 @@
                        TextWrapping="Wrap" Margin="0,2,0,0"/>
           </StackPanel>
           <ToggleButton Grid.Column="1" Classes="nx-toggle" IsChecked="{Binding SmartTintEnabled}"
+                        VerticalAlignment="Center"/>
+        </Grid>
+
+        <!-- Depth / shadow intensity (Phase 8 UI polish) — independent of Crystal Glass; scales
+             card-elevation shadow alpha everywhere (widget tiles, settings cards, command
+             palette/gallery/toast), so it is deliberately NOT gated by IsGlassEnabled. Placed in
+             this card because it's the app's other layering/depth control cluster. -->
+        <TextBlock Text="DEPTH" FontSize="{DynamicResource NxFont11}" FontWeight="Medium" LetterSpacing="0.6"
+                   Foreground="{DynamicResource TextTertiaryBrush}" Margin="0,4,0,4"/>
+        <StackPanel Spacing="2">
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Grid.Column="0" Text="Depth Intensity" FontSize="{DynamicResource NxFont12}"
+                       Foreground="{DynamicResource TextSecondaryBrush}"/>
+            <TextBlock Grid.Column="1" Text="{Binding DepthIntensity, StringFormat='{}{0:P0}'}"
+                       FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"/>
+          </Grid>
+          <Slider Minimum="0.0" Maximum="1.0" Value="{Binding DepthIntensity}"
+                  TickFrequency="0.05" IsSnapToTickEnabled="True"
+                  Margin="0,2,0,0"/>
+          <TextBlock Text="0% = shadowless  ·  50% = default  ·  100% = 2x deeper card shadows"
+                     FontSize="{DynamicResource NxFont10}" Foreground="{DynamicResource TextTertiaryBrush}"
+                     Margin="0,0,0,4"/>
+        </StackPanel>
+
+      </StackPanel>
+    </Border>
+
+    <!-- ===== ANIMATIONS ===== -->
+    <Border Classes="nx-settings-card"
+            Padding="16"
+            Background="{DynamicResource BgElevatedBrush}"
+            BorderBrush="{DynamicResource GlassBorderBrush}"
+            BorderThickness="1"
+            CornerRadius="{StaticResource CornerLG}">
+      <StackPanel Spacing="12">
+        <TextBlock Text="Animations" FontSize="{DynamicResource NxFont14}" FontWeight="SemiBold"
+                   Foreground="{DynamicResource TextPrimaryBrush}"/>
+        <Separator/>
+
+        <!-- Speed -->
+        <StackPanel Spacing="2">
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Grid.Column="0" Text="Animation Speed" FontSize="{DynamicResource NxFont12}"
+                       Foreground="{DynamicResource TextSecondaryBrush}"/>
+            <TextBlock Grid.Column="1" Text="{Binding AnimationSpeedLabel}"
+                       FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"/>
+          </Grid>
+          <!-- AnimationSpeed binds DIRECTLY — higher = faster (the Motion tokens divide the base
+               duration by this value); 0 collapses every migrated Transition/CrossFade/timer to
+               instant/stopped. -->
+          <Slider Minimum="0" Maximum="2" Value="{Binding AnimationSpeed}"
+                  TickFrequency="0.5" IsSnapToTickEnabled="True"
+                  Margin="0,2,0,0"/>
+          <TextBlock Text="Off  ·  Slower  ·  Normal  ·  Fast  ·  Fastest"
+                     FontSize="{DynamicResource NxFont10}" Foreground="{DynamicResource TextTertiaryBrush}"
+                     Margin="0,0,0,4"/>
+        </StackPanel>
+
+        <!-- Per-effect toggles -->
+        <TextBlock Text="EFFECTS" FontSize="{DynamicResource NxFont11}" FontWeight="Medium" LetterSpacing="0.6"
+                   Foreground="{DynamicResource TextTertiaryBrush}" Margin="0,4,0,4"/>
+
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel Grid.Column="0">
+            <TextBlock Text="Page Transitions" FontSize="{DynamicResource NxFont13}"
+                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+            <TextBlock Text="Cross-fade when switching between pages"
+                       FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"
+                       TextWrapping="Wrap" Margin="0,2,0,0"/>
+          </StackPanel>
+          <ToggleButton Grid.Column="1" Classes="nx-toggle" IsChecked="{Binding AnimatePageTransitions}"
+                        VerticalAlignment="Center"/>
+        </Grid>
+
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel Grid.Column="0">
+            <TextBlock Text="Hover Effects" FontSize="{DynamicResource NxFont13}"
+                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+            <TextBlock Text="Lift and shadow animation when hovering a widget tile"
+                       FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"
+                       TextWrapping="Wrap" Margin="0,2,0,0"/>
+          </StackPanel>
+          <ToggleButton Grid.Column="1" Classes="nx-toggle" IsChecked="{Binding AnimateHoverEffects}"
+                        VerticalAlignment="Center"/>
+        </Grid>
+
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel Grid.Column="0">
+            <TextBlock Text="Pop-Out Motion" FontSize="{DynamicResource NxFont13}"
+                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+            <TextBlock Text="Scale-in and fade when popping a widget out to its own window"
+                       FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"
+                       TextWrapping="Wrap" Margin="0,2,0,0"/>
+          </StackPanel>
+          <ToggleButton Grid.Column="1" Classes="nx-toggle" IsChecked="{Binding AnimatePopOutMotion}"
+                        VerticalAlignment="Center"/>
+        </Grid>
+
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel Grid.Column="0">
+            <TextBlock Text="Edit Chrome" FontSize="{DynamicResource NxFont13}"
+                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+            <TextBlock Text="Fade animation for the edit-mode toolbar and add-widget gallery"
+                       FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"
+                       TextWrapping="Wrap" Margin="0,2,0,0"/>
+          </StackPanel>
+          <ToggleButton Grid.Column="1" Classes="nx-toggle" IsChecked="{Binding AnimateEditChrome}"
+                        VerticalAlignment="Center"/>
+        </Grid>
+
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel Grid.Column="0">
+            <TextBlock Text="Value Changes" FontSize="{DynamicResource NxFont13}"
+                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+            <TextBlock Text="Animated transitions when a displayed metric value changes"
+                       FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"
+                       TextWrapping="Wrap" Margin="0,2,0,0"/>
+          </StackPanel>
+          <ToggleButton Grid.Column="1" Classes="nx-toggle" IsChecked="{Binding AnimateValueChanges}"
+                        VerticalAlignment="Center"/>
+        </Grid>
+
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel Grid.Column="0">
+            <TextBlock Text="Specular Shimmer" FontSize="{DynamicResource NxFont13}"
+                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+            <TextBlock Text="Rotating prismatic highlight cycling over Crystal Glass surfaces"
+                       FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"
+                       TextWrapping="Wrap" Margin="0,2,0,0"/>
+          </StackPanel>
+          <ToggleButton Grid.Column="1" Classes="nx-toggle" IsChecked="{Binding AnimateSpecularShimmer}"
                         VerticalAlignment="Center"/>
         </Grid>
 

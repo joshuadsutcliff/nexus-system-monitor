@@ -25,12 +25,15 @@
 
   <Window.Styles>
 
-    <!-- ── Drag grip: subtle hint by default, brighter on hover, prominent when dragging ── -->
+    <!-- ── Drag grip: subtle hint by default, brighter on hover, prominent when dragging ──
+         Phase 8 UI polish (Task 3): Duration migrated to MotionBase (200ms falls in the
+         "150-200ms → Base" bucket) — MotionSettingsService.Apply scales it from AnimationSpeed
+         and zeroes it at speed 0. -->
     <Style Selector="TextBlock.nav-grip">
       <Setter Property="Opacity" Value="0.20"/>
       <Setter Property="Transitions">
         <Transitions>
-          <DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
+          <DoubleTransition Property="Opacity" Duration="{DynamicResource MotionBase}"/>
         </Transitions>
       </Setter>
     </Style>
@@ -41,17 +44,20 @@
       <Setter Property="Opacity" Value="0.85"/>
     </Style>
 
-    <!-- ── Nav item root: smooth ease-out transitions for transform + opacity ── -->
+    <!-- ── Nav item root: smooth ease-out transitions for transform + opacity ──
+         Phase 8 UI polish (Task 3): the transform Duration migrated to MotionSlow (250ms falls
+         in the "≥250ms → Slow" bucket); the opacity Duration migrated to MotionBase (200ms falls
+         in the "150-200ms → Base" bucket). Both scale from AnimationSpeed and zero at speed 0. -->
     <Style Selector="Grid.nav-row">
       <Setter Property="RenderTransformOrigin" Value="50%,50%"/>
       <Setter Property="Transitions">
         <Transitions>
-          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.25">
+          <TransformOperationsTransition Property="RenderTransform" Duration="{DynamicResource MotionSlow}">
             <TransformOperationsTransition.Easing>
               <CubicEaseOut/>
             </TransformOperationsTransition.Easing>
           </TransformOperationsTransition>
-          <DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
+          <DoubleTransition Property="Opacity" Duration="{DynamicResource MotionBase}"/>
         </Transitions>
       </Setter>
     </Style>
@@ -304,10 +310,17 @@
       <Border Grid.Column="1" Background="{DynamicResource BgPrimaryBrush}">
         <Panel>
           <!-- Content -->
-          <TransitioningContentControl Content="{Binding CurrentPage}">
-            <TransitioningContentControl.PageTransition>
-              <CrossFade Duration="0:0:0.18"/>
-            </TransitioningContentControl.PageTransition>
+          <!-- Phase 8 UI polish (Task 3): PageTransition is set from code (MainWindow.axaml.cs,
+               UpdatePageTransition) instead of a static XAML CrossFade. Avalonia.Animation.CrossFade
+               is a plain object — its Duration is a normal CLR property, not an AvaloniaProperty —
+               so `Duration="{DynamicResource MotionBase}"` cannot live-track AnimationSpeed changes
+               here the way it can on a Transition (DoubleTransition/TransformOperationsTransition/
+               BoxShadowsTransition), confirmed via reflection (CrossFade : object, no *Property
+               static fields). UpdatePageTransition instead reads the already-Apply()'d MotionBase
+               resource value and swaps PageTransition to null when AnimatePageTransitions is off
+               (or AnimationSpeed is 0) — an instant page swap instead of a zero-duration CrossFade,
+               per the task's own suggested "swap to null transition when disabled" resolution. -->
+          <TransitioningContentControl x:Name="PageHost" Content="{Binding CurrentPage}">
           <TransitioningContentControl.DataTemplates>
             <DataTemplate DataType="vm:AutomationViewModel">
               <views:AutomationView />

@@ -2,6 +2,21 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="using:NexusMonitor.UI.Controls">
 
+  <!--
+    Phase 8 UI polish (Task 3): every hardcoded micro-transition Duration in this file (button/
+    toggle background fades, DataGrid row + ListBox item hover fades) has been migrated to
+    {DynamicResource MotionFast}/MotionBase — MotionSettingsService.Apply scales these from
+    AppSettings.AnimationSpeed and collapses them to TimeSpan.Zero at speed 0 ("everything
+    instant"). Per the Phase 8 Task 3 conductor ruling, this duration-zeroing alone is sufficient
+    gating for these micro-transitions — they are NOT additionally class-gated by
+    AnimateHoverEffects the way Border.nx-widget-chrome's hover LIFT is below (that's the
+    "hover-lift-enabled" PageHostControl class gate; these plain color/background fades have no
+    equivalent shared ancestor to gate through cheaply, and unlike the lift they carry no motion/
+    shadow — just a brush swap — so leaving them token-driven only was judged an acceptable,
+    pragmatic scope boundary rather than plumbing a new cross-cutting gate for micro-fades this
+    task did not explicitly require gated per-toggle.
+  -->
+
   <!-- ===== BUTTON — Elevated ===== -->
   <Style Selector="Button.nx-btn">
     <Setter Property="Background" Value="{DynamicResource BgElevatedBrush}" />
@@ -16,7 +31,7 @@
   <Style Selector="Button.nx-btn /template/ ContentPresenter">
     <Setter Property="Transitions">
       <Transitions>
-        <BrushTransition Property="Background" Duration="0:0:0.15"/>
+        <BrushTransition Property="Background" Duration="{DynamicResource MotionBase}"/>
       </Transitions>
     </Setter>
   </Style>
@@ -40,7 +55,7 @@
   <Style Selector="Button.nx-btn-accent /template/ ContentPresenter">
     <Setter Property="Transitions">
       <Transitions>
-        <BrushTransition Property="Background" Duration="0:0:0.15"/>
+        <BrushTransition Property="Background" Duration="{DynamicResource MotionBase}"/>
       </Transitions>
     </Setter>
   </Style>
@@ -60,7 +75,7 @@
   <Style Selector="Button.nx-btn-ghost /template/ ContentPresenter">
     <Setter Property="Transitions">
       <Transitions>
-        <BrushTransition Property="Background" Duration="0:0:0.15"/>
+        <BrushTransition Property="Background" Duration="{DynamicResource MotionBase}"/>
       </Transitions>
     </Setter>
   </Style>
@@ -129,7 +144,7 @@
   <Style Selector="DataGrid.nx-grid DataGridRow /template/ Rectangle#BackgroundRectangle">
     <Setter Property="Transitions">
       <Transitions>
-        <BrushTransition Property="Fill" Duration="0:0:0.12"/>
+        <BrushTransition Property="Fill" Duration="{DynamicResource MotionFast}"/>
       </Transitions>
     </Setter>
   </Style>
@@ -163,7 +178,7 @@
   <Style Selector="ListBox.nx-list ListBoxItem /template/ ContentPresenter">
     <Setter Property="Transitions">
       <Transitions>
-        <BrushTransition Property="Background" Duration="0:0:0.12"/>
+        <BrushTransition Property="Background" Duration="{DynamicResource MotionFast}"/>
       </Transitions>
     </Setter>
   </Style>
@@ -223,7 +238,7 @@
   <Style Selector="ToggleButton.nx-toggle /template/ ContentPresenter">
     <Setter Property="Transitions">
       <Transitions>
-        <BrushTransition Property="Background" Duration="0:0:0.2"/>
+        <BrushTransition Property="Background" Duration="{DynamicResource MotionBase}"/>
       </Transitions>
     </Setter>
   </Style>

@@ -3,17 +3,26 @@
              x:Class="NexusMonitor.UI.Controls.NotificationToast"
              Opacity="0">
 
+  <!-- Phase 8 UI polish (Task 3): both durations migrated to MotionSlow (250ms/300ms both fall
+       at/above the "≥250ms → Slow" bucket) — MotionSettingsService.Apply scales them from
+       AnimationSpeed and zeroes them at speed 0. -->
   <UserControl.Transitions>
     <Transitions>
-      <DoubleTransition Property="Opacity" Duration="0:0:0.25">
+      <DoubleTransition Property="Opacity" Duration="{DynamicResource MotionSlow}">
         <DoubleTransition.Easing><CubicEaseOut/></DoubleTransition.Easing>
       </DoubleTransition>
     </Transitions>
   </UserControl.Transitions>
 
+  <!-- BoxShadow uses the dedicated ElevationToast token (Task 3 carryover A), NOT ElevationModal —
+       Task 2 had aligned the toast onto ElevationModal (visibly heavier than the toast's original
+       pre-Task-2 weight; flagged as an uncertainty in that task's report). ElevationToast restores
+       the toast's original `0 4 24 0 #44000000, 0 1 4 0 #22000000` weight as its own named token,
+       still scaled by DepthIntensity via MotionSettingsService.Apply like the other elevation
+       tokens. -->
   <Border x:Name="RootBorder"
           CornerRadius="16"
-          BoxShadow="{DynamicResource ElevationModal}"
+          BoxShadow="{DynamicResource ElevationToast}"
           Background="{DynamicResource GlassBgBrush}"
           BorderBrush="{DynamicResource GlassBorderBrush}"
           BorderThickness="1"
@@ -24,7 +33,7 @@
       <TranslateTransform Y="-40">
         <TranslateTransform.Transitions>
           <Transitions>
-            <DoubleTransition Property="Y" Duration="0:0:0.3">
+            <DoubleTransition Property="Y" Duration="{DynamicResource MotionSlow}">
               <DoubleTransition.Easing><CubicEaseOut/></DoubleTransition.Easing>
             </DoubleTransition>
           </Transitions>

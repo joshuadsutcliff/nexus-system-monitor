@@ -43,10 +43,16 @@
            relies on hairline separators + subtle fill contrast, not shadow) — ElevationRaised-Dark
            is deliberately barely-there. ElevationModal is aligned to the pre-existing
            CommandPaletteControl/WidgetGalleryControl BoxShadow value (unchanged, both themes) per
-           the Task 2 reconciliation: "keep their current visual weight via ElevationModal." -->
+           the Task 2 reconciliation: "keep their current visual weight via ElevationModal."
+           ElevationToast (Phase 8 Task 3 carryover A) is a SEPARATE, lighter token restoring
+           NotificationToast's own pre-Task-2 shadow weight — Task 2 had consolidated the toast
+           onto ElevationModal too, making it visibly heavier than before (flagged as an
+           uncertainty in that task's report); this token undoes that specifically for the toast
+           while CommandPalette/Gallery stay on ElevationModal. -->
       <BoxShadows x:Key="ElevationRaised">0 1 2 0 #14000000</BoxShadows>
       <BoxShadows x:Key="ElevationFloating">0 3 10 0 #2E000000, 0 1 3 0 #1F000000</BoxShadows>
       <BoxShadows x:Key="ElevationModal">0 8 40 0 #66000000, 0 2 8 0 #33000000</BoxShadows>
+      <BoxShadows x:Key="ElevationToast">0 4 24 0 #44000000, 0 1 4 0 #22000000</BoxShadows>
 
       <!-- ── Brushes ── -->
       <SolidColorBrush x:Key="BgBaseBrush"      Color="#0A0A12" />
@@ -139,10 +145,14 @@
            gets a visibly softer card shadow than Dark's near-invisible one (Apple's light-mode
            System Settings-family surfaces DO show a soft card shadow, unlike the near-shadowless
            dark captures in p8-macos-ref.md) — ElevationModal stays numerically identical to Dark's
-           to preserve the pre-existing CommandPalette/Gallery/Toast shadow weight in both themes. -->
+           to preserve the pre-existing CommandPalette/Gallery shadow weight in both themes.
+           ElevationToast (Phase 8 Task 3 carryover A) — see the Dark variant's comment — is also
+           numerically identical to Dark's, restoring the toast's original theme-invariant
+           pre-Task-2 weight. -->
       <BoxShadows x:Key="ElevationRaised">0 1 3 0 #1F000000, 0 2 6 0 #14000000</BoxShadows>
       <BoxShadows x:Key="ElevationFloating">0 4 14 0 #29000000, 0 1 4 0 #1A000000</BoxShadows>
       <BoxShadows x:Key="ElevationModal">0 8 40 0 #66000000, 0 2 8 0 #33000000</BoxShadows>
+      <BoxShadows x:Key="ElevationToast">0 4 24 0 #44000000, 0 1 4 0 #22000000</BoxShadows>
 
       <!-- ── Brushes ── -->
       <SolidColorBrush x:Key="BgBaseBrush"      Color="#F5F5FA" />

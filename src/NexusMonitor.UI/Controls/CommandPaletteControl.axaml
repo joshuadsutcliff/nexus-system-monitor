@@ -21,9 +21,12 @@
 
   </UserControl.Styles>
 
+  <!-- Phase 8 UI polish (Task 3): duration migrated to the shared Motion token (150ms falls in
+       the 150-200ms "Base" bucket) — MotionSettingsService.Apply scales it from AnimationSpeed
+       and zeroes it at speed 0. -->
   <UserControl.Transitions>
     <Transitions>
-      <DoubleTransition Property="Opacity" Duration="0:0:0.15"/>
+      <DoubleTransition Property="Opacity" Duration="{DynamicResource MotionBase}"/>
     </Transitions>
   </UserControl.Transitions>
 

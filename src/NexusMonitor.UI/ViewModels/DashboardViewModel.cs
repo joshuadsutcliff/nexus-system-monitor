@@ -24,6 +24,7 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
     private readonly SystemHealthService        _healthService;
     private readonly MemoryLeakDetectionService _leakService;
     private readonly AppSettings                _settings;
+    private readonly MotionSettingsService      _motionSettingsService;
     private IDisposable?                        _subscription;
     private IDisposable?                        _predictionsSubscription;
     private IDisposable?                        _staleSubscription;
@@ -108,14 +109,21 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
     /// available yet at construction time.</summary>
     private PopOutCoordinator? _popOutCoordinator;
 
-    public DashboardViewModel(SystemHealthService healthService, MemoryLeakDetectionService leakService, AppSettings settings, HealthTrendsViewModel healthTrendsViewModel, PredictionService? predictionService = null, WorkspaceProfileStore? profileStore = null, IInAppNotificationService? notificationService = null)
+    public DashboardViewModel(SystemHealthService healthService, MemoryLeakDetectionService leakService, AppSettings settings, HealthTrendsViewModel healthTrendsViewModel, MotionSettingsService motionSettingsService, PredictionService? predictionService = null, WorkspaceProfileStore? profileStore = null, IInAppNotificationService? notificationService = null)
     {
         _healthService      = healthService;
         _leakService        = leakService;
         _settings           = settings;
         HealthTrendsViewModel = healthTrendsViewModel;
+        _motionSettingsService = motionSettingsService;
         _profileStore       = profileStore;
         _notificationService = notificationService;
+
+        // Phase 8 Task 3 carryover B: re-raise HoverEffectsEnabled whenever the ANIMATIONS
+        // settings page applies a change (speed slider or the AnimateHoverEffects toggle) — Task 2
+        // left this un-wired because no live change source existed yet at that point (see
+        // HoverEffectsEnabled's own doc comment).
+        _motionSettingsService.MotionChanged += OnMotionSettingsChanged;
 
         // Subscribed BEFORE the LoadActive() call just below: WorkspaceProfileStore.ProfileRecovered
         // can fire synchronously from inside that very call (a corrupt or stale/tampered active
@@ -252,12 +260,18 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
     /// <summary>True when widget-tile hover lift should be able to animate — forwards to
     /// <see cref="MotionSettingsService.EffectEnabled"/> for <see cref="MotionEffect.HoverEffects"/>.
     /// Bound to <see cref="Controls.PageHostControl.HoverLiftEnabled"/> (see that property's doc
-    /// for why gating lives there rather than per-tile). Not an <c>[ObservableProperty]</c>: there
-    /// is no live settings-change notification to re-raise it from yet (AppSettings is a plain
-    /// POCO with no change events) — wiring a live Settings-page toggle for
-    /// <c>AnimateHoverEffects</c>/<c>AnimationSpeed</c> is Task 3's scope, matching the same
-    /// boundary <c>MotionSettingsService.Apply</c>'s own single startup call documents.</summary>
+    /// for why gating lives there rather than per-tile). Not an <c>[ObservableProperty]</c> (there
+    /// is no backing field to generate one from — <see cref="AppSettings"/> is a plain POCO with no
+    /// change events of its own); instead it's re-raised via <see cref="OnMotionSettingsChanged"/>,
+    /// subscribed to <see cref="MotionSettingsService.MotionChanged"/> in the constructor — Phase 8
+    /// Task 3 carryover B, resolving the "not wired yet" gap Task 2 originally left here.</summary>
     public bool HoverEffectsEnabled => MotionSettingsService.EffectEnabled(_settings, MotionEffect.HoverEffects);
+
+    /// <summary>Phase 8 Task 3 carryover B: re-raises <see cref="HoverEffectsEnabled"/> whenever
+    /// <see cref="MotionSettingsService.Apply"/> runs again — i.e. whenever the ANIMATIONS settings
+    /// page's speed slider or any Animate* toggle changes — so a live edit immediately re-gates the
+    /// widget-tile hover lift instead of only taking effect after a restart.</summary>
+    private void OnMotionSettingsChanged() => OnPropertyChanged(nameof(HoverEffectsEnabled));
 
     /// <summary>Enters edit mode over the current page.</summary>
     [RelayCommand]
@@ -684,6 +698,7 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
         WeakReferenceMessenger.Default.UnregisterAll(this);
         if (_profileStore is not null)
             _profileStore.ProfileRecovered -= OnProfileRecovered;
+        _motionSettingsService.MotionChanged -= OnMotionSettingsChanged;
         _subscription?.Dispose();
         _subscription = null;
         _predictionsSubscription?.Dispose();
