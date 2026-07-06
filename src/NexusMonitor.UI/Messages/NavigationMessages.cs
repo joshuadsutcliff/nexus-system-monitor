@@ -19,3 +19,8 @@ public record WindowVisibilityChangedMessage(bool IsVisible);
 
 /// <summary>Broadcast when the Dashboard page enters/leaves edit mode (page engine).</summary>
 public record PageEditModeChangedMessage(bool IsEditMode); // No consumers yet by design: Phase 4 registers this to lock tab navigation during edits.
+
+/// <summary>Broadcast when the user switches the active workspace profile in Settings (page
+/// engine Phase 5). Appearance is applied synchronously by SettingsViewModel before this is sent;
+/// DashboardViewModel registers for this to reload its EnginePage from the same profile's pages.</summary>
+public record WorkspaceProfileSwitchedMessage(string Name);

@@ -86,7 +86,9 @@ public class ThemePresetService
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_customPath)!);
-            File.WriteAllText(_customPath, JsonSerializer.Serialize(_userPresets, _jsonOpts));
+            var tmpPath = _customPath + ".tmp";
+            File.WriteAllText(tmpPath, JsonSerializer.Serialize(_userPresets, _jsonOpts));
+            File.Move(tmpPath, _customPath, overwrite: true);
         }
         catch { /* ignore write failures */ }
     }

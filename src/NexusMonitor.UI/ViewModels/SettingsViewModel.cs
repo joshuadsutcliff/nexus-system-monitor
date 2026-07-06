@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media;
 using Avalonia.Platform;
+using Avalonia.Platform.Storage;
 using Avalonia.Styling;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -11,10 +12,12 @@ using Microsoft.Extensions.DependencyInjection;
 using NexusMonitor.Core.Alerts;
 using NexusMonitor.Core.Health;
 using NexusMonitor.Core.Models;
+using NexusMonitor.Core.Pages;
 using NexusMonitor.Core.Services;
 using NexusMonitor.Core.Storage;
 using System.Collections.ObjectModel;
 using System.Reactive.Linq;
+using System.Text;
 using NexusMonitor.Core.Telemetry;
 using NexusMonitor.Core.Themes;
 using NexusMonitor.UI.Messages;
@@ -31,12 +34,14 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     private readonly AnomalyDetectionConfig       _anomalyConfig;
     private readonly GlassAdaptiveService         _glassAdaptive;
     private readonly ThemePresetService           _presetService;
+    private readonly WorkspaceProfileStore        _profileStore;
     private readonly ProcessPreferenceStore?      _preferenceStore;
     private readonly WebhookNotificationService              _webhookService;
     private readonly PredictionService?                      _predictionService;
     private readonly HealthSnapshotPersistenceService?       _healthSnapshotService;
     private readonly EventMonitorService?                    _eventMonitorService;
     private readonly UpdateCheckService?                     _updateCheckService;
+    private readonly IInAppNotificationService?              _notificationService;
     private IDisposable?                                     _updateSubscription;
 
     // ── Saved Process Preferences ────────────────────────────────────────────
@@ -312,12 +317,14 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         AnomalyDetectionConfig       anomalyConfig,
         GlassAdaptiveService         glassAdaptive,
         ThemePresetService           presetService,
+        WorkspaceProfileStore        profileStore,
         WebhookNotificationService   webhookService,
         PredictionService?                      predictionService = null,
         ProcessPreferenceStore?                 preferenceStore = null,
         HealthSnapshotPersistenceService?       healthSnapshotService = null,
         EventMonitorService?                    eventMonitorService = null,
-        UpdateCheckService?                     updateCheckService = null)
+        UpdateCheckService?                     updateCheckService = null,
+        IInAppNotificationService?               notificationService = null)
     {
         Title             = "Settings";
         _settings         = settings;
@@ -326,12 +333,14 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         _anomalyConfig    = anomalyConfig;
         _glassAdaptive    = glassAdaptive;
         _presetService    = presetService;
+        _profileStore     = profileStore;
         _webhookService        = webhookService;
         _predictionService     = predictionService;
         _preferenceStore       = preferenceStore;
         _healthSnapshotService = healthSnapshotService;
         _eventMonitorService   = eventMonitorService;
         _updateCheckService    = updateCheckService;
+        _notificationService   = notificationService;
 
         // Load saved preferences
         if (preferenceStore is not null)
@@ -447,6 +456,9 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         ApplyTextAccent(_accentColorHex, _textAccentColorHex);
         ApplyFont(_fontFamily, _fontSizeMultiplier);
         UpdateSurfaceSwatches();
+
+        // ── Workspace profiles (Phase 5) ───────────────────────────────────────
+        RefreshWorkspaceProfileNames();
     }
 
     private void RebuildPresetNames()
@@ -1035,6 +1047,476 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         SelectedPresetIndex = PresetNames.Count - 1;
         _suppressPresetCallback = false;
     }
+
+    // ── Workspace profiles (Phase 5) ───────────────────────────────────────────
+
+    /// <summary>All saved workspace profile names (file-system scan via the store), refreshed
+    /// after every switch/save/delete. ComboBox <c>ItemsSource</c> in the Settings "Workspace
+    /// Profiles" card.</summary>
+    public System.Collections.ObjectModel.ObservableCollection<string> WorkspaceProfileNames { get; } = new();
+
+    private bool _suppressWorkspaceProfileCallback;
+    private string? _selectedWorkspaceProfileName;
+
+    /// <summary>
+    /// Bound to the "Workspace Profiles" ComboBox's <c>SelectedItem</c>. Setting this — via user
+    /// selection — switches the active workspace profile immediately (mirrors
+    /// <see cref="SelectedPresetIndex"/>'s manual-property-drives-apply structure).
+    /// </summary>
+    public string? SelectedWorkspaceProfileName
+    {
+        get => _selectedWorkspaceProfileName;
+        set
+        {
+            if (!SetProperty(ref _selectedWorkspaceProfileName, value)) return;
+            if (!_suppressWorkspaceProfileCallback && !string.IsNullOrEmpty(value))
+                SwitchWorkspaceProfile(value);
+            // Fired after SwitchWorkspaceProfile (not before) so it reflects the post-switch
+            // ActiveProfileName rather than a transient mid-switch mismatch.
+            OnPropertyChanged(nameof(CanDeleteActiveWorkspaceProfile));
+        }
+    }
+
+    /// <summary>Text entered in the "Save current as…" box; cleared after a successful save.</summary>
+    [ObservableProperty] private string _newWorkspaceProfileName = "";
+
+    /// <summary>True when the ACTIVE workspace profile is not "Default". Delete now targets the
+    /// ACTIVE profile — <see cref="DeleteSelectedWorkspaceProfile"/> switches to Default first, then
+    /// removes the file it just vacated — so Default itself must never be deletable (there would be
+    /// nothing left to switch to). Compared case-insensitively: profile files live on case-insensitive
+    /// filesystems (macOS/Windows), where "default" and "Default" are the same file.</summary>
+    public bool CanDeleteActiveWorkspaceProfile =>
+        !string.Equals(_profileStore.ActiveProfileName, "Default", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Re-scans the store for saved profile names and re-syncs the selected/active name.
+    /// Safe to call after any SYNCHRONOUS store mutation (SetActive, Delete); NOT called directly
+    /// after <see cref="WorkspaceProfileStore.Save"/>, which is debounced — see
+    /// <see cref="SaveCurrentWorkspaceProfile"/>.</summary>
+    private void RefreshWorkspaceProfileNames()
+    {
+        WorkspaceProfileNames.Clear();
+        foreach (var name in _profileStore.ListProfiles())
+            WorkspaceProfileNames.Add(name);
+
+        _suppressWorkspaceProfileCallback = true;
+        SelectedWorkspaceProfileName = _profileStore.ActiveProfileName;
+        _suppressWorkspaceProfileCallback = false;
+    }
+
+    /// <summary>
+    /// Switches the active workspace profile: persists the new active pointer, applies its
+    /// bundled appearance, then broadcasts <see cref="WorkspaceProfileSwitchedMessage"/> so
+    /// DashboardViewModel reloads its layout from the same profile. Restart-free.
+    /// Appearance handling (exactly one applies):
+    /// <list type="bullet">
+    /// <item>Embedded <see cref="ThemeSnapshot"/>: bulk-set the 14 appearance VM properties under
+    /// <see cref="_suppressApply"/> then <see cref="ApplyAllVisuals"/> + <see cref="UpdateSurfaceSwatches"/>
+    /// — mirrors <see cref="ApplyPreset"/>'s structure exactly.</item>
+    /// <item>Named <see cref="ThemeRef.PresetId"/>: routed through the existing <see cref="ApplyPreset"/>.</item>
+    /// <item>Neither set (neutral): appearance is left untouched.</item>
+    /// </list>
+    /// </summary>
+    private void SwitchWorkspaceProfile(string name)
+    {
+        _profileStore.SetActive(name);
+        var profile = _profileStore.LoadActive();
+
+        if (profile.Theme.Snapshot is { } snap)
+        {
+            _suppressApply = true;
+            try
+            {
+                var modeIdx = Array.IndexOf(_themeModeValues, snap.ThemeMode);
+                ThemeModeIndex      = modeIdx < 0 ? 0 : modeIdx;
+
+                AccentColorHex      = snap.AccentColorHex;
+                TextAccentColorHex  = snap.TextAccentColorHex;
+                CustomWindowBgHex   = snap.CustomWindowBgHex;
+                CustomSurfaceBgHex  = snap.CustomSurfaceBgHex;
+                CustomSidebarBgHex  = snap.CustomSidebarBgHex;
+                IsGlassEnabled      = snap.IsGlassEnabled;
+                GlassOpacity        = snap.GlassOpacity;
+                BackdropBlurMode    = snap.BackdropBlurMode;
+                IsSpecularEnabled   = snap.IsSpecularEnabled;
+                SpecularIntensity   = snap.SpecularIntensity;
+                FontFamily          = snap.FontFamily;
+                FontSizeMultiplier  = snap.FontSizeMultiplier;
+                SmartTintEnabled    = snap.SmartTintEnabled;
+            }
+            finally
+            {
+                _suppressApply = false;
+            }
+
+            // A raw snapshot isn't a named preset — mark custom (same as any manual edit would),
+            // so the theme-preset combo and surface swatches don't keep showing a stale, unrelated
+            // preset's identity/palette against these just-applied colors.
+            _settings.Current.ActiveThemePresetId = "";
+            _settings.Save();
+
+            ApplyAllVisuals();
+            UpdateSurfaceSwatches();
+        }
+        else if (!string.IsNullOrEmpty(profile.Theme.PresetId))
+        {
+            var preset = _availablePresets.FirstOrDefault(p => p.Id == profile.Theme.PresetId);
+            if (preset is not null)
+                ApplyPreset(preset); // persists appearance into _settings.Current + Save, same as here
+        }
+        // else: neutral (Snapshot and PresetId both null) — appearance left untouched.
+
+        WeakReferenceMessenger.Default.Send(new WorkspaceProfileSwitchedMessage(name));
+    }
+
+    [RelayCommand]
+    private void SaveCurrentWorkspaceProfile()
+    {
+        var typedName = NewWorkspaceProfileName?.Trim();
+        if (string.IsNullOrWhiteSpace(typedName)) return;
+
+        // Run the typed name through the same sanitizer ImportWorkspaceProfile uses on untrusted
+        // file content BEFORE the case-insensitive lookup — a user-typed name containing anything
+        // outside [A-Za-z0-9 _-] would otherwise reach WorkspaceProfileStore.Save() unsanitized and
+        // throw ArgumentException, which used to be swallowed as a silent no-op below.
+        var sanitizedTypedName = SanitizeProfileName(typedName);
+
+        // A typed name that collides case-insensitively with an existing profile must UPDATE that
+        // profile in place, not silently clobber its file while the UI treats them as distinct
+        // (profile files live on case-insensitive filesystems, so "test" and "Test" are the same
+        // file on disk). Reusing the EXISTING stored casing keeps WorkspaceProfileStore.Save
+        // targeting the same file and keeps the in-memory list at a single entry.
+        var existingMatch = _profileStore.ListProfiles()
+            .FirstOrDefault(p => string.Equals(p, sanitizedTypedName, StringComparison.OrdinalIgnoreCase));
+        var name = existingMatch ?? sanitizedTypedName;
+
+        var snapshot = new ThemeSnapshot(
+            ThemeMode:           _themeModeValues[Math.Clamp(ThemeModeIndex, 0, _themeModeValues.Length - 1)],
+            AccentColorHex:      AccentColorHex,
+            TextAccentColorHex:  TextAccentColorHex,
+            CustomWindowBgHex:   CustomWindowBgHex,
+            CustomSurfaceBgHex:  CustomSurfaceBgHex,
+            CustomSidebarBgHex:  CustomSidebarBgHex,
+            IsGlassEnabled:      IsGlassEnabled,
+            GlassOpacity:        GlassOpacity,
+            BackdropBlurMode:    BackdropBlurMode,
+            IsSpecularEnabled:   IsSpecularEnabled,
+            SpecularIntensity:   SpecularIntensity,
+            FontFamily:          FontFamily,
+            FontSizeMultiplier:  FontSizeMultiplier,
+            SmartTintEnabled:    SmartTintEnabled);
+
+        // Pages come from the ACTIVE profile (not the on-screen EnginePage instance — SettingsViewModel
+        // has no reference to it), per the plan: "the ACTIVE profile's pages via store.LoadActive().Pages".
+        var pages = _profileStore.LoadActive().Pages;
+        var profile = new WorkspaceProfile(name, pages, new ThemeRef(Snapshot: snapshot), Array.Empty<PopOutState>());
+
+        // Belt-and-suspenders: sanitizedTypedName should always satisfy WorkspaceProfileStore's
+        // charset now, so this should be unreachable — but if it ever isn't, surface a toast
+        // instead of silently no-op'ing (the prior behavior, which left users wondering why
+        // nothing happened).
+        try { _profileStore.Save(profile); }
+        catch (ArgumentException)
+        {
+            // Developer-facing exception detail intentionally not shown to the user.
+            _notificationService?.Show(new InAppNotification(
+                Title:       "Profile Not Saved",
+                Body:        "That name can't be used. Try a different one.",
+                Severity:    InAppSeverity.Warning,
+                AutoDismiss: TimeSpan.FromSeconds(6)));
+            return;
+        }
+
+        NewWorkspaceProfileName = "";
+
+        // Save() is debounced (250 ms) — a disk rescan here would race the pending write and miss
+        // the new profile. Add it to the in-memory list directly instead of re-scanning.
+        // Case-insensitive: when existingMatch is set, `name` is already that exact stored casing,
+        // so this Contains is true and correctly skips inserting a second, misleading row — the
+        // update case must never grow the list past its existing single entry for this profile.
+        if (!WorkspaceProfileNames.Contains(name, StringComparer.OrdinalIgnoreCase))
+        {
+            var insertAt = 0;
+            while (insertAt < WorkspaceProfileNames.Count &&
+                   string.CompareOrdinal(WorkspaceProfileNames[insertAt], name) < 0)
+                insertAt++;
+            WorkspaceProfileNames.Insert(insertAt, name);
+            OnPropertyChanged(nameof(CanDeleteActiveWorkspaceProfile));
+        }
+
+        _notificationService?.Show(existingMatch is not null
+            ? new InAppNotification(
+                Title:       "Profile Updated",
+                Body:        $"Updated profile '{name}'.",
+                Severity:    InAppSeverity.Info,
+                AutoDismiss: TimeSpan.FromSeconds(5))
+            : new InAppNotification(
+                Title:       "Profile Saved",
+                Body:        $"Saved profile '{name}'.",
+                Severity:    InAppSeverity.Info,
+                AutoDismiss: TimeSpan.FromSeconds(5)));
+    }
+
+    /// <summary>Deletes the CURRENTLY ACTIVE workspace profile: switches to "Default" first (the
+    /// full existing <see cref="SwitchWorkspaceProfile"/> path — theme apply, layout-reload message,
+    /// SetActive), THEN removes the now-vacated profile's file. This order means
+    /// <see cref="CanDeleteActiveWorkspaceProfile"/> is already false (active == Default) before the
+    /// delete happens — there is no path where this can target Default itself.</summary>
+    [RelayCommand]
+    private void DeleteSelectedWorkspaceProfile()
+    {
+        if (!CanDeleteActiveWorkspaceProfile) return;
+
+        var doomed = _profileStore.ActiveProfileName;
+
+        SwitchWorkspaceProfile("Default");
+
+        try { _profileStore.Delete(doomed); }
+        catch (InvalidOperationException) { return; } // defensive — the switch-first order already guards this
+
+        // Delete() is synchronous — remove the doomed name from the in-memory list directly rather
+        // than rescanning disk. Case-insensitive: profile files live on case-insensitive filesystems.
+        var match = WorkspaceProfileNames.FirstOrDefault(n => string.Equals(n, doomed, StringComparison.OrdinalIgnoreCase));
+        if (match is not null) WorkspaceProfileNames.Remove(match);
+
+        // Sync the picker to the new active selection ("Default") without re-triggering another switch.
+        _suppressWorkspaceProfileCallback = true;
+        SelectedWorkspaceProfileName = _profileStore.ActiveProfileName;
+        _suppressWorkspaceProfileCallback = false;
+
+        _notificationService?.Show(new InAppNotification(
+            Title:       "Profile Deleted",
+            Body:        $"Deleted profile '{doomed}' — switched to Default.",
+            Severity:    InAppSeverity.Info,
+            AutoDismiss: TimeSpan.FromSeconds(5)));
+    }
+
+    // ── Workspace profile export / import ──────────────────────────────────────
+
+    /// <summary>Exports the selected profile as-is (full pages + theme) to a user-chosen
+    /// <c>.nexusprofile</c> file. No-op when nothing is selected or the selection no longer
+    /// resolves to a saved profile.</summary>
+    [RelayCommand]
+    private async Task ExportWorkspaceProfile()
+    {
+        if (_selectedWorkspaceProfileName is not { } name) return;
+
+        // Load() (not the in-memory name list) so a still-debouncing Save for this exact
+        // profile is read rather than a stale on-disk copy — same read-your-own-writes
+        // guarantee SwitchWorkspaceProfile relies on.
+        var profile = _profileStore.Load(name);
+        if (profile is null) return;
+
+        await ExportProfileToFileAsync(profile, profile.Name);
+    }
+
+    /// <summary>Exports a theme-only bundle derived from the selected profile: same name suffixed
+    /// " theme" (no parens — parens fall outside <see cref="WorkspaceProfileStore"/>'s
+    /// <c>[A-Za-z0-9 _-]</c> charset and would sanitize to "-theme-" on import), an EMPTY Pages
+    /// dictionary, and the source's ThemeRef (+ empty PopOutStates). Documented convention:
+    /// importing/switching to a pages-empty profile leaves the current dashboard layout untouched
+    /// and applies only the appearance.</summary>
+    [RelayCommand]
+    private async Task ExportThemeOnlyProfile()
+    {
+        if (_selectedWorkspaceProfileName is not { } name) return;
+
+        var source = _profileStore.Load(name);
+        if (source is null) return;
+
+        var themeOnly = new WorkspaceProfile(
+            $"{source.Name} theme",
+            new Dictionary<string, PageLayout>(),
+            source.Theme,
+            Array.Empty<PopOutState>());
+
+        await ExportProfileToFileAsync(themeOnly, themeOnly.Name);
+    }
+
+    /// <summary>Shared Save-dialog + write path for both export commands. Resolving the main
+    /// window's <see cref="IStorageProvider"/> is a silent no-op when unavailable (headless hosts).
+    /// Everything from the picker call through the write is wrapped in one try/catch — mirroring
+    /// <c>ProcessesViewModel.CreateDumpFile</c>'s single-catch shape — so a cancelled dialog still
+    /// returns silently (<c>file is null</c>), but any real failure (no dialog support, a picker
+    /// exception, or the write itself failing) is toasted via <see cref="IInAppNotificationService"/>
+    /// — the same notification path <see cref="ImportWorkspaceProfile"/> uses — instead of vanishing
+    /// into an unobserved task.</summary>
+    private async Task ExportProfileToFileAsync(WorkspaceProfile profile, string suggestedName)
+    {
+        var sp = GetStorageProvider();
+        if (sp is null) return;
+
+        try
+        {
+            var file = await sp.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title             = "Export Workspace Profile",
+                SuggestedFileName = $"{suggestedName}.nexusprofile",
+                DefaultExtension  = "nexusprofile",
+                FileTypeChoices   =
+                [
+                    new FilePickerFileType("Nexus Profile") { Patterns = ["*.nexusprofile"] },
+                    new FilePickerFileType("All Files")     { Patterns = ["*.*"] },
+                ],
+            });
+
+            if (file is null) return; // user cancelled
+
+            await using var stream = await file.OpenWriteAsync();
+            await using var writer = new StreamWriter(stream, Encoding.UTF8);
+            await writer.WriteAsync(WorkspaceProfileSerializer.Serialize(profile));
+        }
+        catch (Exception ex)
+        {
+            ToastExportError($"Could not export profile: {ex.Message}");
+        }
+    }
+
+    /// <summary>Pushes an export-failure toast via the in-app notification channel — the same path
+    /// <see cref="ToastImportError"/> uses. A no-op when the service wasn't injected (e.g. a
+    /// lightweight test host) rather than throwing.</summary>
+    private void ToastExportError(string message) =>
+        _notificationService?.Show(new InAppNotification(
+            Title:       "Profile Export Failed",
+            Body:        message,
+            Severity:    InAppSeverity.Warning,
+            AutoDismiss: TimeSpan.FromSeconds(6)));
+
+    /// <summary>Opens a file picker, reads the chosen <c>.nexusprofile</c>/<c>.json</c> file, and
+    /// imports it as a NEW profile (never overwrites, never activates — the user switches
+    /// explicitly via the profile picker). On any failure (unreadable file, malformed/hostile
+    /// JSON, invalid schema version) the error is toasted via <see cref="IInAppNotificationService"/>
+    /// instead of throwing.</summary>
+    [RelayCommand]
+    private async Task ImportWorkspaceProfile()
+    {
+        var sp = GetStorageProvider();
+        if (sp is null) return;
+
+        IReadOnlyList<IStorageFile> files;
+        try
+        {
+            files = await sp.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title          = "Import Workspace Profile",
+                AllowMultiple  = false,
+                FileTypeFilter =
+                [
+                    new FilePickerFileType("Nexus Profile") { Patterns = ["*.nexusprofile", "*.json"] },
+                    new FilePickerFileType("All Files")     { Patterns = ["*.*"] },
+                ],
+            });
+        }
+        catch (Exception) { return; } // platform has no file-dialog support
+
+        if (files.Count == 0) return; // user cancelled
+
+        string json;
+        try
+        {
+            await using var stream = await files[0].OpenReadAsync();
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+            json = await reader.ReadToEndAsync();
+        }
+        catch (Exception ex)
+        {
+            ToastImportError($"Could not read profile file: {ex.Message}");
+            return;
+        }
+
+        if (!WorkspaceProfileSerializer.TryDeserialize(json, out var profile, out var error) || profile is null)
+        {
+            ToastImportError(error ?? "The selected file is not a valid workspace profile.");
+            return;
+        }
+
+        // Imported names are untrusted (arbitrary file content): sanitize BEFORE dedupe, since
+        // WorkspaceProfileStore.Save throws ArgumentException on anything outside [A-Za-z0-9 _-].
+        var sanitizedName = SanitizeProfileName(profile.Name);
+        var finalName = DedupeProfileName(sanitizedName, _profileStore.ListProfiles());
+
+        var imported = profile with { Name = finalName };
+        try { _profileStore.Save(imported); }
+        catch (ArgumentException ex)
+        {
+            ToastImportError($"Could not import profile: {ex.Message}");
+            return;
+        }
+
+        // Save() is debounced (250 ms) — a disk rescan here would race the pending write and miss
+        // the new profile. Mirror SaveCurrentWorkspaceProfile's in-memory insert instead.
+        // Case-insensitive for the same reason DedupeProfileName is: profile files live on
+        // case-insensitive filesystems, so this must not treat "test" and "Test" as distinct.
+        if (!WorkspaceProfileNames.Contains(finalName, StringComparer.OrdinalIgnoreCase))
+        {
+            var insertAt = 0;
+            while (insertAt < WorkspaceProfileNames.Count &&
+                   string.CompareOrdinal(WorkspaceProfileNames[insertAt], finalName) < 0)
+                insertAt++;
+            WorkspaceProfileNames.Insert(insertAt, finalName);
+            OnPropertyChanged(nameof(CanDeleteActiveWorkspaceProfile));
+        }
+        // NEVER auto-activate — imported profile sits alongside existing ones until the user
+        // explicitly selects it in the profile picker.
+    }
+
+    /// <summary>Pushes an import-failure toast via the in-app notification channel (same pattern as
+    /// the update-checker's "Update Available" toast in App.axaml.cs). A no-op when the service
+    /// wasn't injected (e.g. a lightweight test host) rather than throwing.</summary>
+    private void ToastImportError(string message) =>
+        _notificationService?.Show(new InAppNotification(
+            Title:       "Profile Import Failed",
+            Body:        message,
+            Severity:    InAppSeverity.Warning,
+            AutoDismiss: TimeSpan.FromSeconds(6)));
+
+    /// <summary>Replaces any character outside <c>[A-Za-z0-9 _-]</c> — the exact charset
+    /// <see cref="WorkspaceProfileStore.Save"/> enforces — with '-'. Imported profile names come
+    /// from arbitrary file content and must never reach the store un-sanitized. Falls back to
+    /// "Imported Profile" when nothing but disallowed/whitespace characters remain. Result is then
+    /// capped at 64 characters (re-trimmed after truncation, since cutting mid-name can leave
+    /// trailing whitespace, and re-checked for empty, since trimming an all-whitespace tail can
+    /// leave nothing) — untrusted names must never reach the store/UI unbounded in length.</summary>
+    private static string SanitizeProfileName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "Imported Profile";
+
+        var sanitized = new string(name.Select(c =>
+            (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c is ' ' or '_' or '-'
+                ? c
+                : '-').ToArray()).Trim();
+
+        if (string.IsNullOrWhiteSpace(sanitized)) return "Imported Profile";
+
+        const int MaxLength = 64;
+        if (sanitized.Length > MaxLength)
+            sanitized = sanitized[..MaxLength].Trim();
+
+        return string.IsNullOrWhiteSpace(sanitized) ? "Imported Profile" : sanitized;
+    }
+
+    /// <summary>Appends " (2)", " (3)"… until the candidate name is absent from
+    /// <paramref name="existing"/> — import-as-new never overwrites a saved profile. Compared
+    /// case-insensitively: profile files live on case-insensitive filesystems (macOS/Windows), so an
+    /// imported name differing only by case (e.g. "test" vs. an existing "Test") would otherwise pass
+    /// this check and then silently clobber the existing profile's file on disk.</summary>
+    private static string DedupeProfileName(string name, IReadOnlyList<string> existing)
+    {
+        if (!existing.Contains(name, StringComparer.OrdinalIgnoreCase)) return name;
+
+        var n = 2;
+        string candidate;
+        do { candidate = $"{name} ({n++})"; }
+        while (existing.Contains(candidate, StringComparer.OrdinalIgnoreCase));
+        return candidate;
+    }
+
+    /// <summary>Resolves the main window's <see cref="IStorageProvider"/> for file dialogs —
+    /// codebase idiom shared with ProcessesViewModel.CreateDumpFile: the desktop lifetime's
+    /// MainWindow, not a View-supplied TopLevel (SettingsViewModel has no control reference).
+    /// Null on non-desktop lifetimes or before the main window exists (e.g. headless test hosts).</summary>
+    private static IStorageProvider? GetStorageProvider() =>
+        (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)
+            ?.MainWindow?.StorageProvider;
 
     // ── Static resource helpers ───────────────────────────────────────────────
     //   Write directly into Application.Current.Resources so every

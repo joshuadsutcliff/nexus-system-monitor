@@ -1422,6 +1422,68 @@
       </StackPanel>
     </Border>
 
+    <!-- ===== WORKSPACE PROFILES ===== -->
+    <Border Padding="16"
+            Background="{DynamicResource BgElevatedBrush}"
+            BorderBrush="{DynamicResource GlassBorderBrush}"
+            BorderThickness="1"
+            CornerRadius="{StaticResource CornerLG}">
+      <StackPanel Spacing="12">
+        <TextBlock Text="Workspace Profiles" FontSize="{DynamicResource NxFont14}" FontWeight="SemiBold"
+                   Foreground="{DynamicResource TextPrimaryBrush}"/>
+        <TextBlock Text="Named bundles of dashboard layout + appearance. Switching applies instantly — no restart."
+                   FontSize="{DynamicResource NxFont10}" Foreground="{DynamicResource TextTertiaryBrush}"/>
+        <Separator/>
+
+        <!-- Active profile picker -->
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel Grid.Column="0" VerticalAlignment="Center">
+            <TextBlock Text="Active Profile" FontSize="{DynamicResource NxFont13}"
+                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+            <TextBlock Text="Selecting a profile switches its layout and appearance immediately"
+                       FontSize="{DynamicResource NxFont10}" Foreground="{DynamicResource TextTertiaryBrush}" Margin="0,2,0,0"/>
+          </StackPanel>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <ComboBox MinWidth="180"
+                      ItemsSource="{Binding WorkspaceProfileNames}"
+                      SelectedItem="{Binding SelectedWorkspaceProfileName}"/>
+            <Button Classes="nx-btn" Padding="8,5"
+                    Command="{Binding DeleteSelectedWorkspaceProfileCommand}"
+                    IsEnabled="{Binding CanDeleteActiveWorkspaceProfile}"
+                    ToolTip.Tip="Delete the current profile — switches to Default first (not available while Default is active)">
+              <TextBlock Text="Delete Current" FontSize="{DynamicResource NxFont11}"/>
+            </Button>
+          </StackPanel>
+        </Grid>
+
+        <!-- Save current as… -->
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBox Grid.Column="0"
+                   Watermark="Save current layout + appearance as…"
+                   Text="{Binding NewWorkspaceProfileName}"
+                   MaxWidth="320" HorizontalAlignment="Left"/>
+          <Button Grid.Column="1" Classes="nx-btn" Padding="8,5" Margin="8,0,0,0"
+                  Command="{Binding SaveCurrentWorkspaceProfileCommand}"
+                  IsEnabled="{Binding NewWorkspaceProfileName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+            <TextBlock Text="Save…" FontSize="{DynamicResource NxFont11}"/>
+          </Button>
+        </Grid>
+
+        <!-- Export / Import -->
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <Button Classes="nx-btn" Padding="8,5" Command="{Binding ExportWorkspaceProfileCommand}">
+            <TextBlock Text="Export…" FontSize="{DynamicResource NxFont11}"/>
+          </Button>
+          <Button Classes="nx-btn" Padding="8,5" Command="{Binding ExportThemeOnlyProfileCommand}">
+            <TextBlock Text="Export Theme Only…" FontSize="{DynamicResource NxFont11}"/>
+          </Button>
+          <Button Classes="nx-btn" Padding="8,5" Command="{Binding ImportWorkspaceProfileCommand}">
+            <TextBlock Text="Import…" FontSize="{DynamicResource NxFont11}"/>
+          </Button>
+        </StackPanel>
+      </StackPanel>
+    </Border>
+
     <!-- Experimental -->
     <TextBlock Text="Experimental" FontSize="{DynamicResource NxFont14}" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,16,0,4"/>
     <CheckBox IsChecked="{Binding EnablePageEngine}"
