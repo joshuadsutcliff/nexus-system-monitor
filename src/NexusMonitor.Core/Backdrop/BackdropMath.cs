@@ -34,8 +34,11 @@ public enum BackdropLevel
 
 /// <summary>Coarse OS family used to select a <see cref="BackdropMath"/> preference chain. Deliberately
 /// not the same type as <see cref="System.Runtime.InteropServices.OSPlatform"/> — only the three
-/// families Nexus ships on are represented, keeping the switch in <see cref="BackdropMath.GetHintChain"/>
-/// exhaustive without a throwaway default arm.</summary>
+/// families Nexus ships on are represented. The nested platform switches in
+/// <see cref="BackdropMath.GetHintChain"/> still keep a defensive <c>_ => NoneChain</c> default arm:
+/// the C# compiler cannot statically prove a switch over this enum's current three members is
+/// exhaustive (and never enforces it against a future added member), so the default arm is a safety
+/// net, not a sign the switch is missing a case today.</summary>
 public enum BackdropPlatform
 {
     MacOS,
@@ -44,79 +47,113 @@ public enum BackdropPlatform
 }
 
 /// <summary>
-/// Pure per-OS <see cref="BackdropLevel"/> preference-chain selection and platform-rejection
-/// detection backing <c>NexusMonitor.UI.Services.BackdropService</c> (Phase 8 Task 7 — acrylic
-/// groundwork).
+/// Pure per-OS/per-mode <see cref="BackdropLevel"/> preference-chain selection and
+/// platform-rejection detection backing <c>NexusMonitor.UI.Services.BackdropService</c> (Phase 8
+/// Task 7 — acrylic groundwork; per-mode chains restored in the Task 7 gate-review fix pass).
 ///
-/// <para><b>Chains — exactly one per OS, chosen only by whether backdrop is enabled at all</b> (see
-/// <see cref="GetHintChain"/>): the task brief specifies a single ordered preference list per
-/// platform, not a matrix of the four legacy <c>AppSettings.BackdropBlurMode</c> string values
-/// (<c>None</c>/<c>Blur</c>/<c>Acrylic</c>/<c>Mica</c>) crossed with OS. Enabling backdrop via ANY
-/// non-<c>"None"</c> mode value now requests this OS's own best-available chain, letting Avalonia's
-/// own per-platform capability negotiation (via <c>TransparencyLevelHint</c>'s documented fallback
-/// order) pick the actual level — <c>BackdropBlurMode</c>'s <c>Blur</c>/<c>Mica</c> sub-values no
-/// longer independently change the requested chain (both currently collapse to the same chain as
-/// <c>Acrylic</c>). This is a deliberate simplification for this groundwork task, flagged in the
-/// Task 7 report as a design choice for a hostile reviewer to weigh — not an oversight.</para>
+/// <para><b>Chains — mode selects the preference tier, OS gates availability</b> (see
+/// <see cref="GetHintChain"/>): the four legacy <c>AppSettings.BackdropBlurMode</c> string values
+/// (<c>None</c>/<c>Blur</c>/<c>Acrylic</c>/<c>Mica</c>) each request a genuinely different ordered
+/// chain — restoring the distinction the pre-Task-7 code honored and the Settings UI still
+/// advertises (<c>SettingsViewModel.BackdropModes</c>). An earlier revision of this task
+/// collapsed all non-<c>"None"</c> modes to one identical per-OS chain; that was a gate-review
+/// finding (Important) and has been reverted here. Every enabled chain still ends in
+/// <see cref="BackdropLevel.None"/> as a safe universal fallback, and Linux is unconditionally
+/// <c>[None]</c> for every mode (see below).</para>
 ///
-/// <para><b>macOS:</b> <see cref="BackdropLevel.AcrylicBlur"/> → <see cref="BackdropLevel.Blur"/> →
-/// <see cref="BackdropLevel.None"/>. There is no distinct "Vibrancy" <see cref="BackdropLevel"/> —
-/// Avalonia 11.2.3 has no such enum member (confirmed against the shipped package's XML docs). Per
-/// Apple/Avalonia terminology, <see cref="BackdropLevel.Blur"/> (an NSVisualEffectView-backed
-/// blur-behind) IS the macOS vibrancy material at this Avalonia version, and
-/// <see cref="BackdropLevel.AcrylicBlur"/> is documented to fall back to it on platforms/compositors
-/// that don't distinguish the two — so this chain already expresses "try the strongest blur, then
-/// plain vibrancy-blur, then give up" without inventing an enum value.</para>
+/// <para><b>"Blur":</b> <see cref="BackdropLevel.Blur"/> → <see cref="BackdropLevel.None"/> on macOS
+/// and Windows.</para>
 ///
-/// <para><b>Windows:</b> <see cref="BackdropLevel.Mica"/> → <see cref="BackdropLevel.AcrylicBlur"/> →
-/// <see cref="BackdropLevel.None"/>. Mica is Windows-11-only per Avalonia's docs; older Windows
-/// falls through to AcrylicBlur, then None.</para>
+/// <para><b>"Acrylic":</b> <see cref="BackdropLevel.AcrylicBlur"/> → <see cref="BackdropLevel.Blur"/>
+/// → <see cref="BackdropLevel.None"/> on macOS and Windows. There is no distinct "Vibrancy"
+/// <see cref="BackdropLevel"/> — Avalonia 11.2.3 has no such enum member (confirmed against the
+/// shipped package's XML docs). Per Apple/Avalonia terminology, <see cref="BackdropLevel.Blur"/> (an
+/// NSVisualEffectView-backed blur-behind) IS the macOS vibrancy material at this Avalonia version,
+/// and <see cref="BackdropLevel.AcrylicBlur"/> is documented to fall back to it on
+/// platforms/compositors that don't distinguish the two.</para>
 ///
-/// <para><b>Linux:</b> <see cref="BackdropLevel.None"/> only — never <see cref="BackdropLevel.Blur"/>
-/// or <see cref="BackdropLevel.AcrylicBlur"/>. Not because those levels are unreachable in every
-/// conceivable Linux configuration, but because this task's evidence (screenshot verification) can
-/// only be gathered on the macOS dev machine it was implemented on — requesting an unverified blur
-/// level on Linux would be exactly the kind of assumed-not-verified behavior the task's gate
-/// criteria call out. Verified, not assumed: Linux gets the one level nothing here needs to prove.</para>
+/// <para><b>"Mica":</b> Windows gets <see cref="BackdropLevel.Mica"/> → <see cref="BackdropLevel.AcrylicBlur"/>
+/// → <see cref="BackdropLevel.Blur"/> → <see cref="BackdropLevel.None"/> (Mica is Windows-11-only per
+/// Avalonia's docs; older Windows falls through the rest of the chain). macOS has no Mica material at
+/// all, so mode <c>"Mica"</c> on macOS falls to the same chain as <c>"Acrylic"</c> (best available,
+/// not an invented macOS Mica) — <see cref="BackdropLevel.AcrylicBlur"/> → <see cref="BackdropLevel.Blur"/>
+/// → <see cref="BackdropLevel.None"/>.</para>
+///
+/// <para><b>"None" / unrecognized:</b> <see cref="BackdropLevel.None"/> only, on every platform —
+/// mirrors the disabled (<c>glassEnabled == false</c>) case exactly.</para>
+///
+/// <para><b>Linux:</b> <see cref="BackdropLevel.None"/> only, for every mode — never
+/// <see cref="BackdropLevel.Blur"/>, <see cref="BackdropLevel.AcrylicBlur"/>, or
+/// <see cref="BackdropLevel.Mica"/>. Not because those levels are unreachable in every conceivable
+/// Linux configuration, but because this task's evidence (screenshot verification) can only be
+/// gathered on the macOS dev machine it was implemented on — requesting an unverified blur level on
+/// Linux would be exactly the kind of assumed-not-verified behavior the task's gate criteria call
+/// out. Verified, not assumed: Linux gets the one level nothing here needs to prove. Plan-mandated,
+/// not a per-mode judgment call.</para>
 /// </summary>
 public static class BackdropMath
 {
     /// <summary>
     /// Returns the ordered <see cref="BackdropLevel"/> preference chain to request for
-    /// <paramref name="platform"/> given the current glass/backdrop settings. The first element is
-    /// always the platform's best-effort level; the last is always <see cref="BackdropLevel.None"/>
-    /// (a safe universal fallback). Returns <c>[None]</c> whenever backdrop is logically off —
-    /// <paramref name="glassEnabled"/> is <see langword="false"/> or <paramref name="mode"/> is
-    /// exactly the string <c>"None"</c> — regardless of platform.
+    /// <paramref name="platform"/>/<paramref name="mode"/> given the current glass/backdrop
+    /// settings. The first element is always the tier's best-effort level for that OS; the last is
+    /// always <see cref="BackdropLevel.None"/> (a safe universal fallback). Returns <c>[None]</c>
+    /// whenever backdrop is logically off — <paramref name="glassEnabled"/> is
+    /// <see langword="false"/>, <paramref name="mode"/> is exactly the string <c>"None"</c>, or
+    /// <paramref name="mode"/> is unrecognized — or whenever <paramref name="platform"/> is
+    /// <see cref="BackdropPlatform.Linux"/>, regardless of mode.
     /// </summary>
     /// <param name="platform">The running OS family.</param>
     /// <param name="glassEnabled">Mirrors <c>AppSettings.IsGlassEnabled</c> — the master Crystal
     /// Glass on/off switch.</param>
     /// <param name="mode">Mirrors <c>AppSettings.BackdropBlurMode</c> (<c>"None"</c>|<c>"Blur"</c>|
-    /// <c>"Acrylic"</c>|<c>"Mica"</c>). Only the <c>"None"</c> value is distinguished; any other
-    /// value (including unrecognized strings) is treated as "backdrop enabled."</param>
+    /// <c>"Acrylic"</c>|<c>"Mica"</c>). Each recognized non-<c>"None"</c> value selects its own
+    /// preference tier (see class doc); an unrecognized string is treated the same as
+    /// <c>"None"</c> — <c>[None]</c> — the conservative choice for a value the Settings UI never
+    /// actually offers.</param>
     public static IReadOnlyList<BackdropLevel> GetHintChain(BackdropPlatform platform, bool glassEnabled, string mode)
     {
-        if (!glassEnabled || mode == "None")
+        if (!glassEnabled)
             return NoneChain;
 
-        return platform switch
+        return mode switch
         {
-            BackdropPlatform.MacOS   => MacChain,
-            BackdropPlatform.Windows => WindowsChain,
-            BackdropPlatform.Linux   => NoneChain,
-            _                        => NoneChain,
+            "Blur"    => platform switch
+            {
+                BackdropPlatform.MacOS   => BlurChain,
+                BackdropPlatform.Windows => BlurChain,
+                BackdropPlatform.Linux   => NoneChain,
+                _                        => NoneChain,
+            },
+            "Acrylic" => platform switch
+            {
+                BackdropPlatform.MacOS   => AcrylicChain,
+                BackdropPlatform.Windows => AcrylicChain,
+                BackdropPlatform.Linux   => NoneChain,
+                _                        => NoneChain,
+            },
+            "Mica"    => platform switch
+            {
+                BackdropPlatform.Windows => MicaChain,
+                BackdropPlatform.MacOS   => AcrylicChain, // Mica is Windows-only; macOS's best available
+                BackdropPlatform.Linux   => NoneChain,
+                _                        => NoneChain,
+            },
+            _         => NoneChain, // "None" or any unrecognized mode string
         };
     }
 
     private static readonly IReadOnlyList<BackdropLevel> NoneChain =
         new[] { BackdropLevel.None };
 
-    private static readonly IReadOnlyList<BackdropLevel> MacChain =
+    private static readonly IReadOnlyList<BackdropLevel> BlurChain =
+        new[] { BackdropLevel.Blur, BackdropLevel.None };
+
+    private static readonly IReadOnlyList<BackdropLevel> AcrylicChain =
         new[] { BackdropLevel.AcrylicBlur, BackdropLevel.Blur, BackdropLevel.None };
 
-    private static readonly IReadOnlyList<BackdropLevel> WindowsChain =
-        new[] { BackdropLevel.Mica, BackdropLevel.AcrylicBlur, BackdropLevel.None };
+    private static readonly IReadOnlyList<BackdropLevel> MicaChain =
+        new[] { BackdropLevel.Mica, BackdropLevel.AcrylicBlur, BackdropLevel.Blur, BackdropLevel.None };
 
     /// <summary>
     /// Returns whether the platform rejected the requested chain — i.e. the caller asked for

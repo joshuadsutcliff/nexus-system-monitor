@@ -7,9 +7,10 @@ namespace NexusMonitor.UI.Services;
 
 /// <summary>
 /// Phase 8 Task 7 (acrylic groundwork): applies <c>AppSettings.BackdropBlurMode</c> to the main
-/// window's <see cref="Window.TransparencyLevelHint"/> using the per-OS preference chain defined in
-/// <see cref="BackdropMath"/> (macOS AcrylicBlur→Blur→None, Windows Mica→AcrylicBlur→None, Linux
-/// None-only — see that class's doc for the full per-OS rationale), then observes
+/// window's <see cref="Window.TransparencyLevelHint"/> using the per-OS/per-mode preference chain
+/// defined in <see cref="BackdropMath"/> (each of "Blur"/"Acrylic"/"Mica" requests its own ordered
+/// chain, gated per OS, with Linux always <c>[None]</c> — see that class's doc for the full matrix),
+/// then observes
 /// <see cref="TopLevel.ActualTransparencyLevel"/> to detect when the platform rejected the request
 /// (granted <see cref="BackdropLevel.None"/> instead of the preferred level) and raises
 /// <see cref="RejectionChanged"/> so <c>SettingsViewModel</c> can widen the Crystal Glass alpha
@@ -28,6 +29,20 @@ namespace NexusMonitor.UI.Services;
 /// Mirrors the <c>MotionSettingsService</c> pattern: a thin Avalonia-facing sealed class that calls
 /// straight through to Core's pure, unit-tested <see cref="BackdropMath"/> — no chain-selection or
 /// rejection-detection logic is duplicated here.
+///
+/// <para><b>Defensive re-Apply on <see cref="TopLevel.Opened"/>/<see cref="WindowBase.Activated"/>
+/// (Task 7 gate-review fix pass):</b> <c>MainWindow</c>'s constructor calls <see cref="Apply"/>
+/// before the window has a native platform handle, so the very first
+/// <c>TransparencyLevelHint</c> assignment can be negotiated against a handle that doesn't exist
+/// yet. Separately, on macOS the blur materials (<see cref="BackdropLevel.Blur"/>/
+/// <see cref="BackdropLevel.AcrylicBlur"/>) are implemented via an <c>NSVisualEffectView</c>, which
+/// per Apple/Avalonia's own behavior may only actually start compositing once the window has become
+/// key (i.e. <see cref="WindowBase.Activated"/> fires) — not merely once it's been shown
+/// (<see cref="TopLevel.Opened"/>). This service re-asserts the last-requested chain on both events
+/// so a construction-time request that silently resolved to <see cref="BackdropLevel.None"/> gets a
+/// second (and, on first activation, a third) chance to be honored once the native handle exists and
+/// the window is key — without the user having to touch Settings. See <see cref="DefensiveReapply"/>
+/// for the redundant-churn guard and detach timing.</para>
 /// </summary>
 public sealed class BackdropService
 {
@@ -48,6 +63,11 @@ public sealed class BackdropService
 
     private Window? _observedWindow;
     private IReadOnlyList<BackdropLevel> _lastRequestedChain = Array.Empty<BackdropLevel>();
+
+    /// <summary>Whether the first-activation defensive re-Apply has already run for the currently
+    /// observed window (see <see cref="OnWindowActivated"/>). Reset whenever <see cref="Apply"/>
+    /// starts observing a different window.</summary>
+    private bool _firstActivationReapplyDone;
 
     /// <summary>
     /// Detects the running OS family as a <see cref="BackdropPlatform"/>. A thin wrapper over
@@ -83,9 +103,16 @@ public sealed class BackdropService
         if (!ReferenceEquals(_observedWindow, window))
         {
             if (_observedWindow is not null)
+            {
                 _observedWindow.PropertyChanged -= OnWindowPropertyChanged;
+                _observedWindow.Opened -= OnWindowOpened;
+                _observedWindow.Activated -= OnWindowActivated;
+            }
             _observedWindow = window;
             _observedWindow.PropertyChanged += OnWindowPropertyChanged;
+            _observedWindow.Opened += OnWindowOpened;
+            _observedWindow.Activated += OnWindowActivated;
+            _firstActivationReapplyDone = false;
         }
 
         EvaluateRejection(window);
@@ -95,6 +122,58 @@ public sealed class BackdropService
     {
         if (e.Property != TopLevel.ActualTransparencyLevelProperty) return;
         if (sender is Window w) EvaluateRejection(w);
+    }
+
+    /// <summary>
+    /// Defensive re-Apply, hook 1 of 2: fires once the window's native platform handle exists
+    /// (<see cref="TopLevel.Opened"/>). Covers <c>MainWindow</c>'s constructor calling
+    /// <see cref="Apply"/> before that handle exists, per this class's doc.
+    /// </summary>
+    private void OnWindowOpened(object? sender, EventArgs e)
+    {
+        if (sender is Window w) DefensiveReapply(w);
+    }
+
+    /// <summary>
+    /// Defensive re-Apply, hook 2 of 2: fires when the window becomes key/foreground
+    /// (<see cref="WindowBase.Activated"/>). Covers macOS's <c>NSVisualEffectView</c>-backed blur
+    /// materials, which per this class's doc may only start compositing once the window is key.
+    /// Detaches itself after the first activation (whether or not that activation actually needed a
+    /// re-Apply) — see this class's doc for why later activations shouldn't keep re-negotiating the
+    /// backdrop.
+    /// </summary>
+    private void OnWindowActivated(object? sender, EventArgs e)
+    {
+        if (sender is not Window w) return;
+
+        DefensiveReapply(w);
+
+        if (!_firstActivationReapplyDone)
+        {
+            _firstActivationReapplyDone = true;
+            w.Activated -= OnWindowActivated;
+        }
+    }
+
+    /// <summary>
+    /// Re-asserts <see cref="_lastRequestedChain"/> as <paramref name="window"/>'s
+    /// <see cref="Window.TransparencyLevelHint"/> — the SAME chain already computed by the most
+    /// recent <see cref="Apply"/> call, not a new decision (no <see cref="BackdropMath.GetHintChain"/>
+    /// re-evaluation). Guards against redundant native churn: if <see cref="TopLevel.ActualTransparencyLevel"/>
+    /// already matches the chain's top (most-preferred) entry, the request already succeeded and
+    /// there is nothing to correct, so this is a no-op beyond the (idempotent) rejection check.
+    /// </summary>
+    private void DefensiveReapply(Window window)
+    {
+        var actual = ToCore(window.ActualTransparencyLevel);
+        if (_lastRequestedChain.Count > 0 && actual == _lastRequestedChain[0])
+        {
+            EvaluateRejection(window);
+            return;
+        }
+
+        window.TransparencyLevelHint = _lastRequestedChain.Select(ToAvalonia).ToArray();
+        EvaluateRejection(window);
     }
 
     private void EvaluateRejection(Window window)
