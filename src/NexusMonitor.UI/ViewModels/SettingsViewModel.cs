@@ -36,6 +36,7 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     private readonly ThemePresetService           _presetService;
     private readonly WorkspaceProfileStore        _profileStore;
     private readonly MotionSettingsService        _motionSettingsService;
+    private readonly BackdropService              _backdropService;
     private readonly ProcessPreferenceStore?      _preferenceStore;
     private readonly WebhookNotificationService              _webhookService;
     private readonly PredictionService?                      _predictionService;
@@ -50,6 +51,12 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
 
     // Luminance-derived min alpha floor (0x80–0xE0); null = feature disabled
     private byte? _luminanceMinAlpha;
+
+    // Phase 8 UI polish (Task 7): true when BackdropService's most recent ActualTransparencyLevel
+    // check found the platform rejected the requested backdrop chain (granted None instead of the
+    // preferred level). Read by ApplyGlass to force BgBaseBrush fully opaque — see that method's
+    // doc for why only the window-root brush needs it. Kept in sync via OnBackdropRejectionChanged.
+    private bool _backdropRejected;
 
     // ── Batch-apply guard ─────────────────────────────────────────────────────
     // When true, OnXxxChanged callbacks skip Apply* calls (a single ApplyAllVisuals()
@@ -350,6 +357,7 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         WorkspaceProfileStore        profileStore,
         WebhookNotificationService   webhookService,
         MotionSettingsService        motionSettingsService,
+        BackdropService              backdropService,
         PredictionService?                      predictionService = null,
         ProcessPreferenceStore?                 preferenceStore = null,
         HealthSnapshotPersistenceService?       healthSnapshotService = null,
@@ -366,6 +374,7 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         _presetService    = presetService;
         _profileStore     = profileStore;
         _motionSettingsService = motionSettingsService;
+        _backdropService       = backdropService;
         _webhookService        = webhookService;
         _predictionService     = predictionService;
         _preferenceStore       = preferenceStore;
@@ -381,6 +390,12 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
 
         // Subscribe to luminance changes from GlassAdaptiveService
         _glassAdaptive.LuminanceChanged += OnLuminanceChanged;
+
+        // Phase 8 UI polish (Task 7): subscribe to backdrop-rejection changes from BackdropService
+        // (MainWindow's constructor already made the first Apply() call and started observing
+        // ActualTransparencyLevel before this ViewModel is resolved — see BackdropService's doc).
+        _backdropRejected = _backdropService.IsRejected;
+        _backdropService.RejectionChanged += OnBackdropRejectionChanged;
 
         // Subscribed BEFORE the LoadActive() call near the end of this constructor (and before
         // any other WorkspaceProfileStore call that can trigger it): WorkspaceProfileStore.ProfileRecovered
@@ -885,6 +900,25 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         {
             _luminanceMinAlpha = minAlpha;
             ApplyGlass(IsGlassEnabled, GlassOpacity, CustomWindowBgHex, CustomSurfaceBgHex, CustomSidebarBgHex, minAlpha);
+        });
+    }
+
+    /// <summary>
+    /// Phase 8 UI polish (Task 7): raised by <see cref="BackdropService.RejectionChanged"/> whenever
+    /// the main window's <c>ActualTransparencyLevel</c> flips between "platform granted the
+    /// requested backdrop chain" and "platform rejected it (gave None instead)". Re-applies glass
+    /// with the new <see cref="_backdropRejected"/> state so <see cref="ApplyGlass"/> can force
+    /// <c>BgBaseBrush</c> fully opaque on rejection — see that method's doc. Dispatched via
+    /// <see cref="Avalonia.Threading.Dispatcher.UIThread"/> like <see cref="OnLuminanceChanged"/>
+    /// immediately above, since the Avalonia property-changed notification this is ultimately raised
+    /// from should not be assumed to already be on the UI thread.
+    /// </summary>
+    private void OnBackdropRejectionChanged(bool rejected)
+    {
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            _backdropRejected = rejected;
+            ApplyGlass(IsGlassEnabled, GlassOpacity, CustomWindowBgHex, CustomSurfaceBgHex, CustomSidebarBgHex, _luminanceMinAlpha);
         });
     }
 
@@ -1685,8 +1719,24 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     /// Custom color overrides (from the Settings color pickers) are respected when non-empty.
     /// Empty strings fall back to the built-in dark-theme defaults.
     /// <paramref name="opacity"/> 0 = fully transparent, 1 = fully opaque.
+    ///
+    /// <para>Phase 8 UI polish (Task 7): reads the instance field <see cref="_backdropRejected"/>
+    /// (no longer <see langword="static"/> because of this) to force <c>BgBaseBrush</c>'s alpha to
+    /// fully opaque whenever the platform rejected the requested backdrop chain. Only
+    /// <c>BgBaseBrush</c> needs this — it is the one brush bound directly to
+    /// <c>Window.Background</c> (<c>MainWindow.axaml:13</c>), i.e. the literal "nothing else drawn
+    /// beneath it" surface that Avalonia's <c>TransparencyBackgroundFallback</c> (a solid WHITE
+    /// brush by default — never overridden here) blends against when
+    /// <c>ActualTransparencyLevel</c> resolves to <c>None</c>. Every other brush this method
+    /// computes (<c>BgPrimary</c>/<c>Secondary</c>/<c>Elevated</c>/<c>Hover</c>, <c>GlassBg</c>,
+    /// <c>GlassBorder</c>) is drawn as a child <see cref="Avalonia.Controls.Border"/> ON TOP of
+    /// that now-guaranteed-opaque root (<c>MainWindow.axaml:80/241/410</c>), so they composite
+    /// correctly against it regardless of <c>ActualTransparencyLevel</c> — forcing them too would
+    /// be redundant, not "more correct." <c>OverlayBgBrush</c> is untouched for a different reason:
+    /// it belongs to the separate <c>OverlayWindow</c> TopLevel, which this task does not observe
+    /// (see <see cref="NexusMonitor.UI.Services.BackdropService"/>'s class doc on scope).</para>
     /// </summary>
-    private static void ApplyGlass(
+    private void ApplyGlass(
         bool enabled, double opacity,
         string? customWindowBgHex  = null,
         string? customSurfaceBgHex = null,
@@ -1715,8 +1765,11 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         Color bgElevated  = AdjustBrightness(bgSurface, elevatedDelta);
         Color bgHover     = AdjustBrightness(bgSurface, hoverDelta);
 
-        // Window-frame brush can go fully transparent (that IS the glass effect)
-        byte bgAlpha = enabled ? (byte)Math.Round(opacity * 255) : (byte)0xFF;
+        // Window-frame brush can go fully transparent (that IS the glass effect) — UNLESS
+        // BackdropService reports the platform rejected the requested backdrop chain, in which
+        // case forcing full opacity here avoids blending against Avalonia's
+        // TransparencyBackgroundFallback (solid white by default) instead of real desktop blur.
+        byte bgAlpha = (enabled && !_backdropRejected) ? (byte)Math.Round(opacity * 255) : (byte)0xFF;
         SetBrush("BgBaseBrush", bgBase, bgAlpha);
 
         // Content-area brushes: floor raised by wallpaper luminance when Smart Tint is active.
@@ -1808,29 +1861,23 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     /// <summary>
     /// Sets the <see cref="WindowTransparencyLevel"/> hint on BOTH the main window
     /// and the overlay widget so the OS provides the correct backdrop blur type.
+    ///
+    /// <para>Phase 8 UI polish (Task 7): the main window's chain is now delegated to
+    /// <see cref="BackdropService.Apply"/>, which selects an OS-specific chain (macOS
+    /// AcrylicBlur→Blur→None, Windows Mica→AcrylicBlur→None, Linux None-only — see
+    /// <see cref="NexusMonitor.Core.Backdrop.BackdropMath"/>) instead of this method's own
+    /// previous cross-platform, mode-keyed chain. The overlay widget's chain is UNCHANGED — it
+    /// keeps its own pre-existing, mode-keyed logic below (with <c>Transparent</c> as its
+    /// last-resort fallback so its <c>CornerRadius</c> keeps clipping correctly), since that's a
+    /// distinct, pre-existing requirement this task did not touch.</para>
     /// </summary>
     private void ApplyBackdropMode(bool glassEnabled, string mode)
     {
-        IReadOnlyList<WindowTransparencyLevel> hints = (!glassEnabled || mode == "None")
-            ? [WindowTransparencyLevel.None]
-            : mode switch
-            {
-                "Blur"   => [WindowTransparencyLevel.Blur,
-                             WindowTransparencyLevel.None],
-                "Mica"   => [WindowTransparencyLevel.Mica,
-                             WindowTransparencyLevel.AcrylicBlur,
-                             WindowTransparencyLevel.Blur,
-                             WindowTransparencyLevel.None],
-                _        => [WindowTransparencyLevel.AcrylicBlur,  // Acrylic (default)
-                             WindowTransparencyLevel.Blur,
-                             WindowTransparencyLevel.None],
-            };
-
         if (Application.Current?.ApplicationLifetime
                 is IClassicDesktopStyleApplicationLifetime desktop
             && desktop.MainWindow is Window main)
         {
-            main.TransparencyLevelHint = hints;
+            _backdropService.Apply(main, glassEnabled, mode);
             // Gate shimmer timer: run only when glass is visually active
             if (main is NexusMonitor.UI.MainWindow nexusMain)
                 nexusMain.SetGlassActive(glassEnabled && mode != "None");
@@ -1992,6 +2039,7 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     {
         _osThemeCleanup?.Invoke();
         _glassAdaptive.LuminanceChanged -= OnLuminanceChanged;
+        _backdropService.RejectionChanged -= OnBackdropRejectionChanged;
         _profileStore.ProfileRecovered -= OnWorkspaceProfileRecovered;
         _updateSubscription?.Dispose();
     }

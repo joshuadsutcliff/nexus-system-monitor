@@ -540,6 +540,10 @@ public class App : Application
         // Phase 8 UI polish — motion duration tokens (MotionFast/Base/Slow) + per-effect gating.
         // No Start()/Stop()/IDisposable — nothing to capture in the shutdown handler below.
         services.AddSingleton<MotionSettingsService>();
+        // Phase 8 UI polish (Task 7) — per-OS TransparencyLevelHint chains + ActualTransparencyLevel
+        // rejection detection. No Start()/Stop()/IDisposable — nothing to capture in the shutdown
+        // handler below.
+        services.AddSingleton<BackdropService>();
 
         // -- ViewModels --
         services.AddSingleton<HealthTrendsViewModel>();

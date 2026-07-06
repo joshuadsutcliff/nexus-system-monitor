@@ -49,14 +49,19 @@ public partial class MainWindow : Window
     // ── Phase 8 UI polish (Task 3): motion/animation settings ────────────────
     private readonly MotionSettingsService _motionSettingsService;
 
+    // ── Phase 8 UI polish (Task 7): per-OS backdrop acrylic ──────────────────
+    private readonly BackdropService _backdropService;
+
     public MainWindow()
     {
         InitializeComponent();
 
-        // Default to opaque. Glass effects are opt-in via Settings → Backdrop Blur Mode.
-        // SettingsViewModel.ApplyBackdropMode() will override this on load if the user
-        // has previously enabled glass. Changing this from AcrylicBlur to None prevents
-        // wallpaper bleed-through on light desktops before settings are applied.
+        // Default to opaque before anything else has a chance to run. Changing this from
+        // AcrylicBlur to None prevents wallpaper bleed-through on light desktops for the one frame
+        // before _backdropService.Apply (below) and/or SettingsViewModel.ApplyBackdropMode (its own
+        // ctor, resolved moments later in App.axaml.cs — see BackdropService's doc) apply the real,
+        // per-OS-aware chain from saved settings. Both calls are idempotent, so running twice in
+        // quick succession here is harmless — same pattern this file already used before Task 7.
         //
         // Crystal Glass effect: per-panel acrylic / smart-tint blur is deferred to
         // Phase 27 (v0.9.0 accessibility + UX pass). The specular shimmer + prismatic
@@ -80,6 +85,16 @@ public partial class MainWindow : Window
         _motionShimmerEnabled  = MotionSettingsService.EffectEnabled(initialSettings, MotionEffect.SpecularShimmer);
         _motionSettingsService.MotionChanged += OnMotionSettingsChanged;
         UpdatePageTransition();
+
+        // Phase 8 UI polish (Task 7): apply the real per-OS backdrop chain to THIS window at
+        // construction time, from the same already-resolved saved settings. SettingsViewModel's
+        // own constructor (resolved moments later by App.axaml.cs — see BackdropService's doc)
+        // re-applies the same chain through this same BackdropService singleton, which is harmless
+        // (Apply is idempotent) and owns all LIVE BackdropBlurMode changes from that point on; this
+        // call's job is only to make MainWindow self-sufficient for its own initial state rather
+        // than depending on SettingsViewModel happening to be resolved before Show().
+        _backdropService = App.Services.GetRequiredService<BackdropService>();
+        _backdropService.Apply(this, initialSettings.IsGlassEnabled, initialSettings.BackdropBlurMode);
 
         // Dispose all cached ViewModels when the window closes.
         Closed += (_, _) =>
