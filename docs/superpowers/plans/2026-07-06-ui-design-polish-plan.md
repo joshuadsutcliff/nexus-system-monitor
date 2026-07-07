@@ -43,15 +43,21 @@
 
 ### Task 5: Alignment audit + logo treatment
 
-**Files:** audit pass over `MainWindow.axaml` (titlebar/sidebar), `DashboardView.axaml` chrome, `SettingsView.axaml` rows, gallery: consistent gutter/padding tokens, header baselines, right-edge control alignment; logo: 28×28 (use nexus-icon-256 downscale — verify crispness @2x), spacing 10→12, optical alignment with sidebar edge. Produce fix list + BEFORE/AFTER screenshots (conductor reviews the logo shots personally).
+**Files:** audit pass over `MainWindow.axaml` (titlebar/sidebar), `DashboardView.axaml` chrome, `SettingsView.axaml` rows, gallery: consistent gutter/padding tokens, header baselines, right-edge control alignment; logo (Josh's FINAL directive 2026-07-06, supersedes the earlier sidebar-gutter idea): move the logo icon + "Nexus Monitor" wordmark to the UPPER-RIGHT corner of the titlebar — right-aligned with a margin mirroring the traffic-lights' left margin, vertically centered on EXACTLY the same horizontal line as the minimize/maximize/close circles (level and visually equal to them; measure the traffic-light center-line and match it). The titlebar's left/center stays clean (traffic lights only on the left). Size 28×28 + spacing 12 between icon and wordmark. Produce fix list + BEFORE/AFTER screenshots (→ vault +Inbox for Josh).
 - [ ] Implement → screenshots → build 0 warnings, suite green → commit `fix(ui): alignment audit and logo treatment`
 
-### Task 6: Acrylic groundwork
+### Task 6: Sidebar & controls — System Settings parity
+
+**Files:** Modify `MainWindow.axaml` (sidebar structure/styles: row height, icon chips, selection pill, hover state, measured width — all values from the captured reference packet `p8-macos-ref.md` in the session scratchpad, cited per value), `Themes/Controls.axaml` (macOS-style switch restyle for ToggleSwitch/CheckBox-as-switch used in Settings — track/knob proportions + accent on-state + knob-travel transition on MotionFast, gated by HoverEffects/EditChrome as appropriate), `SettingsView.axaml` (row alignment grammar: label left / control right, grouped rounded sections, hairline separators — apply to 2-3 sections as the pattern-setter; full sweep only if mechanical).
+**Reference-driven:** every changed metric cites the reference packet; where the packet lacks a value, match the nearest existing Nexus token rather than inventing.
+- [ ] Implement → BEFORE/AFTER screenshots (sidebar + a settings section + switches) → build 0 warnings, suite green → commit `feat(ui): System Settings sidebar parity and macOS-style switches`
+
+### Task 7: Acrylic groundwork
 
 **Files:** Create `Services/BackdropService.cs` (per-OS TransparencyLevelHint chains: macOS AcrylicBlur→Vibrancy→None, Windows Mica→AcrylicBlur→None, Linux None; reads BackdropBlurMode; verifies `ActualTransparencyLevel` and adjusts GlassBg alpha compositing when rejected — document per-OS behavior); wire into MainWindow init + BackdropBlurMode settings change. Default behavior must render identical-to-today when mode="None"; "Acrylic" now actually does something on supported OSes.
 - [ ] Implement → screenshots mode None vs Acrylic on macOS → build 0 warnings, suite green → commit `feat(ui): real per-OS backdrop acrylic behind BackdropBlurMode`
 
-### Task 7: Smoke + changelog
+### Task 8: Smoke + changelog
 
 - [ ] Live smoke: AnimationSpeed 0 ⇒ zero motion anywhere (incl shimmer); speed 2 visibly slow; DepthIntensity slider changes shadows live; dynamic type on resize; hover lift; acrylic toggle on/off; pop-out open/close motion; P7-baseline layout regression shot (factory default arrangement unchanged); settings round-trip after relaunch; cleanup pristine. CHANGELOG Unreleased/Added block. Commit `docs: changelog for UI polish`.
 

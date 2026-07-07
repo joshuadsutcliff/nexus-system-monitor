@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:NexusMonitor.UI.ViewModels"
+             xmlns:controls="using:NexusMonitor.UI.Controls"
              x:Class="NexusMonitor.UI.Widgets.BottleneckWidget"
              x:DataType="vm:DashboardViewModel"
              x:CompileBindings="False">
@@ -9,15 +10,19 @@
        inherited DashboardViewModel — this is what lets the "Run Analysis" button below
        escape via $parent[UserControl].DataContext.RunAnalysisCommand. The inner Border
        (the classic section's own root Border, lifted verbatim) carries
-       DataContext="{Binding BottleneckCard}" for everything else in the card. -->
-  <Border Padding="20,16"
+       DataContext="{Binding BottleneckCard}" for everything else in the card.
+       Phase 8 UI polish (Task 4): DynamicTypeScale.IsHost measures this Border's own arranged
+       bounds to drive the header title and the verdict Headline TextBlocks below. -->
+  <Border Classes="nx-widget-chrome"
+          Padding="20,16"
           HorizontalAlignment="Stretch"
           VerticalAlignment="Stretch"
           Background="{DynamicResource BgElevatedBrush}"
           BorderBrush="{DynamicResource GlassBorderBrush}"
           BorderThickness="1"
           CornerRadius="{StaticResource CornerLG}"
-          DataContext="{Binding BottleneckCard}">
+          DataContext="{Binding BottleneckCard}"
+          controls:DynamicTypeScale.IsHost="True">
     <StackPanel Spacing="12">
 
       <!-- Header row -->
@@ -27,7 +32,7 @@
                      FontSize="{DynamicResource NxFont20}" VerticalAlignment="Center"/>
           <StackPanel Spacing="2">
             <TextBlock Text="Performance Bottleneck Analysis"
-                       FontSize="{DynamicResource NxFont14}" FontWeight="SemiBold"
+                       controls:DynamicTypeScale.FontSizeKey="NxFont14" FontWeight="SemiBold"
                        Foreground="{DynamicResource TextPrimaryBrush}"/>
             <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding !IsIdle}">
               <TextBlock Text="{Binding WorkloadLabel}"
@@ -53,7 +58,7 @@
 
       <!-- Verdict headline -->
       <TextBlock Text="{Binding Headline}"
-                 FontSize="{DynamicResource NxFont15}" FontWeight="Bold"
+                 controls:DynamicTypeScale.FontSizeKey="NxFont15" FontWeight="Bold"
                  Foreground="{Binding SeverityBrush}"
                  TextWrapping="Wrap"/>
 

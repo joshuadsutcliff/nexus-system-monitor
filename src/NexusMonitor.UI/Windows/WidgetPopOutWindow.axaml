@@ -13,12 +13,32 @@
        control. Child is assigned in code-behind once the widget instance is known; Width and
        Height are set by PopOutCoordinator before Show() is called, while Position is set in its
        Opened handler (after the window, and its OS decorations, are realized — see
-       PopOutCoordinator.TryPopOut for why). -->
+       PopOutCoordinator.TryPopOut for why).
+
+       Phase 8 UI polish (Task 3): starts at Opacity=0 / scale(0.97) (centered origin) and
+       transitions to Opacity=1 / scale(1) on Window.Opened — see
+       WidgetPopOutWindow.axaml.cs's OnOpenedAnimateIn, which is the ONLY place these two
+       properties are ever changed after construction, and only when
+       MotionEffect.PopOutMotion is enabled (otherwise Transitions is cleared first so the final
+       state is set instantly, no animated frame). Duration is {DynamicResource MotionBase},
+       mirroring every other migrated Transition in this codebase — scales with AnimationSpeed and
+       zeroes at speed 0. There is deliberately no close animation (per the task spec): the window
+       just closes. -->
   <Border x:Name="CardHost"
           Background="{DynamicResource BgElevatedBrush}"
           BorderBrush="{DynamicResource GlassBorderBrush}"
           BorderThickness="1"
           CornerRadius="{StaticResource CornerMD}"
-          Padding="16,12"/>
+          Padding="16,12"
+          Opacity="0"
+          RenderTransformOrigin="50%,50%"
+          RenderTransform="scale(0.97)">
+    <Border.Transitions>
+      <Transitions>
+        <DoubleTransition Property="Opacity" Duration="{DynamicResource MotionBase}"/>
+        <TransformOperationsTransition Property="RenderTransform" Duration="{DynamicResource MotionBase}"/>
+      </Transitions>
+    </Border.Transitions>
+  </Border>
 
 </Window>

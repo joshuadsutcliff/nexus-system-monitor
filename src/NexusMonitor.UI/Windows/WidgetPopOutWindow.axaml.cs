@@ -1,7 +1,12 @@
 using System.Linq;
 using Avalonia.Controls;
+using Avalonia.Media.Transformation;
+using Microsoft.Extensions.DependencyInjection;
+using NexusMonitor.Core.Motion;
 using NexusMonitor.Core.Pages;
+using NexusMonitor.Core.Services;
 using NexusMonitor.UI.Controls;
+using NexusMonitor.UI.Services;
 
 namespace NexusMonitor.UI.Windows;
 
@@ -62,6 +67,7 @@ public partial class WidgetPopOutWindow : Window
         DataContext    = dashboardViewModel;
         CardHost.Child = WidgetTileFactory.Create(widget, asPopOutContent: true);
         Closed        += OnClosed;
+        Opened        += OnOpenedAnimateIn;
     }
 
     /// <summary>Looks up the widget catalog's display Name for <paramref name="widgetTypeId"/>,
@@ -88,5 +94,30 @@ public partial class WidgetPopOutWindow : Window
     {
         Closed -= OnClosed;
         (CardHost.Child as IDisposable)?.Dispose();
+    }
+
+    /// <summary>
+    /// Phase 8 UI polish (Task 3): plays the pop-out open animation — <see cref="CardHost"/> scales
+    /// from 0.97 to 1 and fades from 0 to 1 opacity — gated on
+    /// <see cref="MotionEffect.PopOutMotion"/>. Runs once, on this window's first (and only)
+    /// <see cref="Window.Opened"/>; a pop-out window is never reused for a second widget, so there
+    /// is no need to guard against a repeat firing beyond the immediate unsubscribe below. When the
+    /// effect is disabled (the toggle is off, or <c>AnimationSpeed</c> is 0), <see cref="CardHost"/>'s
+    /// XAML-declared Transitions are cleared first so the final state is set instantly — no
+    /// animated frame — mirroring the task's own "swap to null transition when disabled"
+    /// resolution for the analogous page-CrossFade case (see
+    /// <see cref="MainWindow.UpdatePageTransition"/>). There is deliberately no close animation:
+    /// the window just closes.
+    /// </summary>
+    private void OnOpenedAnimateIn(object? sender, EventArgs e)
+    {
+        Opened -= OnOpenedAnimateIn;
+
+        var settings = App.Services.GetRequiredService<SettingsService>().Current;
+        if (!MotionSettingsService.EffectEnabled(settings, MotionEffect.PopOutMotion))
+            CardHost.Transitions = null; // skip the animated frame — jump straight to the final state
+
+        CardHost.Opacity        = 1;
+        CardHost.RenderTransform = TransformOperations.Parse("scale(1)");
     }
 }

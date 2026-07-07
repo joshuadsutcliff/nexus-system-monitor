@@ -29,6 +29,10 @@
 - **Spacing audit** (dashboard, settings, sidebar): consistent gutters (grid gap tokens), consistent card padding (one token), baseline alignment of section headers, right-edge alignment of controls in settings rows. Deliverable = fix list with before/after screenshots, executed as one mechanical task.
 - **Logo:** titlebar 24×24 nexus-icon + "Nexus Monitor" text. Default treatment (Josh to veto/adjust on PR screenshots): optical centering fix in the titlebar row, bump to 28×28 @2x-crisp asset, spacing 10→12, remove any off-by-pixel margin vs the sidebar edge. Before/after screenshot required in PR.
 
+## 4b. Sidebar & controls — System Settings parity (Josh, 2026-07-06)
+
+Josh authorized screenshotting the stock macOS Tahoe apps as the reference standard; a captured reference packet (scratchpad `p8-macos-ref.md` + `p8-ref-*.png`) grounds this section. **The Nexus sidebar must behave like macOS System Settings' sidebar**: fixed-width with the measured proportions, icon chips (small rounded-rect colored chips per nav item), a rounded selection pill on the active item, subtle hover treatment, correct row height/spacing/text scale, scroll-on-overflow behavior on resize. **Toggle buttons app-wide restyle to macOS-style switches** (track/knob proportions, accent-colored on-state, animated knob travel honoring the animation settings). Settings rows adopt the System Settings alignment grammar: label left, control right-aligned, grouped rounded sections, hairline separators inside groups. Depth/materials/alignment decisions in §§1/4 defer to the captured reference over invented values wherever the two conflict.
+
 ## 5. Acrylic groundwork (Liquid Glass path)
 
 - Make `BackdropBlurMode` real: "Acrylic" sets `TransparencyLevelHint` per-OS (macOS → AcrylicBlur/Vibrancy fallback chain; Windows → Mica→AcrylicBlur fallback; Linux → None) with the existing GlassOpacity/GlassAdaptiveService alpha pipeline compositing over it. "None" = today's opaque behavior. Per-OS gotchas isolated in one service; app must render correctly when the hint is rejected (Avalonia falls back silently — verify ActualTransparencyLevel and adapt GlassBg alpha).

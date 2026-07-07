@@ -9,6 +9,7 @@ using Microsoft.Win32;
 using CommunityToolkit.Mvvm.Messaging;
 using NexusMonitor.Core.Health;
 using NexusMonitor.Core.Models;
+using NexusMonitor.Core.Motion;
 using NexusMonitor.Core.Pages;
 using NexusMonitor.Core.Services;
 using NexusMonitor.UI.Messages;
@@ -23,6 +24,7 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
     private readonly SystemHealthService        _healthService;
     private readonly MemoryLeakDetectionService _leakService;
     private readonly AppSettings                _settings;
+    private readonly MotionSettingsService      _motionSettingsService;
     private IDisposable?                        _subscription;
     private IDisposable?                        _predictionsSubscription;
     private IDisposable?                        _staleSubscription;
@@ -107,14 +109,21 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
     /// available yet at construction time.</summary>
     private PopOutCoordinator? _popOutCoordinator;
 
-    public DashboardViewModel(SystemHealthService healthService, MemoryLeakDetectionService leakService, AppSettings settings, HealthTrendsViewModel healthTrendsViewModel, PredictionService? predictionService = null, WorkspaceProfileStore? profileStore = null, IInAppNotificationService? notificationService = null)
+    public DashboardViewModel(SystemHealthService healthService, MemoryLeakDetectionService leakService, AppSettings settings, HealthTrendsViewModel healthTrendsViewModel, MotionSettingsService motionSettingsService, PredictionService? predictionService = null, WorkspaceProfileStore? profileStore = null, IInAppNotificationService? notificationService = null)
     {
         _healthService      = healthService;
         _leakService        = leakService;
         _settings           = settings;
         HealthTrendsViewModel = healthTrendsViewModel;
+        _motionSettingsService = motionSettingsService;
         _profileStore       = profileStore;
         _notificationService = notificationService;
+
+        // Phase 8 Task 3 carryover B: re-raise HoverEffectsEnabled whenever the ANIMATIONS
+        // settings page applies a change (speed slider or the AnimateHoverEffects toggle) — Task 2
+        // left this un-wired because no live change source existed yet at that point (see
+        // HoverEffectsEnabled's own doc comment).
+        _motionSettingsService.MotionChanged += OnMotionSettingsChanged;
 
         // Subscribed BEFORE the LoadActive() call just below: WorkspaceProfileStore.ProfileRecovered
         // can fire synchronously from inside that very call (a corrupt or stale/tampered active
@@ -247,6 +256,37 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
     [ObservableProperty] private bool _isGalleryOpen;
     /// <summary>True when the edit session has an undoable step.</summary>
     [ObservableProperty] private bool _canUndoEdit;
+
+    /// <summary>True when widget-tile hover lift should be able to animate — forwards to
+    /// <see cref="MotionSettingsService.EffectEnabled"/> for <see cref="MotionEffect.HoverEffects"/>.
+    /// Bound to <see cref="Controls.PageHostControl.HoverLiftEnabled"/> (see that property's doc
+    /// for why gating lives there rather than per-tile). Not an <c>[ObservableProperty]</c> (there
+    /// is no backing field to generate one from — <see cref="AppSettings"/> is a plain POCO with no
+    /// change events of its own); instead it's re-raised via <see cref="OnMotionSettingsChanged"/>,
+    /// subscribed to <see cref="MotionSettingsService.MotionChanged"/> in the constructor — Phase 8
+    /// Task 3 carryover B, resolving the "not wired yet" gap Task 2 originally left here.</summary>
+    public bool HoverEffectsEnabled => MotionSettingsService.EffectEnabled(_settings, MotionEffect.HoverEffects);
+
+    /// <summary>Phase 8 Task 3 gate fix: true when the edit-mode toolbar (<see cref="Views.DashboardView"/>)
+    /// and the add-widget gallery overlay (<see cref="Controls.WidgetGalleryControl"/>) should fade
+    /// in on open — forwards to <see cref="MotionSettingsService.EffectEnabled"/> for
+    /// <see cref="MotionEffect.EditChrome"/>, same shape as <see cref="HoverEffectsEnabled"/>. Both
+    /// consumers re-read this on their own IsVisible flip (true → visible) rather than binding to it
+    /// directly, since neither is a plain Opacity binding — see each control's own fade-wiring doc
+    /// for why. Re-raised via <see cref="OnMotionSettingsChanged"/>, same mechanism as
+    /// <see cref="HoverEffectsEnabled"/>.</summary>
+    public bool EditChromeMotionEnabled => MotionSettingsService.EffectEnabled(_settings, MotionEffect.EditChrome);
+
+    /// <summary>Phase 8 Task 3 carryover B (+ Task 3 gate fix): re-raises <see cref="HoverEffectsEnabled"/>
+    /// and <see cref="EditChromeMotionEnabled"/> whenever <see cref="MotionSettingsService.Apply"/>
+    /// runs again — i.e. whenever the ANIMATIONS settings page's speed slider or any Animate*
+    /// toggle changes — so a live edit immediately re-gates the widget-tile hover lift and the
+    /// edit-chrome fade instead of only taking effect after a restart.</summary>
+    private void OnMotionSettingsChanged()
+    {
+        OnPropertyChanged(nameof(HoverEffectsEnabled));
+        OnPropertyChanged(nameof(EditChromeMotionEnabled));
+    }
 
     /// <summary>Enters edit mode over the current page.</summary>
     [RelayCommand]
@@ -673,6 +713,7 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
         WeakReferenceMessenger.Default.UnregisterAll(this);
         if (_profileStore is not null)
             _profileStore.ProfileRecovered -= OnProfileRecovered;
+        _motionSettingsService.MotionChanged -= OnMotionSettingsChanged;
         _subscription?.Dispose();
         _subscription = null;
         _predictionsSubscription?.Dispose();

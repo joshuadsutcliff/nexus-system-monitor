@@ -10,8 +10,12 @@
   <DockPanel>
 
     <!-- ══ Header ══════════════════════════════════════════════════════════ -->
+    <!-- Phase 8 UI polish (Task 5, alignment audit): left/right padding bumped from 16 to
+         20 so "System Health" aligns to the same left gutter the cards below use — the
+         content ScrollViewer's Padding="20,0,20,20" (below) is the content-pane gutter;
+         the header was previously 4px short of it. -->
     <Border DockPanel.Dock="Top"
-            Padding="16,10"
+            Padding="20,10"
             Background="{DynamicResource BgSecondaryBrush}"
             BorderBrush="{DynamicResource BorderSubtleBrush}"
             BorderThickness="0,0,0,1">
@@ -32,8 +36,18 @@
               <TextBlock Text="✏" FontSize="{DynamicResource NxFont14}" Foreground="{DynamicResource TextSecondaryBrush}"/>
             </Button>
           </StackPanel>
-          <!-- Edit-mode toolbar -->
-          <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsEditMode}">
+          <!-- Edit-mode toolbar. Phase 8 Task 3 gate fix: fades in when entering edit mode — see
+               DashboardView.axaml.cs's OnEditToolbarPropertyChanged, gated on
+               DashboardViewModel.EditChromeMotionEnabled (MotionEffect.EditChrome). Fade-in only:
+               IsVisible flips straight to false on exit, collapsing the toolbar before any
+               fade-out transition could play — same trade-off CommandPaletteControl and
+               WidgetGalleryControl already accept for their own overlays. -->
+          <StackPanel x:Name="EditToolbar" Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsEditMode}">
+            <StackPanel.Transitions>
+              <Transitions>
+                <DoubleTransition Property="Opacity" Duration="{DynamicResource MotionBase}"/>
+              </Transitions>
+            </StackPanel.Transitions>
             <Button Classes="nx-btn" Command="{Binding OpenGalleryCommand}">
               <TextBlock Text="＋ Add widget" FontSize="{DynamicResource NxFont12}"/>
             </Button>
@@ -73,7 +87,9 @@
                     VerticalScrollBarVisibility="Auto"
                     Padding="20,0,20,20">
         <Panel>
-          <controls:PageHostControl Page="{Binding EnginePage}"/>
+          <controls:PageHostControl Page="{Binding EnginePage}"
+                                     IsEditMode="{Binding IsEditMode}"
+                                     HoverLiftEnabled="{Binding HoverEffectsEnabled}"/>
           <controls:EditAdornerControl x:Name="EditAdorner"
                                        Page="{Binding EnginePage}"
                                        IsActive="{Binding IsEditMode}"/>

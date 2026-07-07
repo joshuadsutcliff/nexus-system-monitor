@@ -1,17 +1,23 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:NexusMonitor.UI.ViewModels"
+             xmlns:controls="using:NexusMonitor.UI.Controls"
              x:Class="NexusMonitor.UI.Widgets.SubsystemCardWidget"
              x:DataType="vm:SubsystemCardViewModel"
              x:CompileBindings="False">
 
-  <Border Padding="16"
+  <!-- Phase 8 UI polish (Task 4): DynamicTypeScale.IsHost measures this Border's own arranged
+       bounds (the exact tile pixel rect PageHostControl gives it) to drive the headline (Name)
+       and value (Level) TextBlocks' FontSize below — see DynamicTypeScale's class doc. -->
+  <Border Classes="nx-widget-chrome"
+          Padding="16"
           HorizontalAlignment="Stretch"
           VerticalAlignment="Stretch"
           Background="{DynamicResource BgElevatedBrush}"
           BorderBrush="{DynamicResource GlassBorderBrush}"
           BorderThickness="1"
-          CornerRadius="{StaticResource CornerMD}">
+          CornerRadius="{StaticResource CornerMD}"
+          controls:DynamicTypeScale.IsHost="True">
     <StackPanel Spacing="6">
       <StackPanel Orientation="Horizontal" Spacing="8">
         <TextBlock Text="{Binding Icon}"
@@ -20,7 +26,7 @@
                    Foreground="{DynamicResource TextSecondaryBrush}"
                    VerticalAlignment="Center"/>
         <TextBlock Text="{Binding Name}"
-                   FontSize="{DynamicResource NxFont13}" FontWeight="SemiBold"
+                   controls:DynamicTypeScale.FontSizeKey="NxFont13" FontWeight="SemiBold"
                    Foreground="{DynamicResource TextPrimaryBrush}"
                    VerticalAlignment="Center"/>
         <TextBlock Text="{Binding TrendArrow}"
@@ -30,7 +36,7 @@
                    Margin="4,0,0,0"/>
       </StackPanel>
       <TextBlock Text="{Binding Level}"
-                 FontSize="{DynamicResource NxFont20}" FontWeight="Bold"
+                 controls:DynamicTypeScale.FontSizeKey="NxFont20" FontWeight="Bold"
                  Foreground="{Binding LevelBrush}"/>
       <TextBlock Text="{Binding Summary}"
                  FontSize="{DynamicResource NxFont12}"

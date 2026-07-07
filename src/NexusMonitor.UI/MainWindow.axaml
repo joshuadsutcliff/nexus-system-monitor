@@ -25,12 +25,15 @@
 
   <Window.Styles>
 
-    <!-- ── Drag grip: subtle hint by default, brighter on hover, prominent when dragging ── -->
+    <!-- ── Drag grip: subtle hint by default, brighter on hover, prominent when dragging ──
+         Phase 8 UI polish (Task 3): Duration migrated to MotionBase (200ms falls in the
+         "150-200ms → Base" bucket) — MotionSettingsService.Apply scales it from AnimationSpeed
+         and zeroes it at speed 0. -->
     <Style Selector="TextBlock.nav-grip">
       <Setter Property="Opacity" Value="0.20"/>
       <Setter Property="Transitions">
         <Transitions>
-          <DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
+          <DoubleTransition Property="Opacity" Duration="{DynamicResource MotionBase}"/>
         </Transitions>
       </Setter>
     </Style>
@@ -41,17 +44,20 @@
       <Setter Property="Opacity" Value="0.85"/>
     </Style>
 
-    <!-- ── Nav item root: smooth ease-out transitions for transform + opacity ── -->
+    <!-- ── Nav item root: smooth ease-out transitions for transform + opacity ──
+         Phase 8 UI polish (Task 3): the transform Duration migrated to MotionSlow (250ms falls
+         in the "≥250ms → Slow" bucket); the opacity Duration migrated to MotionBase (200ms falls
+         in the "150-200ms → Base" bucket). Both scale from AnimationSpeed and zero at speed 0. -->
     <Style Selector="Grid.nav-row">
       <Setter Property="RenderTransformOrigin" Value="50%,50%"/>
       <Setter Property="Transitions">
         <Transitions>
-          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.25">
+          <TransformOperationsTransition Property="RenderTransform" Duration="{DynamicResource MotionSlow}">
             <TransformOperationsTransition.Easing>
               <CubicEaseOut/>
             </TransformOperationsTransition.Easing>
           </TransformOperationsTransition>
-          <DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
+          <DoubleTransition Property="Opacity" Duration="{DynamicResource MotionBase}"/>
         </Transitions>
       </Setter>
     </Style>
@@ -77,17 +83,72 @@
             BoxShadow="inset 0 1 3 0 #18FFFFFF"
             PointerPressed="OnTitleBarPointerPressed">
       <Panel>
-        <Grid x:Name="TitleBarGrid"
-              ColumnDefinitions="Auto,*,Auto"
-              Margin="18,0">
+        <!-- Phase 8 UI polish (Task 5): logo relocated to the upper-right corner (Josh's
+             final directive, 2026-07-06, supersedes an earlier sidebar-gutter idea) — the
+             titlebar's left/center now stay clean. On macOS the native traffic lights
+             (close/minimize/zoom) own the left corner (rendered by the OS itself, outside
+             this Grid — see ApplyMacOSTitleBarPadding in MainWindow.axaml.cs); on
+             Windows/Linux the custom traffic-light buttons below still anchor the window's
+             far right edge, unchanged from before. Grid.Margin's right value (8) and the
+             logo group's Margin.Top (0) below were derived by pixel-probing a launched-app
+             screenshot of the macOS native traffic lights: the three dots span x=8..59,
+             y=8..19 (12px circles) — an 8px left inset from the window edge and a vertical
+             center line at y=13.5, well above the 52px titlebar's geometric center (y=26).
+             Mirroring the 8px inset on the right, and matching the measured center line
+             instead of the titlebar's own center, is why the logo group is Top-aligned
+             with a small Margin.Top rather than simply VerticalAlignment="Center".
 
-          <!-- App icon + name -->
-          <StackPanel Grid.Column="0"
+             Gate-fix note (Phase 8 Task 5 review, 2026-07-06): the 8px right inset above is
+             DELIBERATELY shared by all platforms, not a macOS-only leftover — it mirrors the
+             macOS traffic-light-derived inset but is intentionally reused as the Windows/Linux
+             WindowControls inset too (previously 18px; keeping it at 8px on every platform is
+             an intentional decision, not an oversight). -->
+        <Grid x:Name="TitleBarGrid"
+              ColumnDefinitions="Auto,*,Auto,Auto"
+              Margin="18,0,8,0">
+
+          <!-- Column 0 intentionally left empty — see comment above: traffic lights only
+               on the left, titlebar center stays clean for the drag region. -->
+
+          <!-- Gate-fix note (Phase 8 Task 5 review, 2026-07-06): logo and WindowControls used
+               to share ONE wrapper StackPanel in a single Auto column (VerticalAlignment="Top").
+               That was correct for the logo (matches the measured y=13.5 center-line above) but
+               wrong for WindowControls on Windows/Linux: a Top-aligned wrapper only takes up its
+               content's own DesiredSize height. Since WindowControls is invisible on macOS
+               (IsVisible=false, excluded from layout) and doesn't contribute there, but IS
+               visible on Windows/Linux, the wrapper's height differed by platform — on
+               Windows/Linux it was just tall enough for the ~28px logo, not the full 52px bar,
+               so WindowControls' own VerticalAlignment="Center" centered it within that
+               too-short wrapper instead of the true 52px titlebar, landing the buttons roughly
+               10-12px too high (centered around y≈15 instead of y=26).
+
+               Fix: split the logo and WindowControls into their OWN Grid columns so each aligns
+               independently against the FULL 52px row — Grid always gives a column its row's
+               full height regardless of the column's Auto width, so there is no shared-wrapper
+               height to fight over:
+                 - Logo (column 2): kept Top + no extra margin — already tuned to the measured
+                   13.5px center-line (renders ~14.0px, ~0.5px off, accepted as sub-pixel in the
+                   prior task-5 pass) — completely unaffected by this change.
+                 - WindowControls (column 3): plain VerticalAlignment="Center" against the full
+                   52px row now truly centers it at y=26 on Windows/Linux.
+               On macOS, WindowControls stays hidden (ApplyMacOSTitleBarPadding sets
+               IsVisible=false) so its now-empty Auto column simply collapses to 0 width — the
+               logo's position and prior pixel-probed tuning are untouched. Verified empirically
+               on macOS (re-measured, still ≈13.5px center-line); Windows/Linux verified
+               structurally via this layout argument (see task-5-report.md "## Gate fix" —
+               no Windows/Linux runtime available in this environment). Considered a margin-only
+               fix (negative Margin.Top on the logo to compensate once the wrapper is re-centered)
+               but rejected it: it requires the wrapper's arrange math to behave in a very specific
+               way under a negative margin, is fragile if either child's intrinsic height ever
+               changes, and only works by accident of the two children sharing one wrapper at all
+               — the split-column shape removes the coupling entirely. -->
+
+          <StackPanel Grid.Column="2"
                       Orientation="Horizontal"
-                      Spacing="10"
-                      VerticalAlignment="Center">
+                      Spacing="12"
+                      VerticalAlignment="Top">
             <Image Source="avares://NexusMonitor/Assets/nexus-icon-256.png"
-                   Width="24" Height="24"/>
+                   Width="28" Height="28"/>
             <TextBlock Text="Nexus Monitor"
                        FontSize="{DynamicResource NxFont13}"
                        FontWeight="SemiBold"
@@ -95,11 +156,17 @@
                        VerticalAlignment="Center"/>
           </StackPanel>
 
-          <!-- Window controls -->
-          <StackPanel x:Name="WindowControls" Grid.Column="2"
+          <!-- Window controls — hidden on macOS (ApplyMacOSTitleBarPadding sets
+               IsVisible=false so the native traffic lights are the only controls);
+               stays visible and now truly vertically centered (y=26 of the 52px bar) at the
+               true right edge on Windows/Linux. Margin.Left=20 reproduces the same visual gap
+               the old shared-wrapper's Spacing="20" gave between the logo and these buttons. -->
+          <StackPanel x:Name="WindowControls"
+                      Grid.Column="3"
                       Orientation="Horizontal"
                       Spacing="2"
-                      VerticalAlignment="Center">
+                      VerticalAlignment="Center"
+                      Margin="20,0,0,0">
             <Button Classes="nx-btn-ghost" Padding="10,7"
                     Click="OnMinimize"
                     ToolTip.Tip="Minimize">
@@ -190,21 +257,36 @@
                     <StackPanel IsVisible="{Binding IsSeparator}" Margin="0,6,0,0">
                       <Border Height="1" Margin="14,0,14,0"
                               Background="{DynamicResource SeparatorBrush}"/>
+                      <!-- Phase 8 UI polish (Task 5, alignment audit): the group label's left
+                           margin was 18 (absolute x=28 from the sidebar edge: ItemsControl's
+                           own Margin=10 + this 18), while a nav row's icon/label content
+                           starts at absolute x=40 (ItemsControl Margin=10 + the nav-row Grid's
+                           20-wide grip column + the nav Button's own Padding=10) — a 12px
+                           mismatch. Bumped to 30 (10+30=40) so section headers and nav-row
+                           content share one left edge, per the audit. The separator rule
+                           itself is left at its original inset (14) — a decorative full-width
+                           divider, not "content" the audit's shared-gutter rule targets. -->
                       <TextBlock Text="{Binding GroupLabel}"
                                  FontSize="{DynamicResource NxFont10}"
                                  FontWeight="SemiBold"
                                  Foreground="{DynamicResource TextTertiaryBrush}"
-                                 Margin="18,5,0,2"
+                                 Margin="30,5,0,2"
                                  LetterSpacing="1.2"/>
                     </StackPanel>
 
-                    <!-- ── Nav item row — shown when IsSeparator=false ── -->
+                    <!-- ── Nav item row — shown when IsSeparator=false ──
+                         Phase 8 UI polish (Task 6): Height="32" matches the System Settings
+                         sidebar row height measured via Accessibility API in p8-macos-ref.md
+                         line 8 ("size of row = {215, 32}"). -->
                     <Grid ColumnDefinitions="20,*"
                           Classes="nav-row"
                           Classes.dragging="{Binding IsDragging}"
                           IsVisible="{Binding !IsSeparator}"
+                          Height="32"
                           Background="Transparent">
-                      <!-- Drag grip — hidden for pinned items -->
+                      <!-- Drag grip — hidden for pinned items. Nexus-specific reorder affordance
+                           with no System Settings equivalent; kept as-is (including its own
+                           hover treatment below) per the task's explicit exemption. -->
                       <TextBlock Grid.Column="0"
                                  Classes="nav-grip"
                                  IsVisible="{Binding !IsPinned}"
@@ -215,24 +297,48 @@
                                  Foreground="{DynamicResource TextTertiaryBrush}"
                                  Cursor="Hand"
                                  ToolTip.Tip="Drag to reorder"/>
-                      <!-- Navigation button -->
+                      <!-- Navigation button — "nav-item" is an additional static class (alongside
+                           the shared "nx-btn-ghost") so Controls.axaml can target ONLY sidebar nav
+                           rows for the packet's "no hover" rule (p8-macos-ref.md line 16) without
+                           touching nx-btn-ghost's hover treatment everywhere else it's used
+                           (titlebar buttons, "Save…"/"Delete" buttons, etc.) — see the
+                           ".nav-item:pointerover" override in Controls.axaml.
+                           CornerRadius="15": with Margin="0,1" on a Height="32" row the button's
+                           own rendered height is 30, so radius = height/2 gives the packet's
+                           "fully rounded capsule" selection pill (p8-macos-ref.md line 11). -->
                       <Button Grid.Column="1"
-                              Classes="nx-btn-ghost"
+                              Classes="nx-btn-ghost nav-item"
                               Classes.active="{Binding IsActive}"
                               HorizontalAlignment="Stretch"
                               HorizontalContentAlignment="Left"
-                              Padding="10,10"
+                              VerticalContentAlignment="Center"
+                              Padding="10,0"
                               Margin="0,1"
-                              CornerRadius="10"
+                              CornerRadius="15"
                               Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).NavigateCommand}"
                               CommandParameter="{Binding}">
                         <StackPanel Orientation="Horizontal" Spacing="10">
-                          <TextBlock Text="{Binding Icon}"
-                                     FontFamily="{StaticResource NexusIcons}"
-                                     FontSize="{DynamicResource NxFont16}"
-                                     Width="20"
-                                     TextAlignment="Center"
-                                     VerticalAlignment="Center"/>
+                          <!-- Icon chip — packet: ~21-23pt rounded-square chip behind the glyph,
+                               shown for BOTH selected and unselected rows (p8-macos-ref.md line
+                               10); replaces the previous bare glyph. 22x22 sits in the packet's
+                               measured range; CornerSM (8, Typography.axaml) is the nearest
+                               existing corner token to the packet's "~6" chip-corner guidance
+                               (brief's own fallback) rather than inventing a new token. Glyph is
+                               always white on the accent chip regardless of row selection, so its
+                               Foreground is set explicitly here rather than inherited from the
+                               Button (which only turns white when .active). -->
+                          <Border Width="22" Height="22"
+                                  CornerRadius="{StaticResource CornerSM}"
+                                  Background="{DynamicResource AccentBlueBrush}"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Center">
+                            <TextBlock Text="{Binding Icon}"
+                                       FontFamily="{StaticResource NexusIcons}"
+                                       FontSize="{DynamicResource NxFont16}"
+                                       Foreground="White"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                          </Border>
                           <TextBlock Text="{Binding Label}"
                                      FontSize="{DynamicResource NxFont13}"
                                      VerticalAlignment="Center"/>
@@ -304,10 +410,17 @@
       <Border Grid.Column="1" Background="{DynamicResource BgPrimaryBrush}">
         <Panel>
           <!-- Content -->
-          <TransitioningContentControl Content="{Binding CurrentPage}">
-            <TransitioningContentControl.PageTransition>
-              <CrossFade Duration="0:0:0.18"/>
-            </TransitioningContentControl.PageTransition>
+          <!-- Phase 8 UI polish (Task 3): PageTransition is set from code (MainWindow.axaml.cs,
+               UpdatePageTransition) instead of a static XAML CrossFade. Avalonia.Animation.CrossFade
+               is a plain object — its Duration is a normal CLR property, not an AvaloniaProperty —
+               so `Duration="{DynamicResource MotionBase}"` cannot live-track AnimationSpeed changes
+               here the way it can on a Transition (DoubleTransition/TransformOperationsTransition/
+               BoxShadowsTransition), confirmed via reflection (CrossFade : object, no *Property
+               static fields). UpdatePageTransition instead reads the already-Apply()'d MotionBase
+               resource value and swaps PageTransition to null when AnimatePageTransitions is off
+               (or AnimationSpeed is 0) — an instant page swap instead of a zero-duration CrossFade,
+               per the task's own suggested "swap to null transition when disabled" resolution. -->
+          <TransitioningContentControl x:Name="PageHost" Content="{Binding CurrentPage}">
           <TransitioningContentControl.DataTemplates>
             <DataTemplate DataType="vm:AutomationViewModel">
               <views:AutomationView />

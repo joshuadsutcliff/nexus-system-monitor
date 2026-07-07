@@ -13,11 +13,15 @@
   </UserControl.Resources>
 
   <UserControl.Styles>
-    <!-- Perf sidebar drag grip -->
+    <!-- Perf sidebar drag grip. Phase 8 UI polish (Task 4 fold-in): migrated to Motion tokens —
+         mirrors MainWindow.axaml's identical nav-grip/nav-row drag pair (Task 3's own mapping:
+         ≤120ms→Fast, 150-200ms→Base, ≥250ms→Slow), which these device-row Transitions duplicate
+         almost verbatim. Duration-zeroing only (no AnimateHoverEffects toggle gate), same
+         CONDUCTOR RULING Task 3 applied to MainWindow's own nav-row pair. -->
     <Style Selector="TextBlock.perf-grip">
       <Setter Property="Opacity" Value="0"/>
       <Setter Property="Transitions">
-        <Transitions><DoubleTransition Property="Opacity" Duration="0:0:0.2"/></Transitions>
+        <Transitions><DoubleTransition Property="Opacity" Duration="{DynamicResource MotionBase}"/></Transitions>
       </Setter>
     </Style>
     <Style Selector="Grid.perf-device-row:pointerover TextBlock.perf-grip">
@@ -30,10 +34,10 @@
       <Setter Property="RenderTransformOrigin" Value="50%,50%"/>
       <Setter Property="Transitions">
         <Transitions>
-          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.25">
+          <TransformOperationsTransition Property="RenderTransform" Duration="{DynamicResource MotionSlow}">
             <TransformOperationsTransition.Easing><CubicEaseOut/></TransformOperationsTransition.Easing>
           </TransformOperationsTransition>
-          <DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
+          <DoubleTransition Property="Opacity" Duration="{DynamicResource MotionBase}"/>
         </Transitions>
       </Setter>
     </Style>
@@ -122,11 +126,14 @@
                   ResizeDirection="Columns"/>
 
     <!-- ===== DETAIL PANEL ===== -->
-    <TransitioningContentControl Grid.Column="2"
+    <!-- Phase 8 UI polish (Task 4 fold-in): CrossFade.Duration is a plain CLR property (not an
+         AvaloniaProperty — confirmed via reflection in Task 3), so it can't be a
+         {DynamicResource MotionFast} XAML binding the way an ordinary Transition's Duration can.
+         Wired the same way MainWindow.axaml's own page CrossFade was (Task 3): named here,
+         PageTransition set/rebuilt from code — see PerformanceView.axaml.cs's
+         UpdateDeviceTransition(). -->
+    <TransitioningContentControl x:Name="DeviceHost" Grid.Column="2"
                                  Content="{Binding SelectedDevice}">
-      <TransitioningContentControl.PageTransition>
-        <CrossFade Duration="0:0:0.12"/>
-      </TransitioningContentControl.PageTransition>
       <TransitioningContentControl.DataTemplates>
 
         <!-- ════════════════════════════════════════════════════════════════════

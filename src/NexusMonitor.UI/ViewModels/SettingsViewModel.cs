@@ -35,6 +35,8 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     private readonly GlassAdaptiveService         _glassAdaptive;
     private readonly ThemePresetService           _presetService;
     private readonly WorkspaceProfileStore        _profileStore;
+    private readonly MotionSettingsService        _motionSettingsService;
+    private readonly BackdropService              _backdropService;
     private readonly ProcessPreferenceStore?      _preferenceStore;
     private readonly WebhookNotificationService              _webhookService;
     private readonly PredictionService?                      _predictionService;
@@ -49,6 +51,12 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
 
     // Luminance-derived min alpha floor (0x80–0xE0); null = feature disabled
     private byte? _luminanceMinAlpha;
+
+    // Phase 8 UI polish (Task 7): true when BackdropService's most recent ActualTransparencyLevel
+    // check found the platform rejected the requested backdrop chain (granted None instead of the
+    // preferred level). Read by ApplyGlass to force BgBaseBrush fully opaque — see that method's
+    // doc for why only the window-root brush needs it. Kept in sync via OnBackdropRejectionChanged.
+    private bool _backdropRejected;
 
     // ── Batch-apply guard ─────────────────────────────────────────────────────
     // When true, OnXxxChanged callbacks skip Apply* calls (a single ApplyAllVisuals()
@@ -131,6 +139,33 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     [ObservableProperty] private bool   _isSpecularEnabled;
     [ObservableProperty] private double _specularIntensity = 0.55;
 
+    // ── Depth (Phase 8 UI polish) — shadow/elevation intensity, independent of Crystal Glass;
+    // shown in the Crystal Glass card since that's where the app's other layering/depth controls
+    // already live, but applies to ordinary flat-mode card shadows too.
+    [ObservableProperty] private double _depthIntensity = 0.5;
+
+    // ── Animations (Phase 8 UI polish) ──────────────────────────────────────────
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(AnimationSpeedLabel))]
+    private double _animationSpeed = 1.0;
+    [ObservableProperty] private bool _animatePageTransitions = true;
+    [ObservableProperty] private bool _animateHoverEffects    = true;
+    [ObservableProperty] private bool _animatePopOutMotion    = true;
+    [ObservableProperty] private bool _animateEditChrome      = true;
+    [ObservableProperty] private bool _animateValueChanges    = true;
+    [ObservableProperty] private bool _animateSpecularShimmer = true;
+
+    /// <summary>Human-readable label for the current <see cref="AnimationSpeed"/> snap point
+    /// (0 / 0.5 / 1 / 1.5 / 2 → Off / Slower / Normal / Fast / Fastest).</summary>
+    public string AnimationSpeedLabel => AnimationSpeed switch
+    {
+        <= 0.0 => "Off",
+        <= 0.5 => "Slower",
+        <= 1.0 => "Normal",
+        <= 1.5 => "Fast",
+        _      => "Fastest",
+    };
+
     // ── Accent ────────────────────────────────────────────────────────────────
     [ObservableProperty] private string _accentColorHex     = "#0A84FF";
     [ObservableProperty] private string _textAccentColorHex = "";
@@ -183,6 +218,11 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     // ── Typography ────────────────────────────────────────────────────────────
     [ObservableProperty] private string _fontFamily          = "";
     [ObservableProperty] private double _fontSizeMultiplier  = 1.0;
+    /// <summary>Phase 8 UI polish (Task 4): gates DynamicTypeScale — when true, widget-tile
+    /// headline/value text scales with the tile's resized bounds on top of FontSizeMultiplier;
+    /// when false, those TextBlocks show the plain FontSizeMultiplier-scaled size (fixed,
+    /// pre-Task-4 behavior).</summary>
+    [ObservableProperty] private bool   _scaleTextWithWidgetSize = true;
 
     // ── Performance ───────────────────────────────────────────────────────────
     [ObservableProperty] private int _updateIntervalIndex = 1; // 0=500ms 1=1s 2=2s 3=5s
@@ -316,6 +356,8 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         ThemePresetService           presetService,
         WorkspaceProfileStore        profileStore,
         WebhookNotificationService   webhookService,
+        MotionSettingsService        motionSettingsService,
+        BackdropService              backdropService,
         PredictionService?                      predictionService = null,
         ProcessPreferenceStore?                 preferenceStore = null,
         HealthSnapshotPersistenceService?       healthSnapshotService = null,
@@ -331,6 +373,8 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         _glassAdaptive    = glassAdaptive;
         _presetService    = presetService;
         _profileStore     = profileStore;
+        _motionSettingsService = motionSettingsService;
+        _backdropService       = backdropService;
         _webhookService        = webhookService;
         _predictionService     = predictionService;
         _preferenceStore       = preferenceStore;
@@ -346,6 +390,12 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
 
         // Subscribe to luminance changes from GlassAdaptiveService
         _glassAdaptive.LuminanceChanged += OnLuminanceChanged;
+
+        // Phase 8 UI polish (Task 7): subscribe to backdrop-rejection changes from BackdropService
+        // (MainWindow's constructor already made the first Apply() call and started observing
+        // ActualTransparencyLevel before this ViewModel is resolved — see BackdropService's doc).
+        _backdropRejected = _backdropService.IsRejected;
+        _backdropService.RejectionChanged += OnBackdropRejectionChanged;
 
         // Subscribed BEFORE the LoadActive() call near the end of this constructor (and before
         // any other WorkspaceProfileStore call that can trigger it): WorkspaceProfileStore.ProfileRecovered
@@ -371,6 +421,17 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         _backdropBlurMode   = settings.Current.BackdropBlurMode;
         _isSpecularEnabled  = settings.Current.IsSpecularEnabled;
         _specularIntensity  = settings.Current.SpecularIntensity;
+        _depthIntensity     = settings.Current.DepthIntensity;
+
+        // ── Animations (Phase 8 UI polish) ─────────────────────────────────────
+        _animationSpeed             = settings.Current.AnimationSpeed;
+        _animatePageTransitions     = settings.Current.AnimatePageTransitions;
+        _animateHoverEffects        = settings.Current.AnimateHoverEffects;
+        _animatePopOutMotion        = settings.Current.AnimatePopOutMotion;
+        _animateEditChrome          = settings.Current.AnimateEditChrome;
+        _animateValueChanges        = settings.Current.AnimateValueChanges;
+        _animateSpecularShimmer     = settings.Current.AnimateSpecularShimmer;
+
         _accentColorHex     = settings.Current.AccentColorHex;
         _textAccentColorHex = settings.Current.TextAccentColorHex;
         // Initialise picker from stored accent
@@ -384,6 +445,7 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         _customSidebarBgHex = settings.Current.CustomSidebarBgHex;
         _fontFamily              = settings.Current.FontFamily;
         _fontSizeMultiplier      = settings.Current.FontSizeMultiplier;
+        _scaleTextWithWidgetSize = settings.Current.ScaleTextWithWidgetSize;
         _showOverlayWidget             = settings.Current.ShowOverlayWidget;
         _desktopNotificationsEnabled   = settings.Current.DesktopNotificationsEnabled;
         _anomalyNotificationsEnabled   = settings.Current.AnomalyNotificationsEnabled;
@@ -599,6 +661,80 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         }
     }
 
+    // ── Depth (Phase 8 UI polish) ───────────────────────────────────────────────
+
+    /// <summary>Persists <see cref="DepthIntensity"/> and re-applies it live via
+    /// <see cref="MotionSettingsService.Apply"/>, which scales the ElevationRaised/Floating/
+    /// Modal/Toast shadow tokens' alpha channels from this value (0 = shadowless, 0.5 = the
+    /// baked-in default, 1.0 = 2x). Bound directly from the Settings page's slider — runs on the
+    /// UI thread already, so no dispatcher hop is needed (unlike e.g. OnLuminanceChanged, which is
+    /// driven by a background sampling service).</summary>
+    partial void OnDepthIntensityChanged(double value)
+    {
+        _settings.Current.DepthIntensity = value;
+        _settings.Save();
+        _motionSettingsService.Apply(_settings.Current);
+    }
+
+    // ── Animations (Phase 8 UI polish) ──────────────────────────────────────────
+    // Every handler below persists into AppSettings then re-applies MotionSettingsService.Apply,
+    // which recomputes the MotionFast/Base/Slow duration tokens (from AnimationSpeed) and the
+    // elevation tokens (from DepthIntensity, unaffected by these fields) and raises MotionChanged —
+    // the live-update signal MainWindow (shimmer/page-transition), DashboardViewModel
+    // (HoverEffectsEnabled), Border.nx-widget-chrome's hover lift, and every migrated Transition's
+    // DynamicResource-bound Duration all react to. All bound directly from Settings-page controls
+    // (Slider/ToggleButton), so — like OnDepthIntensityChanged above — these already run on the UI
+    // thread; no dispatcher hop needed.
+
+    partial void OnAnimationSpeedChanged(double value)
+    {
+        _settings.Current.AnimationSpeed = value;
+        _settings.Save();
+        _motionSettingsService.Apply(_settings.Current);
+    }
+
+    partial void OnAnimatePageTransitionsChanged(bool value)
+    {
+        _settings.Current.AnimatePageTransitions = value;
+        _settings.Save();
+        _motionSettingsService.Apply(_settings.Current);
+    }
+
+    partial void OnAnimateHoverEffectsChanged(bool value)
+    {
+        _settings.Current.AnimateHoverEffects = value;
+        _settings.Save();
+        _motionSettingsService.Apply(_settings.Current);
+    }
+
+    partial void OnAnimatePopOutMotionChanged(bool value)
+    {
+        _settings.Current.AnimatePopOutMotion = value;
+        _settings.Save();
+        _motionSettingsService.Apply(_settings.Current);
+    }
+
+    partial void OnAnimateEditChromeChanged(bool value)
+    {
+        _settings.Current.AnimateEditChrome = value;
+        _settings.Save();
+        _motionSettingsService.Apply(_settings.Current);
+    }
+
+    partial void OnAnimateValueChangesChanged(bool value)
+    {
+        _settings.Current.AnimateValueChanges = value;
+        _settings.Save();
+        _motionSettingsService.Apply(_settings.Current);
+    }
+
+    partial void OnAnimateSpecularShimmerChanged(bool value)
+    {
+        _settings.Current.AnimateSpecularShimmer = value;
+        _settings.Save();
+        _motionSettingsService.Apply(_settings.Current);
+    }
+
     partial void OnAccentColorHexChanged(string value)
     {
         _settings.Current.AccentColorHex = value;
@@ -656,6 +792,18 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
             MarkCustomPreset();
             ApplyFont(FontFamily, value);
         }
+    }
+
+    /// <summary>Phase 8 UI polish (Task 4): persists the toggle and pokes
+    /// <see cref="Controls.DynamicTypeScale.NotifySettingsChanged"/> so every live widget-tile
+    /// headline/value TextBlock re-evaluates its gating immediately — see that method's own doc
+    /// comment for why a dedicated notification hook is used instead of
+    /// MotionSettingsService.MotionChanged (whose Apply() never touches this setting).</summary>
+    partial void OnScaleTextWithWidgetSizeChanged(bool value)
+    {
+        _settings.Current.ScaleTextWithWidgetSize = value;
+        _settings.Save();
+        Controls.DynamicTypeScale.NotifySettingsChanged();
     }
 
     partial void OnCloseActionIndexChanged(int value)
@@ -752,6 +900,25 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         {
             _luminanceMinAlpha = minAlpha;
             ApplyGlass(IsGlassEnabled, GlassOpacity, CustomWindowBgHex, CustomSurfaceBgHex, CustomSidebarBgHex, minAlpha);
+        });
+    }
+
+    /// <summary>
+    /// Phase 8 UI polish (Task 7): raised by <see cref="BackdropService.RejectionChanged"/> whenever
+    /// the main window's <c>ActualTransparencyLevel</c> flips between "platform granted the
+    /// requested backdrop chain" and "platform rejected it (gave None instead)". Re-applies glass
+    /// with the new <see cref="_backdropRejected"/> state so <see cref="ApplyGlass"/> can force
+    /// <c>BgBaseBrush</c> fully opaque on rejection — see that method's doc. Dispatched via
+    /// <see cref="Avalonia.Threading.Dispatcher.UIThread"/> like <see cref="OnLuminanceChanged"/>
+    /// immediately above, since the Avalonia property-changed notification this is ultimately raised
+    /// from should not be assumed to already be on the UI thread.
+    /// </summary>
+    private void OnBackdropRejectionChanged(bool rejected)
+    {
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            _backdropRejected = rejected;
+            ApplyGlass(IsGlassEnabled, GlassOpacity, CustomWindowBgHex, CustomSurfaceBgHex, CustomSidebarBgHex, _luminanceMinAlpha);
         });
     }
 
@@ -1552,8 +1719,24 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     /// Custom color overrides (from the Settings color pickers) are respected when non-empty.
     /// Empty strings fall back to the built-in dark-theme defaults.
     /// <paramref name="opacity"/> 0 = fully transparent, 1 = fully opaque.
+    ///
+    /// <para>Phase 8 UI polish (Task 7): reads the instance field <see cref="_backdropRejected"/>
+    /// (no longer <see langword="static"/> because of this) to force <c>BgBaseBrush</c>'s alpha to
+    /// fully opaque whenever the platform rejected the requested backdrop chain. Only
+    /// <c>BgBaseBrush</c> needs this — it is the one brush bound directly to
+    /// <c>Window.Background</c> (<c>MainWindow.axaml:13</c>), i.e. the literal "nothing else drawn
+    /// beneath it" surface that Avalonia's <c>TransparencyBackgroundFallback</c> (a solid WHITE
+    /// brush by default — never overridden here) blends against when
+    /// <c>ActualTransparencyLevel</c> resolves to <c>None</c>. Every other brush this method
+    /// computes (<c>BgPrimary</c>/<c>Secondary</c>/<c>Elevated</c>/<c>Hover</c>, <c>GlassBg</c>,
+    /// <c>GlassBorder</c>) is drawn as a child <see cref="Avalonia.Controls.Border"/> ON TOP of
+    /// that now-guaranteed-opaque root (<c>MainWindow.axaml:80/241/410</c>), so they composite
+    /// correctly against it regardless of <c>ActualTransparencyLevel</c> — forcing them too would
+    /// be redundant, not "more correct." <c>OverlayBgBrush</c> is untouched for a different reason:
+    /// it belongs to the separate <c>OverlayWindow</c> TopLevel, which this task does not observe
+    /// (see <see cref="NexusMonitor.UI.Services.BackdropService"/>'s class doc on scope).</para>
     /// </summary>
-    private static void ApplyGlass(
+    private void ApplyGlass(
         bool enabled, double opacity,
         string? customWindowBgHex  = null,
         string? customSurfaceBgHex = null,
@@ -1582,8 +1765,11 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         Color bgElevated  = AdjustBrightness(bgSurface, elevatedDelta);
         Color bgHover     = AdjustBrightness(bgSurface, hoverDelta);
 
-        // Window-frame brush can go fully transparent (that IS the glass effect)
-        byte bgAlpha = enabled ? (byte)Math.Round(opacity * 255) : (byte)0xFF;
+        // Window-frame brush can go fully transparent (that IS the glass effect) — UNLESS
+        // BackdropService reports the platform rejected the requested backdrop chain, in which
+        // case forcing full opacity here avoids blending against Avalonia's
+        // TransparencyBackgroundFallback (solid white by default) instead of real desktop blur.
+        byte bgAlpha = (enabled && !_backdropRejected) ? (byte)Math.Round(opacity * 255) : (byte)0xFF;
         SetBrush("BgBaseBrush", bgBase, bgAlpha);
 
         // Content-area brushes: floor raised by wallpaper luminance when Smart Tint is active.
@@ -1675,29 +1861,23 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     /// <summary>
     /// Sets the <see cref="WindowTransparencyLevel"/> hint on BOTH the main window
     /// and the overlay widget so the OS provides the correct backdrop blur type.
+    ///
+    /// <para>Phase 8 UI polish (Task 7): the main window's chain is now delegated to
+    /// <see cref="BackdropService.Apply"/>, which selects an OS-specific chain (macOS
+    /// AcrylicBlur→Blur→None, Windows Mica→AcrylicBlur→None, Linux None-only — see
+    /// <see cref="NexusMonitor.Core.Backdrop.BackdropMath"/>) instead of this method's own
+    /// previous cross-platform, mode-keyed chain. The overlay widget's chain is UNCHANGED — it
+    /// keeps its own pre-existing, mode-keyed logic below (with <c>Transparent</c> as its
+    /// last-resort fallback so its <c>CornerRadius</c> keeps clipping correctly), since that's a
+    /// distinct, pre-existing requirement this task did not touch.</para>
     /// </summary>
     private void ApplyBackdropMode(bool glassEnabled, string mode)
     {
-        IReadOnlyList<WindowTransparencyLevel> hints = (!glassEnabled || mode == "None")
-            ? [WindowTransparencyLevel.None]
-            : mode switch
-            {
-                "Blur"   => [WindowTransparencyLevel.Blur,
-                             WindowTransparencyLevel.None],
-                "Mica"   => [WindowTransparencyLevel.Mica,
-                             WindowTransparencyLevel.AcrylicBlur,
-                             WindowTransparencyLevel.Blur,
-                             WindowTransparencyLevel.None],
-                _        => [WindowTransparencyLevel.AcrylicBlur,  // Acrylic (default)
-                             WindowTransparencyLevel.Blur,
-                             WindowTransparencyLevel.None],
-            };
-
         if (Application.Current?.ApplicationLifetime
                 is IClassicDesktopStyleApplicationLifetime desktop
             && desktop.MainWindow is Window main)
         {
-            main.TransparencyLevelHint = hints;
+            _backdropService.Apply(main, glassEnabled, mode);
             // Gate shimmer timer: run only when glass is visually active
             if (main is NexusMonitor.UI.MainWindow nexusMain)
                 nexusMain.SetGlassActive(glassEnabled && mode != "None");
@@ -1800,10 +1980,17 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
 
         // Scale all NxFont* and FontSize* resource tokens so {DynamicResource} bindings update instantly.
         double m = Math.Clamp(multiplier, 0.5, 3.0);
+        // NOTE (gate fix bundle, Finding 3): this array previously omitted NxFont15/NxFont20/
+        // NxFont28 — exactly the keys HealthScoreWidget.OverallScore, SubsystemCardWidget.Level,
+        // and BottleneckWidget.Headline consume via DynamicTypeScale.FontSizeKeyProperty — so
+        // FontSizeMultiplier was a silent no-op on the three biggest dashboard numbers. Every
+        // NxFont* key defined in Themes/Typography.axaml is now covered (verified by inspection);
+        // no other keys were missing.
         (string Key, double Base)[] fontTokens =
         [
             ("NxFont10", 12), ("NxFont11", 13), ("NxFont12", 14), ("NxFont13", 15),
-            ("NxFont14", 16), ("NxFont16", 18), ("NxFont18", 21), ("NxFont24", 30),
+            ("NxFont14", 16), ("NxFont15", 17), ("NxFont16", 18), ("NxFont18", 21),
+            ("NxFont20", 23), ("NxFont24", 30), ("NxFont28", 34),
             ("NxFontSm", 13), ("NxFontBase", 14), ("NxFontMd", 15),
             ("FontSizeXS", 12), ("FontSizeSM", 13), ("FontSizeMD", 14),
             ("FontSizeBase", 15), ("FontSizeLG", 17), ("FontSizeXL", 19),
@@ -1852,6 +2039,7 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     {
         _osThemeCleanup?.Invoke();
         _glassAdaptive.LuminanceChanged -= OnLuminanceChanged;
+        _backdropService.RejectionChanged -= OnBackdropRejectionChanged;
         _profileStore.ProfileRecovered -= OnWorkspaceProfileRecovered;
         _updateSubscription?.Dispose();
     }

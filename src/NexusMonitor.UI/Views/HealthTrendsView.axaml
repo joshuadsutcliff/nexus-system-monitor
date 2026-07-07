@@ -5,7 +5,8 @@
              x:Class="NexusMonitor.UI.Views.HealthTrendsView"
              x:DataType="vm:HealthTrendsViewModel"
              x:CompileBindings="False">
-  <Border Padding="20,16"
+  <Border Classes="nx-widget-chrome"
+          Padding="20,16"
           Background="{DynamicResource BgElevatedBrush}"
           BorderBrush="{DynamicResource GlassBorderBrush}"
           BorderThickness="1"

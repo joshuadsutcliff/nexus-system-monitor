@@ -18,6 +18,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   theme-only export for sharing just the look without the layout.
 - **Pop-out widgets:** pop any dashboard widget into its own OS window; position and size
   persist per profile, with up to 6 pop-outs open simultaneously.
+- **Motion and depth system:** a central Animation Speed control (`Settings → Appearance →
+  Animations`) scales every UI transition — page switches, hover lift, edit-mode chrome fade,
+  pop-out open/close, value-change ticks, and Crystal Glass specular shimmer — with a per-effect
+  toggle for each, a 0 (off) to 2x (fastest) range, and a live Slower/Normal/Fast/Fastest label.
+  A companion Depth Intensity slider scales card and pop-out elevation shadows from flat to full
+  depth, independent of Crystal Glass.
+- **Dynamic type in dashboard tiles:** widget headline and value text now scales with the
+  tile's own size when resized in edit mode (`Settings → Typography → Scale text with widget
+  size`), layered on top of the existing Font Size multiplier; can be turned off to keep fixed
+  text sizes regardless of tile size.
+- **Real per-OS acrylic backdrop:** the window Backdrop setting (`None` / `Blur` / `Acrylic` /
+  `Mica`) now drives an actual native transparency material per platform, with an automatic
+  fallback chain when a platform can't render the requested level and a defensive re-apply if
+  the OS transiently rejects it on launch.
 
 ### Removed
 - **`EnablePageEngine` experimental flag:** the customizable dashboard is always on now — the
@@ -28,6 +42,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Dashboard layout-load failures** now fall back to the factory-default layout with an in-app
   notice instead of failing silently; a corrupt workspace-profile file is preserved alongside
   the original as a `.bak` copy rather than being overwritten or discarded.
+- **System Settings page** now mirrors the macOS System Settings sidebar layout and uses
+  macOS-style pill switches in place of the previous checkbox-style toggles.
+- **Logo and titlebar:** the app logo and wordmark moved to the upper-right of the titlebar,
+  vertically centered with the traffic-light window controls, keeping the rest of the titlebar
+  clean; window-control centering was also normalized across platforms.
 
 ## [0.5.2] - 2026-06-18
 

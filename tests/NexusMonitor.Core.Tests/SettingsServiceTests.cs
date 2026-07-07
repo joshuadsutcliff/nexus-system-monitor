@@ -373,6 +373,62 @@ public class SettingsServiceTests : IDisposable
         }
     }
 
+    // ── Motion & Depth (Phase 8 — UI design polish) ───────────────────────────
+
+    [Fact]
+    public void MotionDepthFields_DefaultValues_AreCorrect()
+    {
+        WithSettings(null, svc =>
+        {
+            svc.Current.AnimationSpeed.Should().Be(1.0);
+            svc.Current.AnimatePageTransitions.Should().BeTrue();
+            svc.Current.AnimateHoverEffects.Should().BeTrue();
+            svc.Current.AnimatePopOutMotion.Should().BeTrue();
+            svc.Current.AnimateEditChrome.Should().BeTrue();
+            svc.Current.AnimateValueChanges.Should().BeTrue();
+            svc.Current.AnimateSpecularShimmer.Should().BeTrue();
+            svc.Current.DepthIntensity.Should().Be(0.5);
+            svc.Current.ScaleTextWithWidgetSize.Should().BeTrue();
+        });
+    }
+
+    [Fact]
+    public void MotionDepthFields_PersistAcrossSaveAndReload()
+    {
+        var backup = File.Exists(SettingsPath) ? File.ReadAllText(SettingsPath) : null;
+        try
+        {
+            if (File.Exists(SettingsPath)) File.Delete(SettingsPath);
+
+            var svc1 = new SettingsService(MockFactory.CreateLogger<SettingsService>().Object);
+            svc1.Current.AnimationSpeed          = 1.5;
+            svc1.Current.AnimatePageTransitions  = false;
+            svc1.Current.AnimateHoverEffects     = false;
+            svc1.Current.AnimatePopOutMotion     = false;
+            svc1.Current.AnimateEditChrome       = false;
+            svc1.Current.AnimateValueChanges     = false;
+            svc1.Current.AnimateSpecularShimmer  = false;
+            svc1.Current.DepthIntensity          = 0.9;
+            svc1.Current.ScaleTextWithWidgetSize = false;
+            svc1.Dispose();   // flushes synchronously
+
+            using var svc2 = new SettingsService(MockFactory.CreateLogger<SettingsService>().Object);
+            svc2.Current.AnimationSpeed.Should().Be(1.5);
+            svc2.Current.AnimatePageTransitions.Should().BeFalse();
+            svc2.Current.AnimateHoverEffects.Should().BeFalse();
+            svc2.Current.AnimatePopOutMotion.Should().BeFalse();
+            svc2.Current.AnimateEditChrome.Should().BeFalse();
+            svc2.Current.AnimateValueChanges.Should().BeFalse();
+            svc2.Current.AnimateSpecularShimmer.Should().BeFalse();
+            svc2.Current.DepthIntensity.Should().Be(0.9);
+            svc2.Current.ScaleTextWithWidgetSize.Should().BeFalse();
+        }
+        finally
+        {
+            RestoreBackup(backup);
+        }
+    }
+
     // ── Timer cleanup ─────────────────────────────────────────────────────────
 
     [Fact]

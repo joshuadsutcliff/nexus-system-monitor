@@ -164,6 +164,37 @@ public class AppSettings
     /// Kept for settings-file migration only; not read anywhere.</summary>
     public bool EnablePageEngine { get; set; } = false;
 
+    // Motion & Depth (Phase 8 — UI design polish)
+    /// <summary>
+    /// Global animation speed multiplier consumed by MotionSettingsService/MotionMath.Scale:
+    /// base durations (MotionFast/Base/Slow — 120/180/280 ms) are divided by this value, so
+    /// higher = faster. 1.0 = default speed. 0.0 = animations off entirely (all durations
+    /// become <see cref="TimeSpan.Zero"/> and every per-effect toggle below is overridden to
+    /// disabled). Range 0.0–2.0.
+    /// </summary>
+    public double AnimationSpeed { get; set; } = 1.0;
+    /// <summary>Dashboard tab/page cross-fade transitions.</summary>
+    public bool   AnimatePageTransitions { get; set; } = true;
+    /// <summary>Button/control hover-state brush and lift transitions.</summary>
+    public bool   AnimateHoverEffects { get; set; } = true;
+    /// <summary>Widget pop-out window open/close scale motion.</summary>
+    public bool   AnimatePopOutMotion { get; set; } = true;
+    /// <summary>Edit-mode chrome and widget-gallery fade transitions.</summary>
+    public bool   AnimateEditChrome { get; set; } = true;
+    /// <summary>Animated numeric value changes on widget tiles.</summary>
+    public bool   AnimateValueChanges { get; set; } = true;
+    /// <summary>Crystal Glass specular shimmer sweep timer.</summary>
+    public bool   AnimateSpecularShimmer { get; set; } = true;
+    /// <summary>
+    /// Strength of elevation shadows (ElevationRaised/Floating/Modal tokens) — scales shadow
+    /// alpha at apply time. 0 = flat/no shadow, 1 = full depth. Default 0.5 (subtle-Apple look).
+    /// Range 0–1.
+    /// </summary>
+    public double DepthIntensity { get; set; } = 0.5;
+    /// <summary>When true, widget tile headline/value text scales with the tile's resized bounds
+    /// (interacts multiplicatively with <see cref="FontSizeMultiplier"/>).</summary>
+    public bool   ScaleTextWithWidgetSize { get; set; } = true;
+
     // ── Session persistence ─────────────────────────────────────────────────────
     public string LastActiveTab    { get; set; } = string.Empty;
     public double LastWindowWidth  { get; set; } = 0;

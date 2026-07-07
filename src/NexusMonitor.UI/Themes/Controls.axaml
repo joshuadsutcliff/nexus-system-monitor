@@ -1,5 +1,21 @@
 <Styles xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="using:NexusMonitor.UI.Controls">
+
+  <!--
+    Phase 8 UI polish (Task 3): every hardcoded micro-transition Duration in this file (button/
+    toggle background fades, DataGrid row + ListBox item hover fades) has been migrated to
+    {DynamicResource MotionFast}/MotionBase — MotionSettingsService.Apply scales these from
+    AppSettings.AnimationSpeed and collapses them to TimeSpan.Zero at speed 0 ("everything
+    instant"). Per the Phase 8 Task 3 conductor ruling, this duration-zeroing alone is sufficient
+    gating for these micro-transitions — they are NOT additionally class-gated by
+    AnimateHoverEffects the way Border.nx-widget-chrome's hover LIFT is below (that's the
+    "hover-lift-enabled" PageHostControl class gate; these plain color/background fades have no
+    equivalent shared ancestor to gate through cheaply, and unlike the lift they carry no motion/
+    shadow — just a brush swap — so leaving them token-driven only was judged an acceptable,
+    pragmatic scope boundary rather than plumbing a new cross-cutting gate for micro-fades this
+    task did not explicitly require gated per-toggle.
+  -->
 
   <!-- ===== BUTTON — Elevated ===== -->
   <Style Selector="Button.nx-btn">
@@ -15,7 +31,7 @@
   <Style Selector="Button.nx-btn /template/ ContentPresenter">
     <Setter Property="Transitions">
       <Transitions>
-        <BrushTransition Property="Background" Duration="0:0:0.15"/>
+        <BrushTransition Property="Background" Duration="{DynamicResource MotionBase}"/>
       </Transitions>
     </Setter>
   </Style>
@@ -39,7 +55,7 @@
   <Style Selector="Button.nx-btn-accent /template/ ContentPresenter">
     <Setter Property="Transitions">
       <Transitions>
-        <BrushTransition Property="Background" Duration="0:0:0.15"/>
+        <BrushTransition Property="Background" Duration="{DynamicResource MotionBase}"/>
       </Transitions>
     </Setter>
   </Style>
@@ -59,12 +75,28 @@
   <Style Selector="Button.nx-btn-ghost /template/ ContentPresenter">
     <Setter Property="Transitions">
       <Transitions>
-        <BrushTransition Property="Background" Duration="0:0:0.15"/>
+        <BrushTransition Property="Background" Duration="{DynamicResource MotionBase}"/>
       </Transitions>
     </Setter>
   </Style>
   <Style Selector="Button.nx-btn-ghost:pointerover /template/ ContentPresenter">
     <Setter Property="Background" Value="{DynamicResource BgHoverBrush}" />
+  </Style>
+
+  <!-- Sidebar nav rows — System Settings parity (Phase 8 UI polish, Task 6):
+       p8-macos-ref.md line 16 measured NO hover treatment on unselected System Settings sidebar
+       rows ("moved the pointer onto multiple unselected rows... no highlight rectangle
+       appeared"). ".nav-item" (set alongside "nx-btn-ghost" only on MainWindow.axaml's nav
+       Button, see comment there) lets this override win over the general
+       "Button.nx-btn-ghost:pointerover" hover rule above by selector specificity, WITHOUT
+       touching that shared rule — every other nx-btn-ghost consumer (titlebar buttons, Settings
+       "Save…"/"Delete" buttons, etc.) keeps its hover unchanged.
+       ":not(.active)" is required: the active row's own accent-pill Background (below) is set
+       unconditionally by ".active" (no ":pointerover" in its selector), and ".nav-item:pointerover"
+       would otherwise outrank it by specificity (3 selector-parts vs. 2) and incorrectly flash the
+       active pill back to transparent on hover. -->
+  <Style Selector="Button.nx-btn-ghost.nav-item:pointerover:not(.active) /template/ ContentPresenter">
+    <Setter Property="Background" Value="Transparent" />
   </Style>
 
   <!-- Active nav item — accent pill background + accent text + bold -->
@@ -76,6 +108,32 @@
   </Style>
   <Style Selector="Button.nx-btn-ghost.active TextBlock">
     <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+
+  <!-- Active SIDEBAR nav item — System Settings parity (Phase 8 UI polish, Task 6): p8-macos-ref.md
+       line 12 — "solid accent blue ... with white label when the item is the direct sidebar
+       selection". Gate-review finding: the generic ".active" rule above is SHARED by every
+       nx-btn-ghost consumer, including HistoryView.axaml's 1h/6h/24h/7d/30d time-range chips
+       (Classes="nx-btn-ghost" Classes.active, no "nav-item"), which silently inherited this solid
+       pill when it was applied there directly — an unreviewed visual change outside this task's
+       scope. Rescoped to ".nav-item" (set alongside "nx-btn-ghost" only on MainWindow.axaml's nav
+       Button, see MainWindow.axaml:310) so ONLY sidebar nav rows get the solid capsule; History's
+       chips (and every other nx-btn-ghost.active consumer) now render the original light
+       accent-tint pill above, unchanged. Same scoping technique — and the same reason — as the
+       ".nav-item"-scoped hover-suppression rule earlier in this file. Kept AFTER the generic
+       ".active" rule so this more-specific selector (3 selector-parts: Button + 2 classes) wins
+       for nav rows over the generic one (2 selector-parts), per this file's own established
+       Avalonia specificity/order precedent (see the hover-suppression comment above). Reuses the
+       existing AccentBlueBrush resource (not a hardcoded blue) per the brief's "preserve the theme
+       system" directive — the nav icon chip (MainWindow.axaml) already shares this same token.
+       Foreground="White" cascades to the icon-chip glyph's sibling label TextBlock via inherited
+       Foreground (the chip glyph itself is explicitly white regardless of selection, see
+       MainWindow.axaml). -->
+  <Style Selector="Button.nx-btn-ghost.nav-item.active">
+    <Setter Property="Foreground" Value="White" />
+  </Style>
+  <Style Selector="Button.nx-btn-ghost.nav-item.active /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource AccentBlueBrush}" />
   </Style>
 
   <!-- ===== TEXT INPUT ===== -->
@@ -128,7 +186,7 @@
   <Style Selector="DataGrid.nx-grid DataGridRow /template/ Rectangle#BackgroundRectangle">
     <Setter Property="Transitions">
       <Transitions>
-        <BrushTransition Property="Fill" Duration="0:0:0.12"/>
+        <BrushTransition Property="Fill" Duration="{DynamicResource MotionFast}"/>
       </Transitions>
     </Setter>
   </Style>
@@ -162,7 +220,7 @@
   <Style Selector="ListBox.nx-list ListBoxItem /template/ ContentPresenter">
     <Setter Property="Transitions">
       <Transitions>
-        <BrushTransition Property="Background" Duration="0:0:0.12"/>
+        <BrushTransition Property="Background" Duration="{DynamicResource MotionFast}"/>
       </Transitions>
     </Setter>
   </Style>
@@ -208,7 +266,17 @@
     <Setter Property="Margin" Value="8,4" />
   </Style>
 
-  <!-- ===== TOGGLE BUTTON ===== -->
+  <!-- ===== TOGGLE BUTTON — original accent/gray PILL =====
+       Unchanged (Phase 8 UI polish, Task 6): this "nx-toggle" class is still used, WITH literal
+       text Content, by 9 call sites outside Settings — NetworkView, ServicesView, ProcessesView
+       (x4: Simplified/Tree/Info Panel/Groups), GamingModeView, ProBalanceView, AlertsView. An
+       earlier pass of this task redefined "nx-toggle" itself into the bare macOS-switch template
+       below on the (incorrect) assumption that "Content is never set at any call site" — false;
+       those 9 sites set a TextBlock as Content, and the switch template has no ContentPresenter,
+       so that would have silently deleted their labels app-wide. Left byte-for-byte as it was
+       before Task 6 and re-scoped the macOS-switch restyle onto a NEW "nx-switch" class (below),
+       applied only to SettingsView.axaml's 21 bare (contentless) toggles — zero risk to the other
+       9 call sites since they're untouched here and in their own view files. -->
   <Style Selector="ToggleButton.nx-toggle">
     <Setter Property="Background" Value="{DynamicResource BgElevatedBrush}" />
     <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
@@ -222,7 +290,7 @@
   <Style Selector="ToggleButton.nx-toggle /template/ ContentPresenter">
     <Setter Property="Transitions">
       <Transitions>
-        <BrushTransition Property="Background" Duration="0:0:0.2"/>
+        <BrushTransition Property="Background" Duration="{DynamicResource MotionBase}"/>
       </Transitions>
     </Setter>
   </Style>
@@ -232,6 +300,90 @@
     <Setter Property="BorderThickness" Value="0" />
   </Style>
   <Style Selector="ToggleButton.nx-toggle:checked:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource AccentBlueHoverBrush}" />
+  </Style>
+
+  <!-- ===== TOGGLE SWITCH — macOS-style switch (Settings only) =====
+       Phase 8 UI polish (Task 6): new "nx-switch" class, applied only to SettingsView.axaml's
+       bare (contentless) ToggleButtons — kept separate from "nx-toggle" (see comment above) so
+       the 9 non-Settings call sites that rely on nx-toggle's original text-pill look/Content
+       keep working unchanged. Restyles the actual System Settings switch grammar: pill TRACK +
+       sliding circular KNOB. Reference: p8-macos-ref.md "Toggle switches" section (measured on
+       the Notifications pane), cited per value below. Requires a full custom ControlTemplate
+       (PART_Track/PART_Knob) since Avalonia's default ToggleButton template has no such parts —
+       same "Setter Property=Template" idiom SettingsView.axaml's own SwatchTheme ControlTheme
+       already uses in this codebase.
+       Size: kept the packet's measured 36x15 exactly (p8-macos-ref.md line 21) rather than
+       scaling up for Nexus's density — Settings row labels sit at NxFont13(15)/NxFont11(13),
+       the same order of magnitude as native System Settings labels, so the 2.4:1 track
+       ratio reads at a comparable relative size; verified visually via the Task 6 before/after
+       switches screenshot (see task-6-report.md). -->
+  <Style Selector="ToggleButton.nx-switch">
+    <Setter Property="Width" Value="36"/>
+    <Setter Property="Height" Value="15"/>
+    <Setter Property="Padding" Value="0"/>
+    <Setter Property="BorderThickness" Value="0"/>
+    <Setter Property="Cursor" Value="Hand"/>
+    <Setter Property="Template">
+      <ControlTemplate TargetType="ToggleButton">
+        <!-- Track — OFF: packet measured neutral dark gray rgb(69,69,72) (p8-macos-ref.md
+             line 22). A literal hardcoded gray would only be correct for Dark mode, so this
+             uses BgSelectedBrush — the nearest existing theme-aware token in BOTH palettes
+             (Dark #38384A / Light #D0D0DD) per the "match nearest existing token" rule, since
+             the packet itself was captured in Dark mode only and Nexus must support Light too.
+             CornerRadius reuses the existing CornerFull(9999) idiom (already the pre-change
+             value on this same control) — Avalonia clamps it to min(Width,Height)/2, giving an
+             exact radius=height/2 capsule per packet line 21 without hand-computing 7.5. -->
+        <Border x:Name="PART_Track"
+                Background="{DynamicResource BgSelectedBrush}"
+                CornerRadius="{StaticResource CornerFull}">
+          <Border.Transitions>
+            <Transitions>
+              <BrushTransition Property="Background" Duration="{DynamicResource MotionFast}"/>
+            </Transitions>
+          </Border.Transitions>
+          <!-- Knob — packet: near-circular, ~1px inset from track edge, essentially fills
+               track height (p8-macos-ref.md line 24); white in both OFF (measured
+               rgb(227,227,228)) and ON (white) states (line 22-23), so a literal White brush
+               is correct in both themes rather than a DynamicResource text-color token.
+               Margin="1" on a Height=15 track yields the 13x13 near-circle. RenderTransform
+               (not Margin/HorizontalAlignment) drives left/right travel so it can animate on
+               MotionFast — packet couldn't observe live motion in static screenshots ("could
+               not observe... static screenshots can't show slide animation"), so duration
+               follows the conductor's existing speed-0-is-instant ruling (MotionSettingsService
+               zeroes MotionFast at AnimationSpeed=0) rather than inventing a new value. -->
+          <Border x:Name="PART_Knob"
+                  Width="13" Height="13"
+                  Margin="1,0,0,0"
+                  HorizontalAlignment="Left"
+                  VerticalAlignment="Center"
+                  Background="White"
+                  CornerRadius="{StaticResource CornerFull}"
+                  RenderTransform="none">
+            <Border.Transitions>
+              <Transitions>
+                <TransformOperationsTransition Property="RenderTransform" Duration="{DynamicResource MotionFast}"/>
+              </Transitions>
+            </Border.Transitions>
+          </Border>
+        </Border>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <!-- ON state — packet: saturated accent track, white knob, right-aligned (p8-macos-ref.md
+       line 23). Reuses AccentBlueBrush — the SAME token as the sidebar selection pill/icon
+       chip — rather than the packet's literal, slightly-more-saturated rgb(7,124,253): Nexus
+       has exactly one configurable accent resource, not two, so per the brief's "preserve the
+       theme system" directive both consumers intentionally share it (flagged, not a missed
+       nuance — see task-6-report.md). Knob travel = track width(36) - 2*inset(2) - knob(13)
+       = 21px. -->
+  <Style Selector="ToggleButton.nx-switch:checked /template/ Border#PART_Track">
+    <Setter Property="Background" Value="{DynamicResource AccentBlueBrush}"/>
+  </Style>
+  <Style Selector="ToggleButton.nx-switch:checked /template/ Border#PART_Knob">
+    <Setter Property="RenderTransform" Value="translateX(21px)"/>
+  </Style>
+  <Style Selector="ToggleButton.nx-switch:checked:pointerover /template/ Border#PART_Track">
     <Setter Property="Background" Value="{DynamicResource AccentBlueHoverBrush}" />
   </Style>
 
@@ -268,6 +420,52 @@
   </Style>
   <Style Selector="DataGridColumnHeader">
     <Setter Property="MinWidth" Value="60"/>
+  </Style>
+
+  <!-- ===== SETTINGS CARD — Phase 8 elevation ===== -->
+  <!-- Applied alongside SettingsView.axaml's own explicit Background/BorderBrush/CornerRadius
+       (17 identical card Borders) — this style only adds the one thing none of them set inline:
+       the resting elevation. -->
+  <Style Selector="Border.nx-settings-card">
+    <Setter Property="BoxShadow" Value="{DynamicResource ElevationRaised}" />
+  </Style>
+
+  <!-- ===== WIDGET TILE CHROME — Phase 8 elevation + hover lift ===== -->
+  <!--
+    Shared chrome style for every dashboard widget tile's root Border (WidgetTile.axaml,
+    Widgets/*.axaml, Views/HealthTrendsView.axaml) — applied via Classes="nx-widget-chrome"
+    alongside each file's own existing Background/BorderBrush/CornerRadius (left untouched; those
+    already vary slightly — CornerMD vs CornerLG — so this style only owns the NEW elevation/lift
+    behavior, not the pre-existing chrome properties).
+
+    Hover lift is gated two ways, both required:
+      - "hover-lift-enabled" class on the ancestor PageHostControl — reflects
+        MotionSettingsService.EffectEnabled(settings, MotionEffect.HoverEffects) (see
+        DashboardViewModel.HoverEffectsEnabled / PageHostControl.HoverLiftEnabled).
+      - ":not(.edit-mode)" on the same PageHostControl — reflects DashboardViewModel.IsEditMode.
+        Belt-and-suspenders: EditAdornerControl already becomes hit-test-visible over the whole
+        page in edit mode ("adorner owns gestures"), which independently prevents the pointer from
+        ever reaching a tile's Border to trigger :pointerover in the first place — this class gate
+        makes that guarantee explicit/structural rather than relying solely on that hit-testing
+        side effect.
+    PageHostControl is the single visual-tree ancestor common to every tile regardless of the
+    tile's own DataContext (several widget types rebind DataContext away from DashboardViewModel),
+    so gating there — rather than a per-tile {Binding !IsEditMode} — works uniformly. See
+    PageHostControl.IsEditModeProperty's doc for the full rationale.
+  -->
+  <Style Selector="Border.nx-widget-chrome">
+    <Setter Property="BoxShadow" Value="{DynamicResource ElevationRaised}" />
+    <Setter Property="RenderTransform" Value="none" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <BoxShadowsTransition Property="BoxShadow" Duration="{DynamicResource MotionFast}" />
+        <TransformOperationsTransition Property="RenderTransform" Duration="{DynamicResource MotionFast}" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="controls|PageHostControl.hover-lift-enabled:not(.edit-mode) Border.nx-widget-chrome:pointerover">
+    <Setter Property="BoxShadow" Value="{DynamicResource ElevationFloating}" />
+    <Setter Property="RenderTransform" Value="translateY(-1px) scale(1.005)" />
   </Style>
 
 </Styles>

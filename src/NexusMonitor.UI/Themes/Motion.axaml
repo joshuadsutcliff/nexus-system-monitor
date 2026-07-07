@@ -1,0 +1,14 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="using:System">
+
+  <!-- Phase 8 UI polish: motion duration tokens (design-time / preview defaults).
+       Seeded here at their 1.0x-speed values so XAML previews and any render that happens
+       before MotionSettingsService.Apply() has run never NRE on a DynamicResource lookup.
+       MotionSettingsService.Apply() overwrites all three keys at runtime with the value scaled
+       by AppSettings.AnimationSpeed (see NexusMonitor.Core.Motion.MotionMath.Scale). -->
+  <sys:TimeSpan x:Key="MotionFast">0:0:0.12</sys:TimeSpan>
+  <sys:TimeSpan x:Key="MotionBase">0:0:0.18</sys:TimeSpan>
+  <sys:TimeSpan x:Key="MotionSlow">0:0:0.28</sys:TimeSpan>
+
+</ResourceDictionary>
