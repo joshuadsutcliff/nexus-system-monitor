@@ -41,6 +41,11 @@ public partial class PerformanceViewModel : ViewModelBase, IActivatable, IDispos
     [ObservableProperty] private double _cpuPercent;
     [ObservableProperty] private double _cpuFrequencyGhz;
     [ObservableProperty] private double _cpuTempC;
+    // Display-ready labels: some platforms (e.g. macOS — no public sensor/frequency API) report
+    // a hard 0 for these rather than omitting the reading. A real 0°C / 0 GHz doesn't occur on
+    // hardware that actually reports the value, so "—" is keyed off the value, not the OS.
+    [ObservableProperty] private string _cpuTempLabel = "—";
+    [ObservableProperty] private string _cpuFrequencyLabel = "—";
     [ObservableProperty] private string _cpuModelName = string.Empty;
     [ObservableProperty] private int _logicalCores;
     [ObservableProperty] private IReadOnlyList<CoreCellViewModel> _coreCells = [];
@@ -199,6 +204,10 @@ public partial class PerformanceViewModel : ViewModelBase, IActivatable, IDispos
         CpuPercent      = Math.Round(m.Cpu.TotalPercent, 1);
         CpuFrequencyGhz = Math.Round(m.Cpu.FrequencyMhz / 1000.0, 2);
         CpuTempC        = Math.Round(m.Cpu.TemperatureCelsius, 0);
+        // Keyed off the raw reading, not the OS: no sensor data comes back as <= 0, never as
+        // a real measurement, so "—" reliably means "unavailable" everywhere.
+        CpuFrequencyLabel = m.Cpu.FrequencyMhz       > 0 ? $"{CpuFrequencyGhz:F2} GHz" : "—";
+        CpuTempLabel      = m.Cpu.TemperatureCelsius > 0 ? $"{CpuTempC}°C"             : "—";
         CpuModelName    = m.Cpu.ModelName;
         LogicalCores    = m.Cpu.LogicalCores;
         Push(_cpuValues, _ringIdx, m.Cpu.TotalPercent);

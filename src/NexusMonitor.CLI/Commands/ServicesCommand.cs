@@ -113,39 +113,50 @@ internal sealed class ServicesCommand : AsyncCommand<ServicesCommand.Settings>
                              "Set Startup: Manual", "Set Startup: Disabled",
                              "Cancel"));
 
-        switch (action)
+        // Providers throw PlatformNotSupportedException for operations the OS has no API for
+        // (e.g. SetStartTypeAsync on macOS, where launchd start type lives in the plist) — the
+        // CLI menu is not capability-gated, so surface those as a friendly message here instead
+        // of letting them bubble to the top-level handler as a generic crash.
+        try
         {
-            case "Start":
-                await _servicesProvider.StartServiceAsync(svc.Name);
-                AnsiConsole.MarkupLine($"[green]Started '{Markup.Escape(svc.Name)}'.[/]");
-                break;
-            case "Stop":
-                await _servicesProvider.StopServiceAsync(svc.Name);
-                AnsiConsole.MarkupLine($"[green]Stopped '{Markup.Escape(svc.Name)}'.[/]");
-                break;
-            case "Restart":
-                await _servicesProvider.RestartServiceAsync(svc.Name);
-                AnsiConsole.MarkupLine($"[green]Restarted '{Markup.Escape(svc.Name)}'.[/]");
-                break;
-            case "Set Startup: Automatic":
-                await _servicesProvider.SetStartTypeAsync(svc.Name, ServiceStartType.Automatic);
-                AnsiConsole.MarkupLine($"[green]Set start type to Automatic.[/]");
-                break;
-            case "Set Startup: AutomaticDelayed":
-                await _servicesProvider.SetStartTypeAsync(svc.Name, ServiceStartType.AutomaticDelayed);
-                AnsiConsole.MarkupLine($"[green]Set start type to AutomaticDelayed.[/]");
-                break;
-            case "Set Startup: Manual":
-                await _servicesProvider.SetStartTypeAsync(svc.Name, ServiceStartType.Manual);
-                AnsiConsole.MarkupLine($"[green]Set start type to Manual.[/]");
-                break;
-            case "Set Startup: Disabled":
-                await _servicesProvider.SetStartTypeAsync(svc.Name, ServiceStartType.Disabled);
-                AnsiConsole.MarkupLine($"[green]Set start type to Disabled.[/]");
-                break;
-            default:
-                AnsiConsole.MarkupLine("[grey]Cancelled.[/]");
-                break;
+            switch (action)
+            {
+                case "Start":
+                    await _servicesProvider.StartServiceAsync(svc.Name);
+                    AnsiConsole.MarkupLine($"[green]Started '{Markup.Escape(svc.Name)}'.[/]");
+                    break;
+                case "Stop":
+                    await _servicesProvider.StopServiceAsync(svc.Name);
+                    AnsiConsole.MarkupLine($"[green]Stopped '{Markup.Escape(svc.Name)}'.[/]");
+                    break;
+                case "Restart":
+                    await _servicesProvider.RestartServiceAsync(svc.Name);
+                    AnsiConsole.MarkupLine($"[green]Restarted '{Markup.Escape(svc.Name)}'.[/]");
+                    break;
+                case "Set Startup: Automatic":
+                    await _servicesProvider.SetStartTypeAsync(svc.Name, ServiceStartType.Automatic);
+                    AnsiConsole.MarkupLine($"[green]Set start type to Automatic.[/]");
+                    break;
+                case "Set Startup: AutomaticDelayed":
+                    await _servicesProvider.SetStartTypeAsync(svc.Name, ServiceStartType.AutomaticDelayed);
+                    AnsiConsole.MarkupLine($"[green]Set start type to AutomaticDelayed.[/]");
+                    break;
+                case "Set Startup: Manual":
+                    await _servicesProvider.SetStartTypeAsync(svc.Name, ServiceStartType.Manual);
+                    AnsiConsole.MarkupLine($"[green]Set start type to Manual.[/]");
+                    break;
+                case "Set Startup: Disabled":
+                    await _servicesProvider.SetStartTypeAsync(svc.Name, ServiceStartType.Disabled);
+                    AnsiConsole.MarkupLine($"[green]Set start type to Disabled.[/]");
+                    break;
+                default:
+                    AnsiConsole.MarkupLine("[grey]Cancelled.[/]");
+                    break;
+            }
+        }
+        catch (PlatformNotSupportedException ex)
+        {
+            AnsiConsole.MarkupLine($"[yellow]{Markup.Escape(ex.Message)}[/]");
         }
 
         return 0;

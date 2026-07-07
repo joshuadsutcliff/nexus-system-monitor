@@ -14,6 +14,14 @@ public record SubsystemHealth
     public double CurrentValue { get; init; }
     /// <summary>Human-readable summary, e.g. "72% used".</summary>
     public string Summary { get; init; } = string.Empty;
+    /// <summary>
+    /// False when this subsystem has no live telemetry to score (e.g. macOS GPU utilization,
+    /// which has no public API and always reports 0 even though a GPU is present). When false,
+    /// <see cref="Score"/> and <see cref="Level"/> are not meaningful and are excluded from the
+    /// overall composite — display an "unavailable"/"not scored" state instead of the raw values.
+    /// Defaults to <c>true</c> so existing subsystems (CPU/Memory/Disk) are unaffected.
+    /// </summary>
+    public bool HasData { get; init; } = true;
 }
 
 public record ProcessImpact

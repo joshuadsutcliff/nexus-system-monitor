@@ -18,6 +18,23 @@ public partial class SystemInfoViewModel : ViewModelBase
     [ObservableProperty] private bool   _isLoading = true;
     [ObservableProperty] private string _loadError  = "";
 
+    // Display-ready labels: some platforms (e.g. macOS — hw.cpufrequency_max /
+    // hw.l3cachesize are absent on Apple Silicon) report a hard 0 rather than omitting the
+    // reading. A real max clock or L3 cache size of 0 doesn't occur on hardware that actually
+    // reports the value, so "—" is keyed off the value, not the OS.
+    [ObservableProperty] private string _maxClockDisplay = "—";
+    [ObservableProperty] private string _l3CacheDisplay  = "—";
+
+    partial void OnInfoChanged(SystemHardwareInfo? value)
+    {
+        MaxClockDisplay = value is not null && value.Cpu.MaxClockMhz > 0
+            ? $"{value.Cpu.MaxClockMhz:F0}"
+            : "—";
+        L3CacheDisplay = value is not null && value.Cpu.L3CacheKB > 0
+            ? $"{value.Cpu.L3CacheKB} KB"
+            : "—";
+    }
+
 #if WINDOWS
     public SystemInfoViewModel(WindowsHardwareInfoProvider provider)
         => _ = LoadAsync(provider);

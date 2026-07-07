@@ -63,11 +63,16 @@ public sealed class MacOSNetworkConnectionsProvider : INetworkConnectionsProvide
         var result = new List<NetworkConnection>();
         try
         {
-            // netstat -anvp tcp  (TCP connections with PID) — 4 subprocesses, cache result for 5 s
-            ParseNetstat("tcp",  ConnectionProtocol.Tcp4, result);
-            ParseNetstat("tcp6", ConnectionProtocol.Tcp6, result);
-            ParseNetstat("udp",  ConnectionProtocol.Udp4, result);
-            ParseNetstat("udp6", ConnectionProtocol.Udp6, result);
+            // 4 subprocesses, cache result for 5 s.
+            // BSD/macOS netstat rejects "-p tcp6"/"-p udp6" (unknown/uninstrumented protocol);
+            // IPv6 sockets require the "-f inet6" family flag instead. The IPv4 passes must be
+            // family-filtered too ("-f inet"): a bare "-p tcp" lists ALL families, so v6 rows
+            // would be double-counted by the inet6 pass. Dual-stack ("tcp46"/"udp46") sockets
+            // are listed by BOTH families — ParseNetstat attributes them to the IPv4 pass only.
+            ParseNetstat("-anv -f inet -p tcp",   ConnectionProtocol.Tcp4, result);
+            ParseNetstat("-anv -f inet6 -p tcp",  ConnectionProtocol.Tcp6, result);
+            ParseNetstat("-anv -f inet -p udp",   ConnectionProtocol.Udp4, result);
+            ParseNetstat("-anv -f inet6 -p udp",  ConnectionProtocol.Udp6, result);
         }
         catch { }
 
@@ -76,45 +81,57 @@ public sealed class MacOSNetworkConnectionsProvider : INetworkConnectionsProvide
         return result;
     }
 
-    private static void ParseNetstat(string proto, ConnectionProtocol protocol,
+    private static void ParseNetstat(string netstatArgs, ConnectionProtocol protocol,
                                      List<NetworkConnection> result)
     {
-        var output = RunNetstat(proto);
+        var output = RunNetstat(netstatArgs);
         if (string.IsNullOrEmpty(output)) return;
-
-        bool isUdp = proto.StartsWith("udp", StringComparison.OrdinalIgnoreCase);
 
         foreach (var line in output.Split('\n'))
         {
             if (string.IsNullOrWhiteSpace(line)) continue;
             var parts = line.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            // macOS netstat -anvp tcp output columns:
-            // Proto Recv-Q Send-Q Local-Address Foreign-Address (state) rhiwat shiwat pid
-            // For udp there is no state column — at least 7 fields for pid to be last non-flag
-            if (parts.Length < 8) continue;
+            if (parts.Length == 0) continue;
 
-            string localAddr, remoteAddr;
-            TcpConnectionState state;
+            // Only real data rows start with a proto token (tcp4/tcp6/tcp46/udp4/udp6/udp46).
+            // This is what actually distinguishes data from the two header lines macOS netstat
+            // prints ("Active Internet connections..." and "Proto Recv-Q Send-Q Local Address
+            // ... process:pid state options ..."). The second header line has >=8 fields too,
+            // so a field-count-only check lets it through and gets parsed as a garbage
+            // connection (Local='Local', Remote='Address', PID=0) — checking the proto prefix
+            // instead makes the skip robust regardless of column count.
+            bool isUdp;
+            if (parts[0].StartsWith("tcp", StringComparison.OrdinalIgnoreCase)) isUdp = false;
+            else if (parts[0].StartsWith("udp", StringComparison.OrdinalIgnoreCase)) isUdp = true;
+            else continue;
+
+            // Dual-stack sockets ("tcp46"/"udp46") appear in both the -f inet and -f inet6
+            // outputs; count them only in the IPv4 pass so the two invocations never
+            // double-report a socket.
+            if (parts[0].EndsWith("46", StringComparison.Ordinal)
+                && protocol is ConnectionProtocol.Tcp6 or ConnectionProtocol.Udp6) continue;
+
+            // macOS `netstat -anv` columns (both tcp and udp share the same 8 trailing
+            // fields after process:pid — state options gencnt flags flags1 usecnt rtncnt fltrs):
+            //   tcp: Proto Recv-Q Send-Q Local Foreign State  rxbytes txbytes rhiwat shiwat process:pid <8 trailing>
+            //   udp: Proto Recv-Q Send-Q Local Foreign        rxbytes txbytes rhiwat shiwat process:pid <8 trailing>
+            // So process:pid is always the 9th-from-last field, regardless of proto — this also
+            // holds when the process name itself contains embedded spaces (observed in the wild,
+            // e.g. "Obsidian Helper:1234" or "Obsidian Helper :1234"), which shifts every
+            // left-anchored index but not a right-anchored one.
+            var pidIdx      = parts.Length - 9;
+            var minFixedIdx = isUdp ? 4 : 5; // last fixed left-hand column consumed below
+            if (pidIdx <= minFixedIdx) continue; // too short to be a well-formed data row
+
+            string localAddr  = parts[3];
+            string remoteAddr = parts[4];
+            TcpConnectionState state = isUdp ? TcpConnectionState.Unknown : ParseTcpState(parts[5]);
+
+            var pidField = parts[pidIdx];
+            var colon    = pidField.LastIndexOf(':');
             int pid = 0;
-
-            if (isUdp)
-            {
-                // Proto Recv-Q Send-Q Local Foreign [rhiwat shiwat] pid
-                localAddr  = parts[3];
-                remoteAddr = parts[4];
-                state      = TcpConnectionState.Unknown;
-                // pid is typically the last or second-to-last token
-                _ = int.TryParse(parts[^1], out pid);
-            }
-            else
-            {
-                // Proto Recv-Q Send-Q Local Foreign State rhiwat shiwat pid
-                if (parts.Length < 9) continue;
-                localAddr  = parts[3];
-                remoteAddr = parts[4];
-                state      = ParseTcpState(parts[5]);
-                _ = int.TryParse(parts[^1], out pid);
-            }
+            if (colon >= 0) int.TryParse(pidField[(colon + 1)..], out pid);
+            else            int.TryParse(pidField, out pid);
 
             SplitAddressPort(localAddr,  out var lAddr, out var lPort);
             SplitAddressPort(remoteAddr, out var rAddr, out var rPort);
@@ -133,22 +150,29 @@ public sealed class MacOSNetworkConnectionsProvider : INetworkConnectionsProvide
         }
     }
 
-    private static string RunNetstat(string proto)
+    private static string RunNetstat(string netstatArgs)
     {
         try
         {
             using var proc = new Process
             {
-                StartInfo = new ProcessStartInfo("netstat", $"-anvp {proto}")
+                StartInfo = new ProcessStartInfo("netstat", netstatArgs)
                 {
                     RedirectStandardOutput = true,
+                    RedirectStandardError  = true,
                     UseShellExecute        = false,
                     CreateNoWindow         = true,
                 }
             };
             proc.Start();
+            // Start draining both streams concurrently *before* WaitForExit — BSD netstat
+            // writes to stderr for unsupported family/proto combos (e.g. "tcp6: unknown or
+            // uninstrumented protocol") and if stderr isn't read, that stream's OS pipe buffer
+            // fills up and the child blocks writing to it, deadlocking against our WaitForExit.
             var outputTask = proc.StandardOutput.ReadToEndAsync();
+            var errorTask  = proc.StandardError.ReadToEndAsync();
             if (!proc.WaitForExit(3000)) { try { proc.Kill(); } catch { } }
+            _ = errorTask.Result; // discard — must never reach the console
             return outputTask.Result;
         }
         catch

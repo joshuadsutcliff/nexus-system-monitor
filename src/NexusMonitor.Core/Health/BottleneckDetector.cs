@@ -213,6 +213,17 @@ public static class BottleneckDetector
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// True when the metrics sample carries genuine GPU telemetry rather than
+    /// static-identity-only data. Some platforms (e.g. macOS — no public GPU utilization
+    /// API) always report <c>UsagePercent = 0</c> and <c>DedicatedMemoryUsedBytes = 0</c>
+    /// even when a real GPU is present, which would otherwise read as a perfectly idle
+    /// (and thus perfectly healthy) GPU. Used to exclude the GPU subsystem from health
+    /// scoring instead of rewarding fabricated zeros with a perfect score.
+    /// </summary>
+    public static bool HasLiveGpuData(IReadOnlyList<GpuMetrics> gpus) =>
+        gpus.Count > 0 && gpus.Any(g => g.UsagePercent > 0 || g.DedicatedMemoryUsedBytes > 0);
+
     private static BottleneckReport Build(
         BottleneckType type, BottleneckSeverity severity, WorkloadType workload,
         string process, string headline, string explanation, string upgrade,

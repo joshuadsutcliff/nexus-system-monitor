@@ -30,10 +30,11 @@ public sealed class MacOSServicesProvider : IServicesProvider
                 _ = int.TryParse(pidStr, out var pid);
                 var state = pid > 0 ? ServiceState.Running : ServiceState.Stopped;
 
-                // Infer start type from label prefix
-                var startType = ServiceStartType.Automatic;
-                if (label.StartsWith("com.apple.", StringComparison.Ordinal))
-                    startType = ServiceStartType.Automatic;
+                // `launchctl list` doesn't expose a Windows-SCM-style start type (Automatic/
+                // Manual/Disabled) — that's a plist-level concept (RunAtLoad/KeepAlive) we can't
+                // reliably infer from this output. Report Unknown rather than fabricating
+                // Automatic for every service.
+                var startType = ServiceStartType.Unknown;
 
                 result.Add(new ServiceInfo
                 {
@@ -68,7 +69,7 @@ public sealed class MacOSServicesProvider : IServicesProvider
         }, ct);
 
     public Task SetStartTypeAsync(string name, ServiceStartType startType, CancellationToken ct = default) =>
-        Task.CompletedTask; // launchd start type is controlled by plist — not easily changed at runtime
+        throw new PlatformNotSupportedException("Changing a service's start type is not supported on macOS — launchd start type is controlled by the LaunchAgent/LaunchDaemon plist, not a runtime API.");
 
     private static string RunLaunchctl(string args)
     {

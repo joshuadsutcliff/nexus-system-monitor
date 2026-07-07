@@ -38,7 +38,11 @@ public sealed class FolderTreeRow(DiskNode node, int depth, bool isExpanded = fa
     public string AllocatedDisplay => Node.AllocatedDisplay;
     public string FileCount        => Node.FileCountDisplay;
     public string FolderCount      => Node.FolderCountDisplay;
-    public string Modified         => Node.LastModified.ToString("yyyy-MM-dd");
+    // The synthetic root node (MftScanner.cs) has no real MFT record and is left at
+    // default(DateTime); render that as "—" instead of "0001-01-01" rather than fabricate a date.
+    public string Modified         => Node.LastModified == default
+        ? "—"
+        : Node.LastModified.ToString("yyyy-MM-dd");
 }
 
 /// <summary>Per-extension aggregated stats for the File Types panel.</summary>
@@ -52,6 +56,7 @@ public record FileTypeStatRow(string Extension, long SizeBytes, long FileCount, 
 public partial class DiskAnalyzerViewModel : ViewModelBase, IDisposable
 {
     private CancellationTokenSource _cts = new();
+    private bool _disposed;
 
     [ObservableProperty] private string _selectedPath = GetDefaultPath();
     [ObservableProperty] private bool _isScanning;
@@ -181,9 +186,25 @@ public partial class DiskAnalyzerViewModel : ViewModelBase, IDisposable
         Duplicates.Clear();
         DuplicateSummary  = string.Empty;
 
+        // Clear the previous scan's results up front so stale rows/selection never sit under
+        // the UI mid-scan (previously TreeRows was left untouched until BuildTreeRows ran on
+        // completion, which combined with the row-1 reflow read as the whole grid jittering).
+        TreeRows.Clear();
+        Breadcrumb.Clear();
+        SelectedRow  = null;
+        SelectedNode = null;
+        SelectedFile = null;
+
+        // Wall-clock throttle (not count-based): RecursiveScanner reports once per file, which
+        // on a fast scan is far more often than the UI can usefully re-measure. Cap intermediate
+        // updates to 5/sec; the final status after the scan completes is set unconditionally
+        // below (outside this handler), so completion is never throttled away.
+        long lastProgressUpdateMs = Environment.TickCount64;
         var progress = new Progress<ScanProgress>(p =>
         {
-            if (p.FilesScanned > 5 && p.FilesScanned % 100 != 0) return;
+            long now = Environment.TickCount64;
+            if (p.FilesScanned > 5 && now - lastProgressUpdateMs < 200) return;
+            lastProgressUpdateMs = now;
             ScanProgressText = $"{p.FilesScanned:N0} files \u2014 {DiskNode.FormatSize(p.BytesCounted)}";
             ScanStatus = $"Scanning: {Path.GetFileName(p.CurrentPath)}";
         });
@@ -520,6 +541,8 @@ public partial class DiskAnalyzerViewModel : ViewModelBase, IDisposable
 
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
         _cts.Cancel();
         _cts.Dispose();
     }

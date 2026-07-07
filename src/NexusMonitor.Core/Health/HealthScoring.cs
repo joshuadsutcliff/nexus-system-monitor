@@ -96,8 +96,28 @@ public static class HealthScoring
 
     // ── Composite ──────────────────────────────────────────────────────────────
 
-    public static double CompositeScore(double cpuScore, double memScore, double diskScore, double gpuScore, double thermalScore)
-        => cpuScore * 0.30 + memScore * 0.25 + diskScore * 0.20 + gpuScore * 0.15 + thermalScore * 0.10;
+    private const double CpuWeight     = 0.30;
+    private const double MemWeight     = 0.25;
+    private const double DiskWeight    = 0.20;
+    private const double GpuWeight     = 0.15;
+    private const double ThermalWeight = 0.10;
+
+    /// <param name="includeGpu">
+    /// Pass <c>false</c> when the sample has no live GPU telemetry (see
+    /// <see cref="BottleneckDetector.HasLiveGpuData"/>) — the GPU's 15% weight is dropped
+    /// entirely and the remaining subsystem weights are renormalized to sum to 100%, rather
+    /// than crediting a fabricated (always-idle) GPU reading with a perfect score.
+    /// <paramref name="gpuScore"/> is ignored in that case.
+    /// </param>
+    public static double CompositeScore(double cpuScore, double memScore, double diskScore, double gpuScore, double thermalScore, bool includeGpu = true)
+    {
+        if (!includeGpu)
+        {
+            const double totalWeight = CpuWeight + MemWeight + DiskWeight + ThermalWeight; // 0.85
+            return (cpuScore * CpuWeight + memScore * MemWeight + diskScore * DiskWeight + thermalScore * ThermalWeight) / totalWeight;
+        }
+        return cpuScore * CpuWeight + memScore * MemWeight + diskScore * DiskWeight + gpuScore * GpuWeight + thermalScore * ThermalWeight;
+    }
 
     public static HealthLevel ScoreToLevel(double score) => score switch
     {

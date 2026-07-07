@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Reactive.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using NexusMonitor.Core.Abstractions;
 using NexusMonitor.Core.Gaming;
 using NexusMonitor.Core.Services;
 using ReactiveUI;
@@ -15,6 +16,9 @@ public partial class GamingModeViewModel : ViewModelBase, IDisposable
     private readonly SettingsService    _settings;
     private IDisposable? _sub;
     private const int MaxLogEntries = 100;
+
+    /// <summary>Exposes platform capability flags for binding in the View.</summary>
+    public IPlatformCapabilities Platform { get; }
 
     // ── Toggle / status ───────────────────────────────────────────────────────
 
@@ -46,12 +50,14 @@ public partial class GamingModeViewModel : ViewModelBase, IDisposable
     public GamingModeViewModel(
         GamingModeService  gamingMode,
         IPowerPlanProvider powerPlanProvider,
-        SettingsService    settings)
+        SettingsService    settings,
+        IPlatformCapabilities? platformCapabilities = null)
     {
         Title               = "Gaming Mode";
         _gamingMode         = gamingMode;
         _powerPlanProvider  = powerPlanProvider;
         _settings           = settings;
+        Platform            = platformCapabilities ?? new MockPlatformCapabilities();
 
         // Load persisted values via backing fields — avoids partial callbacks during init
         _isActive         = settings.Current.GamingModeEnabled;

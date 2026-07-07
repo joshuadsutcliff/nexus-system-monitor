@@ -37,6 +37,7 @@ public partial class ProcessesViewModel : ViewModelBase, IActivatable, IDisposab
     private CancellationTokenSource _detailCts = new();
     private IDisposable? _subscription;
     private IDisposable? _leakSubscription;
+    private bool _disposed;
 
     // Master cache: all live processes keyed by PID.
     // Allows in-place property updates so the DataGrid never loses sort state or selection.
@@ -797,6 +798,8 @@ public partial class ProcessesViewModel : ViewModelBase, IActivatable, IDisposab
 
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
         _cts.Cancel();
         _cts.Dispose();
         _detailCts.Cancel();

@@ -131,7 +131,12 @@ public sealed class SystemHealthService : IDisposable
         var realDisks = m.Disks.Where(d => d.TotalBytes > 0).ToList();
         var diskVal = realDisks.Count > 0 ? realDisks.Average(d => d.ActivePercent) : 0;
         var diskUsed = realDisks.Count > 0 ? realDisks.Max(d => d.UsedPercent) : 0;
-        var gpuVal  = m.Gpus.Count  > 0 ? m.Gpus.Average(g => g.UsagePercent) : 0;
+        // Some platforms (e.g. macOS — no public GPU utilization API) always report
+        // UsagePercent=0/DedicatedMemoryUsedBytes=0 for every sample even with a real GPU
+        // present. Treating that as "0% used" would fabricate a perfect GPU score, so detect
+        // the no-live-telemetry case and exclude the GPU subsystem from scoring instead.
+        var hasLiveGpu = BottleneckDetector.HasLiveGpuData(m.Gpus);
+        var gpuVal  = hasLiveGpu ? m.Gpus.Average(g => g.UsagePercent) : 0;
         var cpuTemp = m.Cpu.TemperatureCelsius;
         var gpuTemp = m.Gpus.Count  > 0 ? m.Gpus.Average(g => g.TemperatureCelsius) : -1;
 
@@ -139,9 +144,9 @@ public sealed class SystemHealthService : IDisposable
         var cpuScore    = HealthScoring.ScoreCpu(cpuVal);
         var memScore    = HealthScoring.ScoreMemory(memVal);
         var diskScore   = HealthScoring.ScoreDisk(diskVal, diskUsed);
-        var gpuScore    = HealthScoring.ScoreGpu(gpuVal);
+        var gpuScore    = hasLiveGpu ? HealthScoring.ScoreGpu(gpuVal) : 0;
         var thermalScore = HealthScoring.ScoreThermal(cpuTemp, gpuTemp);
-        var overall     = HealthScoring.CompositeScore(cpuScore, memScore, diskScore, gpuScore, thermalScore);
+        var overall     = HealthScoring.CompositeScore(cpuScore, memScore, diskScore, gpuScore, thermalScore, includeGpu: hasLiveGpu);
 
         // ── History + trends ─────────────────────────────────────────────────
         lock (_histLock)
@@ -215,11 +220,16 @@ public sealed class SystemHealthService : IDisposable
             Gpu = new SubsystemHealth
             {
                 Name         = "GPU",
+                // Score/Level are not meaningful when HasData is false (excluded from the
+                // composite above) — callers must check HasData before displaying either.
                 Score        = gpuScore,
                 Level        = HealthScoring.ScoreToLevel(gpuScore),
                 Trend        = HealthScoring.ComputeTrend(_gpuHistory.ToList()),
                 CurrentValue = gpuVal,
-                Summary      = m.Gpus.Count > 0 ? $"{gpuVal:F0}% used" : "No GPU data",
+                HasData      = hasLiveGpu,
+                Summary      = hasLiveGpu ? $"{gpuVal:F0}% used"
+                             : m.Gpus.Count > 0 ? "GPU data unavailable on this platform"
+                             : "No GPU data",
             },
             TopConsumers      = top5,
             ActiveAutomations = automations,

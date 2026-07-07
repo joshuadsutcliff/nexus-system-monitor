@@ -668,6 +668,21 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
 
     private static void UpdateCard(SubsystemCardViewModel card, SubsystemHealth health)
     {
+        // When the platform provides no live telemetry for a subsystem (e.g. GPU on macOS is
+        // static identity only), health scoring excludes it and HasData is false — Level/Score
+        // are explicitly not meaningful then (the zeroed score would read as "Critical").
+        // Present a neutral no-data card instead of a fabricated verdict.
+        if (!health.HasData)
+        {
+            card.Score      = 0;
+            card.Level      = "No data";
+            card.Summary    = health.Summary;
+            card.Value      = 0;
+            card.TrendArrow = "→";
+            card.LevelBrush = Brushes.Gray;
+            return;
+        }
+
         card.Score        = health.Score;
         card.Level        = health.Level.ToString();
         card.Summary      = health.Summary;
@@ -797,8 +812,11 @@ public partial class BottleneckCardViewModel : ObservableObject
     [ObservableProperty] private double _vramPercent;
     [ObservableProperty] private double _memPercent;
     [ObservableProperty] private double _diskPercent;
-    [ObservableProperty] private string _cpuTempLabel  = string.Empty;
-    [ObservableProperty] private string _gpuTempLabel  = string.Empty;
+    // Default to the same "—" fallback Apply() uses for an unavailable reading, so the
+    // label never renders blank before the first Run Analysis (or on platforms where the
+    // sensor never reports > 0).
+    [ObservableProperty] private string _cpuTempLabel  = "—";
+    [ObservableProperty] private string _gpuTempLabel  = "—";
     [ObservableProperty] private bool   _showThermalWarning;
 
     // HVCI / Memory Integrity hint

@@ -44,6 +44,10 @@ public class App : Application
     // Periodic GC collect + memory diagnostics
     private System.Threading.Timer? _memTrimTimer;
 
+    // Guards ShutdownRequested against firing more than once per quit (observed on macOS —
+    // see the guard at the top of the handler below for the full explanation).
+    private bool _shutdownHandled;
+
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
@@ -218,6 +222,16 @@ public class App : Application
             //     data points are persisted and Rx subscriptions are released cleanly.
             desktop.ShutdownRequested += (_, _) =>
             {
+                // Shutdown re-entrancy guard: IClassicDesktopStyleApplicationLifetime.ShutdownRequested
+                // fires TWICE for a single quit on macOS (Cmd+Q / dock quit). c093bdf hardened this
+                // handler's captured locals against the second pass finding a torn-down DI container,
+                // but the second pass still ran in full — including the terminal
+                // `(Services as IDisposable)?.Dispose()` at the bottom of this handler, which throws
+                // on an already-disposed ServiceProvider. Everything in this handler, from here to
+                // the closing brace, must execute exactly once per app lifetime.
+                if (_shutdownHandled) return;
+                _shutdownHandled = true;
+
                 // Page engine Phase 6 shutdown-crash fix: persisting/closing pop-outs is wrapped
                 // in its own try/catch (log, don't rethrow) so this path can never crash shutdown —
                 // window/geometry state at quit time is inherently less predictable than at any
