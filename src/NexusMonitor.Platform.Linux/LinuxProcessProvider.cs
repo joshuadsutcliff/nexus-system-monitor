@@ -38,6 +38,7 @@ public sealed class LinuxProcessProvider : IProcessProvider, IDisposable
     private const int SIGCONT            = 18;
     private const int IOPRIO_WHO_PROCESS = 1;
     private const int MaxHandles         = 500; // Windows parity — EnumHandles caps at 500 entries
+    private const int MaxMemoryRegions   = 300; // Windows parity — EnumMemoryMap caps at 300 entries (result.Count < 300)
 
     // ── State ──────────────────────────────────────────────────────────────────
     private readonly Dictionary<int, (long cpuTicks, DateTime time)> _cpuSamples = new();
@@ -463,7 +464,13 @@ public sealed class LinuxProcessProvider : IProcessProvider, IDisposable
         Task.Run(() =>
         {
             var syscallNumber = LinuxIoPriority.GetSyscallNumber(RuntimeInformation.ProcessArchitecture);
-            if (syscallNumber is null) return; // unsupported architecture — honest no-op, nothing to set
+            if (syscallNumber is null)
+                // Unsupported architecture — no known-correct ioprio_set syscall number to call
+                // (see LinuxIoPriority.GetSyscallNumber). Every call site (RulesEngine.cs) wraps
+                // this in try/catch-and-log, so throwing here degrades to a logged warning
+                // rather than a silent no-op that would misleadingly imply the priority was set.
+                throw new PlatformNotSupportedException(
+                    $"IO priority is not supported on this architecture ({RuntimeInformation.ProcessArchitecture}) — ioprio_set has no known syscall number here.");
 
             var ioprio = LinuxIoPriority.ComputeIoprioValue(priority);
             long result = syscall_ioprio_set(syscallNumber.Value, IOPRIO_WHO_PROCESS, pid, ioprio);
@@ -655,6 +662,8 @@ public sealed class LinuxProcessProvider : IProcessProvider, IDisposable
         {
             foreach (var line in File.ReadAllLines(mapsPath))
             {
+                if (result.Count >= MaxMemoryRegions) break;
+
                 var entry = ProcMapsParser.ParseLine(line);
                 if (entry is null) continue;
                 result.Add(ToMemoryRegionInfo(entry.Value));
