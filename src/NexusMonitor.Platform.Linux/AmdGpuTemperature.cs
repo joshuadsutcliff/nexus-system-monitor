@@ -29,11 +29,16 @@ public static class AmdGpuTemperature
     /// Selects the AMD GPU temperature (°C) from a set of hwmon readings already parsed from
     /// sysfs, per the amdgpu convention:
     ///   1. Prefer the reading labeled "edge" (the conventional GPU package temperature).
-    ///   2. Otherwise fall back to temp1 (covers both unlabeled sensors and the case where
-    ///      labels exist but none is "edge").
-    /// Returns 0 ("unavailable") when no usable reading exists, or when the selected reading's
-    /// value is out of the plausible range (&lt;= 0 °C or &gt; 150 °C). Never fabricates a value
-    /// by falling back further once a candidate reading has been selected.
+    ///   2. Otherwise fall back to temp1, but ONLY when temp1 is unlabeled or itself labeled
+    ///      "edge" (the redundant-but-valid case). If temp1 carries a different informative
+    ///      label (e.g. "junction", "mem") and no "edge" reading exists anywhere, there is no
+    ///      trustworthy stand-in for the edge temperature — junction/mem readings can run tens
+    ///      of °C hotter than edge, so presenting one under the "GPU temperature" label would be
+    ///      a different-meaning metric masquerading as the canonical one.
+    /// Returns 0 ("unavailable") when no usable reading exists — including the case above — or
+    /// when the selected reading's value is out of the plausible range (&lt;= 0 °C or
+    /// &gt; 150 °C). Never fabricates a value by falling back further once a candidate reading
+    /// has been selected. Honest-UI: unavailable beats misleading.
     /// </summary>
     public static double SelectTemperatureCelsius(IReadOnlyList<Reading> readings)
     {
@@ -41,6 +46,7 @@ public static class AmdGpuTemperature
         bool foundEdge = false;
         long temp1MilliC = 0;
         bool foundTemp1 = false;
+        bool temp1IsEdgeOrUnlabeled = false;
 
         foreach (var reading in readings)
         {
@@ -53,12 +59,14 @@ public static class AmdGpuTemperature
             {
                 temp1MilliC = reading.MilliDegreesC;
                 foundTemp1 = true;
+                temp1IsEdgeOrUnlabeled = reading.Label is null
+                    || string.Equals(reading.Label, "edge", StringComparison.OrdinalIgnoreCase);
             }
         }
 
         long chosenMilliC;
         if (foundEdge) chosenMilliC = edgeMilliC;
-        else if (foundTemp1) chosenMilliC = temp1MilliC;
+        else if (foundTemp1 && temp1IsEdgeOrUnlabeled) chosenMilliC = temp1MilliC;
         else return 0;
 
         var tempC = chosenMilliC / 1000.0;

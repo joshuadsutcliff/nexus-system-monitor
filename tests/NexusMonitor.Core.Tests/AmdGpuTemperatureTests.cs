@@ -37,15 +37,45 @@ public class AmdGpuTemperatureTests
     }
 
     [Fact]
-    public void SelectTemperatureCelsius_LabelsPresentButNoEdge_FallsBackToTemp1()
+    public void SelectTemperatureCelsius_Temp1LabeledJunctionAndNoEdge_ReturnsUnavailable()
     {
+        // temp1 carries a different-meaning label (junction can run tens of °C hotter than
+        // edge) and no "edge" reading exists anywhere — must not silently substitute junction
+        // under the "GPU temperature" label. Honest-UI: unavailable beats misleading.
         var readings = new[]
         {
             new AmdGpuTemperature.Reading(1, "junction", 55000),
             new AmdGpuTemperature.Reading(2, "mem", 48000),
         };
 
-        AmdGpuTemperature.SelectTemperatureCelsius(readings).Should().Be(55.0);
+        AmdGpuTemperature.SelectTemperatureCelsius(readings).Should().Be(0);
+    }
+
+    [Fact]
+    public void SelectTemperatureCelsius_Temp1Unlabeled_OtherReadingsLabeledNonEdge_FallsBackToTemp1()
+    {
+        // temp1 itself is unlabeled (no informative label to distrust), so it remains a valid
+        // fallback even though other readings carry non-edge labels.
+        var readings = new[]
+        {
+            new AmdGpuTemperature.Reading(1, null, 42500),
+            new AmdGpuTemperature.Reading(2, "mem", 48000),
+        };
+
+        AmdGpuTemperature.SelectTemperatureCelsius(readings).Should().Be(42.5);
+    }
+
+    [Fact]
+    public void SelectTemperatureCelsius_Temp1LabeledEdge_FallsBackToTemp1()
+    {
+        // temp1 labeled "edge" is the redundant-but-valid case — same value whether reached via
+        // the edge-preference branch or the temp1 fallback branch.
+        var readings = new[]
+        {
+            new AmdGpuTemperature.Reading(1, "edge", 45000),
+        };
+
+        AmdGpuTemperature.SelectTemperatureCelsius(readings).Should().Be(45.0);
     }
 
     [Fact]
