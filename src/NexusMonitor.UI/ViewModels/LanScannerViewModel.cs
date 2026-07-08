@@ -28,6 +28,7 @@ public partial class LanScannerViewModel : ViewModelBase, IDisposable
     [ObservableProperty] private NmapHost? _selectedHost;
     [ObservableProperty] private bool    _showInstallDetails = false;
     [ObservableProperty] private bool    _installSucceeded   = false;
+    [ObservableProperty] private bool    _showPrivilegeNotice = false;
 
     public bool HasPackageManager  => !string.IsNullOrEmpty(PackageManagerName);
     public bool ShowInstallOutput  => IsInstalling || !string.IsNullOrEmpty(InstallOutput);
@@ -70,6 +71,7 @@ public partial class LanScannerViewModel : ViewModelBase, IDisposable
         IsScanning   = true;
         Progress     = 0;
         HostsUp      = 0;
+        ShowPrivilegeNotice = false;
 
         // Subscribe to progress
         _progressSub?.Dispose();
@@ -98,6 +100,11 @@ public partial class LanScannerViewModel : ViewModelBase, IDisposable
                 StatusText = $"Scan complete \u2014 {result.Hosts.Count} hosts up in {result.Elapsed.TotalSeconds:F1}s";
                 HostsUp    = result.Hosts.Count;
                 Progress   = 100;
+
+                // Unprivileged nmap on macOS/Linux can't do ARP/SYN discovery, so it silently
+                // undercounts hosts that don't answer TCP probes - a "clean" completion can still
+                // be an incomplete scan. Windows nmap (Npcap driver) doesn't have this restriction.
+                ShowPrivilegeNotice = !OperatingSystem.IsWindows() && !Environment.IsPrivilegedProcess;
             }
             else
             {

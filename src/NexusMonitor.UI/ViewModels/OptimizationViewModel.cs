@@ -52,6 +52,7 @@ public partial class OptimizationViewModel : ViewModelBase, IActivatable, IDispo
     private readonly IProcessProvider _processProvider;
     private IDisposable? _subscription;
     private readonly CancellationTokenSource _cts = new();
+    private bool _disposed;
 
     // ── Data ─────────────────────────────────────────────────────────────────
 
@@ -312,6 +313,8 @@ public partial class OptimizationViewModel : ViewModelBase, IActivatable, IDispo
 
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
         _cts.Cancel();
         _cts.Dispose();
         _subscription?.Dispose();

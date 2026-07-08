@@ -12,6 +12,7 @@ public partial class StartupViewModel : ViewModelBase, IDisposable
 {
     private readonly IStartupProvider _provider;
     private readonly CancellationTokenSource _cts = new();
+    private bool _disposed;
     private IReadOnlyList<StartupItem> _allItems = [];
 
     /// <summary>Exposes platform capability flags for binding in the View.</summary>
@@ -149,6 +150,8 @@ public partial class StartupViewModel : ViewModelBase, IDisposable
 
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
         _cts.Cancel();
         _cts.Dispose();
     }

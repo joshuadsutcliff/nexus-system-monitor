@@ -22,6 +22,7 @@ public partial class HistoryViewModel : ViewModelBase, IDisposable
     private readonly IResourceEventReader _eventReader;
     private readonly AppSettings         _appSettings;
     private CancellationTokenSource? _loadCts;
+    private bool _disposed;
     private TimeSpan _currentSpan = TimeSpan.FromHours(24);
 
     [ObservableProperty] private bool _metricsEnabled;
@@ -315,6 +316,8 @@ public partial class HistoryViewModel : ViewModelBase, IDisposable
 
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
         _loadCts?.Cancel();
         _loadCts?.Dispose();
         WeakReferenceMessenger.Default.UnregisterAll(this);

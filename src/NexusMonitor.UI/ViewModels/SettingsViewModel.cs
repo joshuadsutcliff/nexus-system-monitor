@@ -443,7 +443,11 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         _customWindowBgHex  = settings.Current.CustomWindowBgHex;
         _customSurfaceBgHex = settings.Current.CustomSurfaceBgHex;
         _customSidebarBgHex = settings.Current.CustomSidebarBgHex;
-        _fontFamily              = settings.Current.FontFamily;
+        // Saved default is "" (meaning system default), which is not an item in SystemFonts —
+        // map it to the "(System Default)" sentinel so the ComboBox has a matching SelectedItem
+        // instead of rendering blank. ApplyFont treats both spellings identically.
+        _fontFamily              = string.IsNullOrWhiteSpace(settings.Current.FontFamily)
+                                       ? "(System Default)" : settings.Current.FontFamily;
         _fontSizeMultiplier      = settings.Current.FontSizeMultiplier;
         _scaleTextWithWidgetSize = settings.Current.ScaleTextWithWidgetSize;
         _showOverlayWidget             = settings.Current.ShowOverlayWidget;
@@ -774,6 +778,15 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
 
     partial void OnFontFamilyChanged(string value)
     {
+        // The ComboBox's two-way SelectedItem binding can push null back into this property
+        // while the control attaches (before its items materialize), which both blanks the
+        // closed box and clobbers the persisted font. Bounce any null/empty write back to the
+        // "(System Default)" sentinel instead of accepting it.
+        if (string.IsNullOrEmpty(value))
+        {
+            FontFamily = "(System Default)";
+            return;
+        }
         _settings.Current.FontFamily = value;
         _settings.Save();
         if (!_suppressApply)
@@ -1169,6 +1182,11 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         ApplyAccentColor(AccentColorHex);
         ApplyTextAccent(AccentColorHex, TextAccentColorHex);
         ApplyFont(FontFamily, FontSizeMultiplier);
+        // Elevation shadow tokens are computed against RequestedThemeVariant (MotionSettingsService
+        // picks Dark vs Light base shadows), so they must be re-derived after every variant change —
+        // otherwise a light→dark flip keeps light-tuned shadows under dark surfaces (the "washed
+        // out" dark theme). Must run after RequestedThemeVariant is set above.
+        _motionSettingsService.Apply(_settings.Current);
         OnPropertyChanged(nameof(IsDarkActive));
     }
 

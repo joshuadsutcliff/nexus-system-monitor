@@ -14,6 +14,7 @@ public partial class ServicesViewModel : ViewModelBase, IDisposable
 {
     private readonly IServicesProvider _servicesProvider;
     private readonly CancellationTokenSource _cts = new();
+    private bool _disposed;
 
     /// <summary>Exposes platform capability flags for binding in the View.</summary>
     public IPlatformCapabilities Platform { get; }
@@ -178,6 +179,8 @@ public partial class ServicesViewModel : ViewModelBase, IDisposable
 
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
         _cts.Cancel();
         _cts.Dispose();
     }

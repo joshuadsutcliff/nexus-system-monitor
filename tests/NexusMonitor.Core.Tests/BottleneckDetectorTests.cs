@@ -363,4 +363,47 @@ public class BottleneckDetectorTests
         // ThermalThrottle must win over VramBound
         result.Bottleneck.Should().Be(BottleneckType.ThermalThrottle);
     }
+
+    // ── 17. HasLiveGpuData ────────────────────────────────────────────────────
+
+    [Fact]
+    public void HasLiveGpuData_EmptyList_ReturnsFalse()
+    {
+        BottleneckDetector.HasLiveGpuData([]).Should().BeFalse();
+    }
+
+    [Fact]
+    public void HasLiveGpuData_StaticIdentityOnly_AllZero_ReturnsFalse()
+    {
+        // Mirrors macOS: GPU identity known (name/VRAM capacity) but no utilization API —
+        // UsagePercent and DedicatedMemoryUsedBytes are hardcoded to 0 every sample.
+        var gpus = new List<GpuMetrics>
+        {
+            new() { Name = "Apple M2 Pro", UsagePercent = 0, DedicatedMemoryUsedBytes = 0,
+                    DedicatedMemoryTotalBytes = 16_000_000_000L },
+        };
+
+        BottleneckDetector.HasLiveGpuData(gpus).Should().BeFalse();
+    }
+
+    [Fact]
+    public void HasLiveGpuData_NonZeroUsage_ReturnsTrue()
+    {
+        var gpus = new List<GpuMetrics> { new() { UsagePercent = 12 } };
+
+        BottleneckDetector.HasLiveGpuData(gpus).Should().BeTrue();
+    }
+
+    [Fact]
+    public void HasLiveGpuData_NonZeroMemoryUsedOnly_ReturnsTrue()
+    {
+        // Zero utilization but nonzero memory-used still counts as live telemetry (a real,
+        // genuinely-idle GPU almost always shows some VRAM in use).
+        var gpus = new List<GpuMetrics>
+        {
+            new() { UsagePercent = 0, DedicatedMemoryUsedBytes = 512_000_000L },
+        };
+
+        BottleneckDetector.HasLiveGpuData(gpus).Should().BeTrue();
+    }
 }

@@ -20,7 +20,10 @@
     <!-- ── Row 0: Toolbar ─────────────────────────────────────────────── -->
     <Border Grid.Row="0" Padding="16,10" Background="{DynamicResource BgPrimaryBrush}"
             BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,0,1">
-      <Grid ColumnDefinitions="Auto,8,*,8,Auto,8,Auto,8,Auto,*">
+      <!-- Status column (index 8) is a fixed 280 (not Auto) matching the TextBlock's MaxWidth
+           below, so its frequent re-binding during a scan can never re-measure/shift the
+           progress bar or any other toolbar column. -->
+      <Grid ColumnDefinitions="Auto,8,*,8,Auto,8,Auto,8,280,*">
 
         <ComboBox Grid.Column="0"
                   ItemsSource="{Binding AvailableDrives}"
@@ -32,36 +35,42 @@
                  Watermark="Enter path to scan…"
                  VerticalAlignment="Center"/>
 
-        <!-- Scan (hidden while scanning) -->
-        <Button Grid.Column="4" Content="Scan"
-                Command="{Binding StartScanCommand}"
-                IsVisible="{Binding !IsScanning}"
-                Padding="16,8" VerticalAlignment="Center">
-          <Button.Styles>
-            <Style Selector="Button">
-              <Setter Property="Background" Value="{DynamicResource AccentBlueBrush}"/>
-              <Setter Property="Foreground" Value="White"/>
-              <Setter Property="CornerRadius" Value="8"/>
-            </Style>
-            <Style Selector="Button:pointerover /template/ ContentPresenter">
-              <Setter Property="Background" Value="{DynamicResource AccentBlueHoverBrush}"/>
-            </Style>
-          </Button.Styles>
-        </Button>
+        <!-- Scan/Cancel swap: both buttons share one fixed-width Panel so column 4 never
+             resizes (and shoves the columns after it sideways) when scanning starts/stops.
+             92 = "Cancel" (the wider of the two English labels) at the button's default font
+             size, plus the 16,8 Padding declared below, with a small safety margin. -->
+        <Panel Grid.Column="4" Width="92" MinWidth="92" VerticalAlignment="Center">
+          <!-- Scan (hidden while scanning) -->
+          <Button Content="Scan"
+                  Command="{Binding StartScanCommand}"
+                  IsVisible="{Binding !IsScanning}"
+                  Padding="16,8" VerticalAlignment="Center">
+            <Button.Styles>
+              <Style Selector="Button">
+                <Setter Property="Background" Value="{DynamicResource AccentBlueBrush}"/>
+                <Setter Property="Foreground" Value="White"/>
+                <Setter Property="CornerRadius" Value="8"/>
+              </Style>
+              <Style Selector="Button:pointerover /template/ ContentPresenter">
+                <Setter Property="Background" Value="{DynamicResource AccentBlueHoverBrush}"/>
+              </Style>
+            </Button.Styles>
+          </Button>
 
-        <!-- Cancel (visible while scanning) -->
-        <Button Grid.Column="4" Content="Cancel"
-                Command="{Binding CancelScanCommand}"
-                IsVisible="{Binding IsScanning}"
-                Padding="16,8" VerticalAlignment="Center">
-          <Button.Styles>
-            <Style Selector="Button">
-              <Setter Property="Background" Value="{StaticResource ColorDangerBrush}"/>
-              <Setter Property="Foreground" Value="White"/>
-              <Setter Property="CornerRadius" Value="8"/>
-            </Style>
-          </Button.Styles>
-        </Button>
+          <!-- Cancel (visible while scanning) -->
+          <Button Content="Cancel"
+                  Command="{Binding CancelScanCommand}"
+                  IsVisible="{Binding IsScanning}"
+                  Padding="16,8" VerticalAlignment="Center">
+            <Button.Styles>
+              <Style Selector="Button">
+                <Setter Property="Background" Value="{StaticResource ColorDangerBrush}"/>
+                <Setter Property="Foreground" Value="White"/>
+                <Setter Property="CornerRadius" Value="8"/>
+              </Style>
+            </Button.Styles>
+          </Button>
+        </Panel>
 
         <!-- Find Duplicates -->
         <Button Grid.Column="6" Content="Find Duplicates"
@@ -100,12 +109,16 @@
     </Border>
 
     <!-- ── Row 1: Volume stats bar ────────────────────────────────────── -->
-    <Border Grid.Row="1" Padding="16,8"
+    <!-- Height is fixed (not just IsVisible-toggled) so this row never collapses/expands at
+         scan start or completion — that vertical jitter was the root cause of the reported
+         page reflow. 34 = Padding 8+8 vertical + ~18px natural line height for the NxFont12
+         (14px) stat text. Only the inner content's visibility toggles now; the Border itself
+         (and its reserved row space) stays constant. -->
+    <Border Grid.Row="1" Padding="16,8" Height="34"
             Background="{DynamicResource BgSecondaryBrush}"
             BorderBrush="{DynamicResource BorderSubtleBrush}"
-            BorderThickness="0,0,0,1"
-            IsVisible="{Binding HasScanResult}">
-      <Grid ColumnDefinitions="*,1,*,1,*">
+            BorderThickness="0,0,0,1">
+      <Grid ColumnDefinitions="*,1,*,1,*" IsVisible="{Binding HasScanResult}">
 
         <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
           <TextBlock Text="Total:"

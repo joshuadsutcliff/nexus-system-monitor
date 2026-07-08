@@ -164,9 +164,9 @@
                                        FontSize="24" FontWeight="Bold" Foreground="{DynamicResource AccentBlueBrush}"/>
                           </StackPanel>
                           <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="{Binding CpuFrequencyGhz, StringFormat='{}{0:F2} GHz'}"
+                            <TextBlock Text="{Binding CpuFrequencyLabel}"
                                        FontSize="{DynamicResource NxFont10}" Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Right"/>
-                            <TextBlock Text="{Binding CpuTempC, StringFormat='{}{0}°C'}"
+                            <TextBlock Text="{Binding CpuTempLabel}"
                                        FontSize="{DynamicResource NxFont10}" Foreground="{DynamicResource TextTertiaryBrush}" HorizontalAlignment="Right"/>
                           </StackPanel>
                         </Grid>

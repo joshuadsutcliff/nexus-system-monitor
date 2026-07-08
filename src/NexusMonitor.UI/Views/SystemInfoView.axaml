@@ -86,8 +86,12 @@
 
               <TextBlock Grid.Row="3" Grid.Column="0" Text="Uptime" Margin="0,0,0,8"
                          FontSize="{DynamicResource NxFont12}" Foreground="{DynamicResource TextTertiaryBrush}"/>
+              <!-- Backslashes must be doubled: the markup-extension parser consumes one level of
+                   \-escaping, and TimeSpan custom formats REQUIRE the . and : literals escaped —
+                   a single \ reaches string.Format as bare "d.hh:mm:ss", which throws
+                   FormatException and rendered this field permanently blank. -->
               <TextBlock Grid.Row="3" Grid.Column="1" Margin="0,0,0,8"
-                         Text="{Binding Info.Uptime, StringFormat='{}{0:d\.hh\:mm\:ss}'}"
+                         Text="{Binding Info.Uptime, StringFormat='{}{0:d\\.hh\\:mm\\:ss}'}"
                          FontSize="{DynamicResource NxFont12}" Foreground="{StaticResource ColorSuccessBrush}" FontWeight="Medium"/>
 
               <TextBlock Grid.Row="4" Grid.Column="0" Text="BIOS" Margin="0,0,0,8"
@@ -160,7 +164,7 @@
               <Border Grid.Column="2" Padding="12" Margin="6,0,0,0"
                       Background="{DynamicResource BgSecondaryBrush}" CornerRadius="10">
                 <StackPanel HorizontalAlignment="Center">
-                  <TextBlock Text="{Binding Info.Cpu.MaxClockMhz, StringFormat='{}{0:F0}'}" FontSize="22" FontWeight="Bold"
+                  <TextBlock Text="{Binding MaxClockDisplay}" FontSize="22" FontWeight="Bold"
                              Foreground="{StaticResource ColorWarningBrush}" HorizontalAlignment="Center"/>
                   <TextBlock Text="Max MHz" FontSize="{DynamicResource NxFont10}"
                              Foreground="{DynamicResource TextTertiaryBrush}" HorizontalAlignment="Center"/>
@@ -178,7 +182,7 @@
                 </Grid>
                 <Grid ColumnDefinitions="*,Auto">
                   <TextBlock Text="L3 Cache" FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"/>
-                  <TextBlock Grid.Column="1" Text="{Binding Info.Cpu.L3CacheKB, StringFormat='{}{0} KB'}"
+                  <TextBlock Grid.Column="1" Text="{Binding L3CacheDisplay}"
                              FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextPrimaryBrush}"/>
                 </Grid>
                 <Grid ColumnDefinitions="*,Auto">

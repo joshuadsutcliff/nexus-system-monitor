@@ -103,4 +103,82 @@ public class SystemHealthServiceTests
         metrics.OnNext(new SystemMetrics());
         staleValues.Last().Should().BeFalse();
     }
+
+    // ── GPU exclusion (static-identity-only telemetry) ────────────────────────
+
+    [Fact]
+    public void HealthSnapshot_StaticOnlyGpu_ExcludedFromScore_AndNotReportedAsExcellent()
+    {
+        var metrics   = new Subject<SystemMetrics>();
+        var processes = new Subject<IReadOnlyList<ProcessInfo>>();
+        using var svc = CreateService(metrics, processes, out _);
+
+        SystemHealthSnapshot? snapshot = null;
+        using var sub = svc.HealthStream.Subscribe(s => snapshot = s);
+
+        svc.Start(TimeSpan.FromSeconds(2));
+
+        // Mirrors macOS: GPU identity known (name/VRAM capacity) but no utilization API —
+        // UsagePercent and DedicatedMemoryUsedBytes are hardcoded to 0 every sample even
+        // though a real GPU is present. A moderately loaded CPU keeps the composite from
+        // hitting the idle/no-op default snapshot.
+        var staticGpuMetrics = new SystemMetrics
+        {
+            Cpu    = new CpuMetrics { TotalPercent = 50 },
+            Memory = new MemoryMetrics { TotalBytes = 16_000_000_000L, UsedBytes = 8_000_000_000L },
+            Gpus   = [new GpuMetrics
+            {
+                Name                      = "Apple M2 Pro",
+                UsagePercent              = 0,
+                DedicatedMemoryUsedBytes  = 0,
+                DedicatedMemoryTotalBytes = 16_000_000_000L,
+            }],
+        };
+
+        metrics.OnNext(staticGpuMetrics);
+
+        snapshot.Should().NotBeNull();
+        snapshot!.Gpu.HasData.Should().BeFalse("a static-identity-only GPU sample carries no live telemetry to score");
+        snapshot.Gpu.Level.Should().NotBe(HealthLevel.Excellent, "a fabricated 0% reading must not be reported as a perfect GPU score");
+        snapshot.Gpu.Summary.Should().Contain("unavailable");
+
+        // Overall composite must match the GPU-excluded, renormalized calculation — not the
+        // old formula that would fold the fabricated (perfect-scoring) GPU reading in at 15%.
+        // gpuTemp is 0 (not -1/"unknown") here: a GPU is present, its TemperatureCelsius just
+        // defaults to 0 like the rest of the static-only sample.
+        var expectedOverall = HealthScoring.CompositeScore(
+            HealthScoring.ScoreCpu(50),
+            HealthScoring.ScoreMemory(50),
+            HealthScoring.ScoreDisk(0, 0),
+            gpuScore: 0,
+            HealthScoring.ScoreThermal(cpuTempC: 0, gpuTempC: 0),
+            includeGpu: false);
+        snapshot.OverallScore.Should().BeApproximately(expectedOverall, 0.01);
+    }
+
+    [Fact]
+    public void HealthSnapshot_LiveGpuData_StillScoredNormally()
+    {
+        var metrics   = new Subject<SystemMetrics>();
+        var processes = new Subject<IReadOnlyList<ProcessInfo>>();
+        using var svc = CreateService(metrics, processes, out _);
+
+        SystemHealthSnapshot? snapshot = null;
+        using var sub = svc.HealthStream.Subscribe(s => snapshot = s);
+
+        svc.Start(TimeSpan.FromSeconds(2));
+
+        var liveGpuMetrics = new SystemMetrics
+        {
+            Cpu    = new CpuMetrics { TotalPercent = 50 },
+            Memory = new MemoryMetrics { TotalBytes = 16_000_000_000L, UsedBytes = 8_000_000_000L },
+            Gpus   = [new GpuMetrics { Name = "RTX 4080", UsagePercent = 10, DedicatedMemoryUsedBytes = 1_000_000_000L, DedicatedMemoryTotalBytes = 16_000_000_000L }],
+        };
+
+        metrics.OnNext(liveGpuMetrics);
+
+        snapshot.Should().NotBeNull();
+        snapshot!.Gpu.HasData.Should().BeTrue("a nonzero utilization reading is genuine live telemetry");
+        snapshot.Gpu.Summary.Should().Be("10% used");
+    }
 }

@@ -168,6 +168,28 @@
       </StackPanel>
     </Border>
 
+    <!-- ===== Unprivileged-scan notice ===== -->
+    <!-- Persistent, non-blocking banner: nmap ran without root/admin on macOS/Linux, so
+         ARP-based discovery was unavailable and the "clean" completion may still be
+         under-reporting hosts that don't answer TCP probes. Mirrors the nmap-unavailable
+         notice above, but informational (ColorInfoBrush) rather than a blocking warning. -->
+    <Border IsVisible="{Binding ShowPrivilegeNotice}"
+            DockPanel.Dock="Top"
+            Padding="16,12"
+            Background="#2C64D2FF"
+            BorderBrush="{StaticResource ColorInfoBrush}"
+            BorderThickness="0,0,0,1">
+      <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+        <TextBlock Text="&#x2139;" FontSize="{DynamicResource NxFont14}"
+                   Foreground="{StaticResource ColorInfoBrush}" VerticalAlignment="Center"/>
+        <TextBlock Text="Results may be incomplete — nmap ran without elevated privileges, so ARP-based discovery was unavailable. Devices that don't answer TCP probes won't appear."
+                   FontSize="{DynamicResource NxFont12}"
+                   Foreground="{StaticResource ColorInfoBrush}"
+                   TextWrapping="Wrap"
+                   VerticalAlignment="Center"/>
+      </StackPanel>
+    </Border>
+
     <!-- ===== MAIN CONTENT ===== -->
     <Grid ColumnDefinitions="*,Auto,320">
 

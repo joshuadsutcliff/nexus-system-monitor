@@ -45,6 +45,7 @@
             <DockPanel>
               <ToggleSwitch DockPanel.Dock="Right"
                             IsChecked="{Binding ForegroundBoostEnabled}"
+                            IsEnabled="{Binding Platform.SupportsFindWindow}"
                             VerticalAlignment="Center"/>
               <StackPanel DockPanel.Dock="Left" Spacing="2">
                 <TextBlock Text="FOREGROUND BOOST" FontSize="{DynamicResource NxFont10}"
@@ -55,6 +56,10 @@
                            Foreground="{DynamicResource TextSecondaryBrush}"/>
               </StackPanel>
             </DockPanel>
+            <TextBlock Text="Not available on this platform — the OS does not expose foreground-window tracking to Nexus."
+                       FontSize="{DynamicResource NxFont10}" TextWrapping="Wrap"
+                       Foreground="{DynamicResource TextTertiaryBrush}"
+                       IsVisible="{Binding !Platform.SupportsFindWindow}"/>
             <StackPanel Spacing="4" IsVisible="{Binding ForegroundBoostEnabled}">
               <TextBlock Text="Excluded processes (comma-separated)"
                          FontSize="{DynamicResource NxFont12}"

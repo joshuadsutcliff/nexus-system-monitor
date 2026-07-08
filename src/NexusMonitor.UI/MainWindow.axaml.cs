@@ -96,10 +96,16 @@ public partial class MainWindow : Window
         _backdropService = App.Services.GetRequiredService<BackdropService>();
         _backdropService.Apply(this, initialSettings.IsGlassEnabled, initialSettings.BackdropBlurMode);
 
-        // Dispose all cached ViewModels when the window closes.
+        // ViewModel disposal is owned exclusively by the DI container at shutdown
+        // (App.axaml.cs's ShutdownRequested handler disposes App.Services, which disposes
+        // every registered singleton ViewModel in turn). This is the fourth instance of the
+        // shutdown-ordering bug class documented in Views/MainWindow.axaml.cs (f986a51,
+        // c093bdf): disposing DataContext here ran a second — sometimes third — Dispose()
+        // over the same DI-singleton ViewModel the container was already tearing down,
+        // crashing on non-idempotent CancellationTokenSource.Cancel()/.Dispose() calls. Only
+        // window-scoped cleanup belongs in this handler.
         Closed += (_, _) =>
         {
-            (DataContext as IDisposable)?.Dispose();
             _shimmerTimer?.Stop();
             _motionSettingsService.MotionChanged -= OnMotionSettingsChanged;
         };
@@ -349,18 +355,21 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Applies a ThemeMode string ("Dark" | "Light" | "System") to the running application.
-    /// Mirrors the pattern used in SettingsViewModel.ApplyAllVisuals().
+    /// Applies a ThemeMode string ("Dark" | "Light" | "System") to the running application by
+    /// funneling through <see cref="SettingsViewModel.ThemeModeIndex"/> — the exact chain the
+    /// Settings page uses (OnThemeModeIndexChanged → ApplyAllVisuals → UpdateSurfaceSwatches).
+    /// This method previously set only RequestedThemeVariant, which flipped the base theme
+    /// dictionaries but left glass, accents, surface swatches, and elevation shadows computed
+    /// for the OLD variant — the "washed out" dark theme on Command Palette quick-switch.
+    /// One code path for theme flips; do not set RequestedThemeVariant directly here.
     /// </summary>
-    private static void ApplyTheme(string themeMode)
+    private void ApplyTheme(string themeMode)
     {
-        if (Application.Current is null) return;
-
-        Application.Current.RequestedThemeVariant = themeMode switch
+        _settingsViewModel.ThemeModeIndex = themeMode switch
         {
-            "Dark"  => ThemeVariant.Dark,
-            "Light" => ThemeVariant.Light,
-            _       => App.DetectSystemTheme()
+            "Dark"  => 1, // indices follow SettingsViewModel._themeModeValues: System, Dark, Light
+            "Light" => 2,
+            _       => 0
         };
     }
 

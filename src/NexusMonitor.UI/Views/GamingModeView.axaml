@@ -206,6 +206,10 @@
               <TextBlock FontSize="{DynamicResource NxFont11}" TextWrapping="Wrap"
                          Foreground="{DynamicResource TextSecondaryBrush}"
                          Text="Gaming Mode automatically switches to High Performance (or Ultimate Performance if available). You can also set a plan manually here:"/>
+              <TextBlock FontSize="{DynamicResource NxFont10}" TextWrapping="Wrap"
+                         Foreground="{DynamicResource TextTertiaryBrush}"
+                         IsVisible="{Binding !Platform.SupportsPowerPlan}"
+                         Text="Power-plan switching isn't available on this platform; Gaming Mode still manages process priorities."/>
 
               <ComboBox ItemsSource="{Binding AvailablePlans}"
                         SelectedItem="{Binding SelectedPlan}"

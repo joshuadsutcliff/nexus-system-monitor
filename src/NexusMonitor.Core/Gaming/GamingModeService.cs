@@ -18,6 +18,7 @@ public sealed class GamingModeService : IDisposable
     private readonly IPowerPlanProvider   _powerPlanProvider;
     private readonly AppSettings          _settings;
     private readonly ILogger<GamingModeService> _logger;
+    private readonly IPlatformCapabilities _platform;
 
     // pid → original priority saved before we touched it
     private readonly Dictionary<int, ProcessPriority> _throttled = new();
@@ -36,12 +37,14 @@ public sealed class GamingModeService : IDisposable
         IProcessProvider processProvider,
         IPowerPlanProvider powerPlanProvider,
         AppSettings settings,
-        ILogger<GamingModeService> logger)
+        ILogger<GamingModeService> logger,
+        IPlatformCapabilities? platformCapabilities = null)
     {
         _processProvider   = processProvider;
         _powerPlanProvider = powerPlanProvider;
         _settings          = settings;
         _logger            = logger;
+        _platform          = platformCapabilities ?? new MockPlatformCapabilities();
     }
 
     /// <summary>
@@ -58,28 +61,33 @@ public sealed class GamingModeService : IDisposable
         _active = true;
 
         // -- Power plan -------------------------------------------------------
-        try
+        // Skipped on platforms where IPlatformCapabilities.SupportsPowerPlan is false (macOS):
+        // _savedPowerPlan stays Guid.Empty, so Stop()'s restore step below naturally no-ops too.
+        if (_platform.SupportsPowerPlan)
         {
-            _savedPowerPlan = _powerPlanProvider.GetActivePlan();
+            try
+            {
+                _savedPowerPlan = _powerPlanProvider.GetActivePlan();
 
-            // Prefer Ultimate Performance; fall back to High Performance
-            var plans = _powerPlanProvider.GetPowerPlans();
-            bool hasUltimate = plans.Any(p =>
-                p.SchemeGuid == IPowerPlanProvider.UltimatePerf);
+                // Prefer Ultimate Performance; fall back to High Performance
+                var plans = _powerPlanProvider.GetPowerPlans();
+                bool hasUltimate = plans.Any(p =>
+                    p.SchemeGuid == IPowerPlanProvider.UltimatePerf);
 
-            Guid targetPlan = hasUltimate
-                ? IPowerPlanProvider.UltimatePerf
-                : IPowerPlanProvider.HighPerformance;
+                Guid targetPlan = hasUltimate
+                    ? IPowerPlanProvider.UltimatePerf
+                    : IPowerPlanProvider.HighPerformance;
 
-            _powerPlanProvider.SetActivePlan(targetPlan);
+                _powerPlanProvider.SetActivePlan(targetPlan);
 
-            var planName = plans.FirstOrDefault(p => p.SchemeGuid == targetPlan)?.Name
-                           ?? targetPlan.ToString();
-            _statusMessages.OnNext($"Power plan switched to: {planName}");
-        }
-        catch (Exception ex)
-        {
-            _statusMessages.OnNext($"Power plan change failed: {ex.Message}");
+                var planName = plans.FirstOrDefault(p => p.SchemeGuid == targetPlan)?.Name
+                               ?? targetPlan.ToString();
+                _statusMessages.OnNext($"Power plan switched to: {planName}");
+            }
+            catch (Exception ex)
+            {
+                _statusMessages.OnNext($"Power plan change failed: {ex.Message}");
+            }
         }
 
         // -- Initial process throttle -----------------------------------------

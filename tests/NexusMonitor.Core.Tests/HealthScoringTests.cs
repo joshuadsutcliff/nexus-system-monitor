@@ -161,6 +161,45 @@ public class HealthScoringTests
         HealthScoring.CompositeScore(60, 50, 40, 30, 20).Should().BeApproximately(45, 0.001);
     }
 
+    [Fact]
+    public void CompositeScore_IncludeGpuDefaultsTrue_MatchesExplicitTrue()
+    {
+        // The includeGpu parameter defaults to true — existing call sites (no 6th arg) must
+        // keep behaving exactly as before this parameter was added.
+        HealthScoring.CompositeScore(60, 50, 40, 30, 20)
+            .Should().Be(HealthScoring.CompositeScore(60, 50, 40, 30, 20, includeGpu: true));
+    }
+
+    [Fact]
+    public void CompositeScore_GpuExcluded_RenormalizesOverRemainingWeights()
+    {
+        // All remaining subsystems perfect (100) → renormalized composite must still be 100,
+        // i.e. dropping GPU's 15% weight doesn't leave the composite permanently capped below 100.
+        HealthScoring.CompositeScore(100, 100, 100, gpuScore: 0, thermalScore: 100, includeGpu: false)
+            .Should().BeApproximately(100, 0.001);
+    }
+
+    [Fact]
+    public void CompositeScore_GpuExcluded_IgnoresGpuScoreParameter()
+    {
+        // Whatever gpuScore is passed must not affect the result when includeGpu is false —
+        // a fabricated "excellent" GPU score must not sneak into the composite via this param.
+        var withZeroGpu    = HealthScoring.CompositeScore(60, 50, 40, gpuScore: 0,   thermalScore: 20, includeGpu: false);
+        var withPerfectGpu = HealthScoring.CompositeScore(60, 50, 40, gpuScore: 100, thermalScore: 20, includeGpu: false);
+
+        withZeroGpu.Should().BeApproximately(withPerfectGpu, 0.001);
+    }
+
+    [Fact]
+    public void CompositeScore_GpuExcluded_KnownBlend()
+    {
+        // cpu=60, mem=50, disk=40, thermal=20, gpu excluded.
+        // Weighted sum over remaining subsystems: 60*.30 + 50*.25 + 40*.20 + 20*.10
+        // = 18 + 12.5 + 8 + 2 = 40.5; renormalized over 0.85 total weight: 40.5/0.85 = 47.6470...
+        HealthScoring.CompositeScore(60, 50, 40, gpuScore: 999, thermalScore: 20, includeGpu: false)
+            .Should().BeApproximately(47.647, 0.01);
+    }
+
     // ── ScoreToLevel ──────────────────────────────────────────────────────────
 
     [Fact]
