@@ -21,10 +21,23 @@ public sealed class LinuxProcessProvider : IProcessProvider, IDisposable
     [DllImport("libc", SetLastError = true)]
     private static extern int sched_getaffinity(int pid, IntPtr cpusetsize, out ulong mask);
 
-    private const int PRIO_PROCESS = 0;
-    private const int SIGKILL      = 9;
-    private const int SIGSTOP      = 19;
-    private const int SIGCONT      = 18;
+    // syscall(2) — used to invoke ioprio_set, which has no dedicated libc wrapper. The real
+    // libc syscall() is variadic; declaring the exact (long, int, int, int) shape used here is
+    // the standard, well-established way to call a specific syscall from P/Invoke — the
+    // arguments are passed in registers per the platform calling convention regardless of the
+    // header's variadic declaration.
+    [DllImport("libc", EntryPoint = "syscall", SetLastError = true)]
+    private static extern long syscall_ioprio_set(long number, int which, int who, int ioprio);
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern int readlink(string path, byte[] buf, int bufsiz);
+
+    private const int PRIO_PROCESS       = 0;
+    private const int SIGKILL            = 9;
+    private const int SIGSTOP            = 19;
+    private const int SIGCONT            = 18;
+    private const int IOPRIO_WHO_PROCESS = 1;
+    private const int MaxHandles         = 500; // Windows parity — EnumHandles caps at 500 entries
 
     // ── State ──────────────────────────────────────────────────────────────────
     private readonly Dictionary<int, (long cpuTicks, DateTime time)> _cpuSamples = new();
@@ -443,9 +456,27 @@ public sealed class LinuxProcessProvider : IProcessProvider, IDisposable
             sched_setaffinity(pid, new IntPtr(sizeof(ulong)), ref mask);
         }, ct);
 
-    // Linux I/O priority via ioprio_set (syscall 251 on x86_64)
+    // Linux I/O priority via ioprio_set. Syscall number is architecture-specific (251 on
+    // x86_64, 30 on aarch64 — see LinuxIoPriority.GetSyscallNumber); the (class, data) value
+    // mapping is LinuxIoPriority.ComputeIoprioValue, a pure/testable function.
     public Task SetIoPriorityAsync(int pid, IoPriority priority, CancellationToken ct = default) =>
-        Task.CompletedTask; // ioprio_set syscall — stub for portability
+        Task.Run(() =>
+        {
+            var syscallNumber = LinuxIoPriority.GetSyscallNumber(RuntimeInformation.ProcessArchitecture);
+            if (syscallNumber is null) return; // unsupported architecture — honest no-op, nothing to set
+
+            var ioprio = LinuxIoPriority.ComputeIoprioValue(priority);
+            long result = syscall_ioprio_set(syscallNumber.Value, IOPRIO_WHO_PROCESS, pid, ioprio);
+            if (result < 0)
+            {
+                // Mirrors WindowsProcessProvider.SetIoPriorityAsync, which throws when it
+                // can't even obtain a handle to the target process (e.g. another user's
+                // process without permission) — here the single ioprio_set syscall itself
+                // is both the "open" and the "set", and EPERM/ESRCH surface the same way.
+                var errno = Marshal.GetLastWin32Error();
+                throw new InvalidOperationException($"Cannot set IO priority for process {pid} (errno {errno})");
+            }
+        }, ct);
 
     public Task SetMemoryPriorityAsync(int pid, MemoryPriority priority, CancellationToken ct = default) =>
         Task.CompletedTask; // No direct Linux equivalent
@@ -476,21 +507,13 @@ public sealed class LinuxProcessProvider : IProcessProvider, IDisposable
         {
             foreach (var line in File.ReadAllLines(mapsPath))
             {
-                // Format: addr-addr perms offset dev inode path
-                var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length < 6) continue;
-                var path = parts[^1];
+                var entry = ProcMapsParser.ParseLine(line);
+                if (entry is null || !entry.Value.HasPath) continue;
+
+                var path = entry.Value.Path;
                 if (!path.StartsWith('/') || !seen.Add(path)) continue;
 
-                // Parse base address from first field "start-end"
-                var dashIdx = parts[0].IndexOf('-');
-                long baseAddr = 0;
-                if (dashIdx > 0 && long.TryParse(parts[0][..dashIdx],
-                                                  System.Globalization.NumberStyles.HexNumber,
-                                                  null, out var addr))
-                    baseAddr = addr;
-
-                result.Add(new ModuleInfo(Path.GetFileName(path), path, baseAddr));
+                result.Add(new ModuleInfo(Path.GetFileName(path), path, (long)entry.Value.Start));
             }
         }
         catch (Exception ex) { /* ignored: /proc maps read failed */ _ = ex; }
@@ -561,10 +584,108 @@ public sealed class LinuxProcessProvider : IProcessProvider, IDisposable
     }
 
     public Task<IReadOnlyList<HandleInfo>> GetHandlesAsync(int pid, CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<HandleInfo>>([]);
+        Task.Run<IReadOnlyList<HandleInfo>>(() => ReadHandles(pid), ct);
+
+    private static IReadOnlyList<HandleInfo> ReadHandles(int pid)
+    {
+        var result = new List<HandleInfo>();
+        var fdDir  = $"/proc/{pid}/fd";
+
+        string[] fdPaths;
+        try
+        {
+            fdPaths = Directory.GetFileSystemEntries(fdDir);
+        }
+        catch (Exception ex)
+        {
+            // EACCES for other users' processes, ENOENT if it exited mid-read — honest empty
+            // result rather than a partial/fabricated one.
+            _ = ex;
+            return result;
+        }
+
+        // Sized to Linux's PATH_MAX so a genuinely long absolute file path never silently
+        // truncates (readlink has no truncation signal — a too-small buffer just fills
+        // silently, which would otherwise surface as subtly wrong data rather than an honest
+        // failure). Socket/pipe/anon_inode targets are a few dozen bytes at most.
+        var readlinkBuf = new byte[4096];
+
+        foreach (var fdPath in fdPaths)
+        {
+            if (result.Count >= MaxHandles) break;
+
+            var fdName = Path.GetFileName(fdPath);
+            if (!ulong.TryParse(fdName, out var fdNumber)) continue;
+
+            string target;
+            try
+            {
+                int len = readlink(fdPath, readlinkBuf, readlinkBuf.Length);
+                if (len <= 0) continue; // unresolvable (raced with process exit, etc.) — skip, don't fabricate
+                target = System.Text.Encoding.UTF8.GetString(readlinkBuf, 0, len);
+            }
+            catch (Exception ex) { /* ignored: readlink failed for this one fd */ _ = ex; continue; }
+
+            var typeName = ProcFdClassifier.ClassifyTypeName(target);
+            // AccessDisplay has no Linux equivalent of a Windows ACCESS_MASK for an fd — honest
+            // "unknown" convention is the empty string (matches ProcessInfo.Description's use
+            // of string.Empty above for fields with no data, rather than fabricating a value).
+            result.Add(new HandleInfo(fdNumber, typeName, target, string.Empty));
+        }
+
+        // Sort by TypeName, then ObjectName — matches WindowsProcessProvider.EnumHandles.
+        result.Sort((a, b) =>
+        {
+            int c = string.Compare(a.TypeName, b.TypeName, StringComparison.OrdinalIgnoreCase);
+            return c != 0 ? c : string.Compare(a.ObjectName, b.ObjectName, StringComparison.OrdinalIgnoreCase);
+        });
+        return result;
+    }
 
     public Task<IReadOnlyList<MemoryRegionInfo>> GetMemoryMapAsync(int pid, CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<MemoryRegionInfo>>([]);
+        Task.Run<IReadOnlyList<MemoryRegionInfo>>(() => ReadMemoryMap(pid), ct);
+
+    private static IReadOnlyList<MemoryRegionInfo> ReadMemoryMap(int pid)
+    {
+        var result   = new List<MemoryRegionInfo>();
+        var mapsPath = $"/proc/{pid}/maps";
+        if (!File.Exists(mapsPath)) return result;
+
+        try
+        {
+            foreach (var line in File.ReadAllLines(mapsPath))
+            {
+                var entry = ProcMapsParser.ParseLine(line);
+                if (entry is null) continue;
+                result.Add(ToMemoryRegionInfo(entry.Value));
+            }
+        }
+        catch (Exception ex)
+        {
+            // EACCES for other users' processes, ENOENT if it exited mid-read — honest empty
+            // result rather than a partial/fabricated one.
+            _ = ex;
+        }
+
+        return result;
+    }
+
+    private static MemoryRegionInfo ToMemoryRegionInfo(ProcMapsEntry entry)
+    {
+        var (regionType, description) = ProcMapsClassifier.ClassifyPath(entry.Path, entry.Perms);
+        var protection = ProcMapsClassifier.DecodeProtection(entry.Perms);
+
+        return new MemoryRegionInfo(
+            entry.Start,
+            entry.End - entry.Start,
+            // /proc/<pid>/maps only ever lists VMAs that are actually mapped — Linux has no
+            // "reserved but not committed" state visible at this layer the way Windows
+            // VirtualQueryEx does, so every region here is honestly "Committed".
+            "Committed",
+            regionType,
+            protection,
+            description);
+    }
 
     public Task CreateDumpFileAsync(int pid, string outputPath, CancellationToken ct = default) =>
         throw new PlatformNotSupportedException("Process dump is not yet implemented on Linux.");
