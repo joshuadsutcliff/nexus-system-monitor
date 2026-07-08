@@ -14,7 +14,9 @@ namespace NexusMonitor.UI.ViewModels;
 
 public partial class SystemInfoViewModel : ViewModelBase
 {
-    [ObservableProperty] private SystemHardwareInfo? _info;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasRamSlots))]
+    private SystemHardwareInfo? _info;
     [ObservableProperty] private bool   _isLoading = true;
     [ObservableProperty] private string _loadError  = "";
 
@@ -25,6 +27,16 @@ public partial class SystemInfoViewModel : ViewModelBase
     [ObservableProperty] private string _maxClockDisplay = "—";
     [ObservableProperty] private string _l3CacheDisplay  = "—";
 
+    // Socket is meaningless on Apple Silicon (no discrete CPU socket) — the provider reports
+    // string.Empty there rather than fabricate a value, so "—" is keyed off the value like the
+    // fields above.
+    [ObservableProperty] private string _socketDisplay = "—";
+
+    /// <summary>True when RAM slot data is available. False on Apple Silicon (unified memory has
+    /// no discrete slots), where the Memory section collapses the slot table to a single line
+    /// (see <see cref="Views.SystemInfoView"/>).</summary>
+    public bool HasRamSlots => Info is not null && Info.RamSlots.Count > 0;
+
     partial void OnInfoChanged(SystemHardwareInfo? value)
     {
         MaxClockDisplay = value is not null && value.Cpu.MaxClockMhz > 0
@@ -32,6 +44,9 @@ public partial class SystemInfoViewModel : ViewModelBase
             : "—";
         L3CacheDisplay = value is not null && value.Cpu.L3CacheKB > 0
             ? $"{value.Cpu.L3CacheKB} KB"
+            : "—";
+        SocketDisplay = value is not null && !string.IsNullOrWhiteSpace(value.Cpu.Socket)
+            ? value.Cpu.Socket
             : "—";
     }
 

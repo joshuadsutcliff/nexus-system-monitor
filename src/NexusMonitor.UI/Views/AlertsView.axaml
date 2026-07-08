@@ -168,7 +168,7 @@
 
                 <!-- Empty state -->
                 <Border Padding="24,36"
-                        IsVisible="{Binding FilteredRules.Count, Converter={x:Static BoolConverters.Not}}">
+                        IsVisible="{Binding !HasFilteredRules}">
                   <StackPanel HorizontalAlignment="Center" Spacing="10">
                     <TextBlock Text="🔔" FontSize="36" HorizontalAlignment="Center"
                                Foreground="{DynamicResource TextTertiaryBrush}"/>
@@ -335,8 +335,7 @@
 
                 <!-- Empty state -->
                 <Border Padding="24,28"
-                        IsVisible="{Binding FilteredEventLog.Count,
-                                            Converter={x:Static BoolConverters.Not}}">
+                        IsVisible="{Binding !HasFilteredEventLog}">
                   <StackPanel HorizontalAlignment="Center" Spacing="8">
                     <TextBlock Text="🔕" FontSize="28" HorizontalAlignment="Center"
                                Foreground="{DynamicResource TextTertiaryBrush}"/>

@@ -104,7 +104,7 @@ Without it, the app falls back to writing `/sys/devices/system/cpu/*/cpufreq/sca
 
 ### Wayland note
 
-ProBalance (automatic background process throttling) works best on **X11**. Under Wayland, the app cannot reliably detect which process is in the foreground, so it applies background throttling more broadly. This is a known limitation — all other features are unaffected.
+Auto-Balance (automatic background process throttling) works best on **X11**. Under Wayland, the app cannot reliably detect which process is in the foreground, so it applies background throttling more broadly. This is a known limitation — all other features are unaffected.
 
 ---
 
@@ -161,9 +161,9 @@ Work through each tab and note what works, what's wrong, and what's missing.
 - [ ] Loads and shows process recommendations
 - [ ] Applying a recommendation doesn't crash the app
 
-### ProBalance tab
+### Auto-Balance tab
 
-- [ ] Toggle ProBalance on
+- [ ] Toggle Auto-Balance on
 - [ ] Verify no crash or error
 - [ ] Open a few apps and switch between them — CPU-intensive background processes should be slightly deprioritized
 
@@ -206,7 +206,7 @@ These are known gaps — no need to report them as bugs:
 | **Process handles** | Handle count column shows 0 on Linux (kernel doesn't expose this directly) |
 | **Notifications** | Toast notifications not implemented on macOS/Linux |
 | **Gaming Mode — power plans on macOS** | May require `sudo` to apply; see running instructions above |
-| **ProBalance on Wayland** | No foreground window detection; throttles broadly instead |
+| **Auto-Balance on Wayland** | No foreground window detection; throttles broadly instead |
 
 ---
 

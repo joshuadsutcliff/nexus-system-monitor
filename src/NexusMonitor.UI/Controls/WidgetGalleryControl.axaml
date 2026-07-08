@@ -17,6 +17,59 @@
     </Transitions>
   </UserControl.Transitions>
 
+  <UserControl.Styles>
+
+    <!-- Section header — same "quiet" uppercase-tracking treatment as the nav sidebar's
+         group labels (MainWindow.axaml's GroupLabel TextBlock). -->
+    <Style Selector="TextBlock.gallery-section-header">
+      <Setter Property="FontSize" Value="{DynamicResource NxFont10}"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextTertiaryBrush}"/>
+      <Setter Property="LetterSpacing" Value="1.2"/>
+    </Style>
+
+    <!-- Widget card chrome: resting state + hover/selection lift. Scoped to this control only
+         (not the shared nx-widget-chrome, which gates on a PageHostControl ancestor these cards
+         don't have). -->
+    <Style Selector="Border.nx-gallery-card">
+      <Setter Property="Transitions">
+        <Transitions>
+          <BoxShadowsTransition Property="BoxShadow" Duration="{DynamicResource MotionFast}"/>
+          <BrushTransition Property="BorderBrush" Duration="{DynamicResource MotionFast}"/>
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Border.nx-gallery-card:pointerover">
+      <Setter Property="BorderBrush" Value="{DynamicResource AccentBlueBrush}"/>
+      <Setter Property="BoxShadow" Value="{DynamicResource ElevationFloating}"/>
+    </Style>
+    <Style Selector="ListBoxItem:selected Border.nx-gallery-card">
+      <Setter Property="BorderBrush" Value="{DynamicResource AccentBlueBrush}"/>
+      <Setter Property="BoxShadow" Value="{DynamicResource ElevationFloating}"/>
+    </Style>
+
+    <!-- Card grid ListBox: transparent row chrome — cards supply their own visuals, the
+         ListBoxItem itself is just a keyboard/selection host (arrow-key nav + Enter via
+         OnCardsListKeyDown, WrapPanel gives the grid layout Avalonia's directional nav follows). -->
+    <Style Selector="ListBox.nx-gallery-list">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Padding" Value="0"/>
+    </Style>
+    <Style Selector="ListBox.nx-gallery-list ListBoxItem">
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="Margin" Value="0,0,10,10"/>
+      <Setter Property="MinWidth" Value="0"/>
+      <Setter Property="MinHeight" Value="0"/>
+      <Setter Property="CornerRadius" Value="{StaticResource CornerMD}"/>
+    </Style>
+    <Style Selector="ListBox.nx-gallery-list ListBoxItem /template/ ContentPresenter">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Padding" Value="0"/>
+    </Style>
+
+  </UserControl.Styles>
+
   <!-- Full-screen panel: backdrop layer + card layer -->
   <Panel>
 
@@ -28,10 +81,11 @@
     <!-- Gallery card: centered -->
     <Border x:Name="GalleryCard"
             Focusable="True"
-            MaxWidth="480"
+            Width="640"
+            MaxHeight="600"
             HorizontalAlignment="Center"
             VerticalAlignment="Center"
-            Padding="20,16"
+            Padding="28,24"
             Background="{DynamicResource BgElevatedBrush}"
             BorderBrush="{DynamicResource GlassBorderBrush}"
             BorderThickness="1"
@@ -39,38 +93,83 @@
             BoxShadow="{DynamicResource ElevationModal}"
             PointerPressed="OnCardPointerPressed">
 
-      <StackPanel Spacing="12">
+      <DockPanel>
 
-        <TextBlock Text="Add widget"
-                   FontSize="{DynamicResource NxFont14}"
-                   Foreground="{DynamicResource TextPrimaryBrush}"/>
+        <TextBlock DockPanel.Dock="Top"
+                   Text="Add Widget"
+                   FontSize="{DynamicResource NxFont16}" FontWeight="SemiBold"
+                   Foreground="{DynamicResource TextPrimaryBrush}"
+                   Margin="0,0,0,18"/>
 
-        <ItemsControl ItemsSource="{x:Static controls:WidgetCatalog.Entries}">
-          <ItemsControl.ItemTemplate>
-            <DataTemplate DataType="controls:WidgetCatalogEntry">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Auto">
+          <ItemsControl ItemsSource="{x:Static controls:WidgetCatalog.Groups}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate DataType="controls:WidgetCatalogGroup">
+                <StackPanel Spacing="10" Margin="0,0,0,20">
 
-              <Button Classes="nx-btn"
-                      HorizontalAlignment="Stretch"
-                      HorizontalContentAlignment="Left"
-                      Margin="0,3,0,0"
-                      Command="{Binding $parent[UserControl].DataContext.AddWidgetCommand}"
-                      CommandParameter="{Binding TypeId}">
-                <StackPanel Spacing="2">
-                  <TextBlock Text="{Binding Name}"
-                             FontSize="{DynamicResource NxFont12}"
-                             Foreground="{DynamicResource TextPrimaryBrush}"/>
-                  <TextBlock Text="{Binding Description}"
-                             FontSize="{DynamicResource NxFont11}"
-                             Foreground="{DynamicResource TextSecondaryBrush}"
-                             TextWrapping="Wrap"/>
+                  <TextBlock Classes="gallery-section-header"
+                             Text="{Binding Title}"/>
+
+                  <ListBox Classes="nx-gallery-list"
+                           ItemsSource="{Binding Items}"
+                           SelectionMode="Single"
+                           KeyDown="OnCardsListKeyDown">
+                    <ListBox.ItemsPanel>
+                      <ItemsPanelTemplate>
+                        <WrapPanel/>
+                      </ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
+                    <ListBox.ItemTemplate>
+                      <DataTemplate DataType="controls:WidgetCatalogEntry">
+
+                        <Border Classes="nx-gallery-card"
+                                Width="172"
+                                Padding="14,12"
+                                Background="{DynamicResource BgPrimaryBrush}"
+                                BorderBrush="{DynamicResource BorderSubtleBrush}"
+                                BorderThickness="1"
+                                CornerRadius="{StaticResource CornerMD}"
+                                PointerPressed="OnCardItemPointerPressed">
+                          <StackPanel Spacing="10">
+
+                            <!-- Icon tile: 40px accent-dim rounded square -->
+                            <Border Width="40" Height="40"
+                                    CornerRadius="{StaticResource CornerSM}"
+                                    Background="{DynamicResource AccentBlueDimBrush}"
+                                    HorizontalAlignment="Left">
+                              <TextBlock Text="{Binding Icon}"
+                                         FontFamily="{StaticResource NexusIcons}"
+                                         FontSize="{DynamicResource NxFont18}"
+                                         Foreground="{DynamicResource AccentBlueBrush}"
+                                         HorizontalAlignment="Center"
+                                         VerticalAlignment="Center"/>
+                            </Border>
+
+                            <TextBlock Text="{Binding Name}"
+                                       FontSize="{DynamicResource NxFont12}" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                       TextWrapping="Wrap"/>
+
+                            <TextBlock Text="{Binding Description}"
+                                       FontSize="{DynamicResource NxFont11}"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       TextWrapping="Wrap"/>
+
+                          </StackPanel>
+                        </Border>
+
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+
                 </StackPanel>
-              </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
 
-            </DataTemplate>
-          </ItemsControl.ItemTemplate>
-        </ItemsControl>
-
-      </StackPanel>
+      </DockPanel>
     </Border>
 
   </Panel>

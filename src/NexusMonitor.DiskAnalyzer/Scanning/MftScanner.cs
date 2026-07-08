@@ -10,7 +10,7 @@ namespace NexusMonitor.DiskAnalyzer.Scanning;
 /// Falls back to <see cref="RecursiveScanner"/> for non-NTFS volumes, network paths,
 /// and non-Windows operating systems.
 ///
-/// Algorithm (WizTree-style):
+/// Algorithm (MFT direct-read):
 ///   1. Open volume with GENERIC_READ (no filesystem traversal)
 ///   2. Query NTFS volume parameters (MFT cluster offset, record size, etc.)
 ///   3. Read the raw MFT in large sequential chunks

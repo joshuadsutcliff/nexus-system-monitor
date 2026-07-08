@@ -78,7 +78,7 @@
           <!-- Empty state -->
           <Border DockPanel.Dock="Top"
                   Padding="24,48"
-                  IsVisible="{Binding FilteredRules.Count, Converter={x:Static BoolConverters.Not}}">
+                  IsVisible="{Binding !HasFilteredRules}">
             <StackPanel HorizontalAlignment="Center" Spacing="10">
               <TextBlock Text="📋" FontSize="36" HorizontalAlignment="Center"
                          Foreground="{DynamicResource TextTertiaryBrush}"/>
@@ -221,9 +221,7 @@
           <Border DockPanel.Dock="Top"
                   Padding="16,8"
                   Background="{StaticResource ProcSuspiciousBgBrush}"
-                  IsVisible="{Binding ValidationError.Length,
-                              Converter={x:Static BoolConverters.Not},
-                              ConverterParameter=0}">
+                  IsVisible="{Binding HasValidationError}">
             <TextBlock Text="{Binding ValidationError}"
                        FontSize="{DynamicResource NxFont12}" Foreground="{StaticResource ColorDangerBrush}"/>
           </Border>

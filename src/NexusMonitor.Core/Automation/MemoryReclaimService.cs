@@ -12,13 +12,13 @@ namespace NexusMonitor.Core.Automation;
 /// Trims all background processes when RAM pressure is high, or only idle
 /// large processes when RAM is plentiful.
 /// </summary>
-public sealed class SmartTrimService : IDisposable
+public sealed class MemoryReclaimService : IDisposable
 {
     private readonly IProcessProvider         _processProvider;
     private readonly IForegroundWindowProvider _foregroundWindow;
     private readonly ISystemMetricsProvider   _metricsProvider;
     private readonly AppSettings              _settings;
-    private readonly ILogger<SmartTrimService> _logger;
+    private readonly ILogger<MemoryReclaimService> _logger;
 
     // pid → last trim time (per-PID cooldown)
     private readonly Dictionary<int, DateTime> _lastTrimTime = new();
@@ -33,18 +33,18 @@ public sealed class SmartTrimService : IDisposable
 
     private const int IdleTicksForTrim = 3;
 
-    public SmartTrimService(
+    public MemoryReclaimService(
         IProcessProvider          processProvider,
         IForegroundWindowProvider foregroundWindow,
         ISystemMetricsProvider    metricsProvider,
         AppSettings               settings,
-        ILogger<SmartTrimService>? logger = null)
+        ILogger<MemoryReclaimService>? logger = null)
     {
         _processProvider  = processProvider;
         _foregroundWindow = foregroundWindow;
         _metricsProvider  = metricsProvider;
         _settings         = settings;
-        _logger           = logger ?? NullLogger<SmartTrimService>.Instance;
+        _logger           = logger ?? NullLogger<MemoryReclaimService>.Instance;
     }
 
     public void Start()
@@ -56,10 +56,10 @@ public sealed class SmartTrimService : IDisposable
         _tickSubscription = _processProvider
             .GetProcessStream(MonitoringCadence.Normal)
             .RetryWithBackoff(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30),
-                onError: ex => _logger.LogWarning(ex, "SmartTrimService process stream faulted; retrying with backoff"))
+                onError: ex => _logger.LogWarning(ex, "MemoryReclaimService process stream faulted; retrying with backoff"))
             .Subscribe(TrackIdleTicks, ex =>
             {
-                _logger.LogError(ex, "SmartTrimService stream faulted");
+                _logger.LogError(ex, "MemoryReclaimService stream faulted");
                 _running = false;
             });
 
@@ -81,7 +81,7 @@ public sealed class SmartTrimService : IDisposable
     {
         if (!_running) return;
         var interval = TimeSpan.FromSeconds(
-            Math.Max(10, _settings.SmartTrimIntervalSeconds));
+            Math.Max(10, _settings.MemoryReclaimIntervalSeconds));
         _timerSubscription?.Dispose(); // dispose previous before reassigning (Bug 23)
         _timerSubscription = Observable.Timer(interval)
             .Subscribe(__ =>
@@ -116,16 +116,16 @@ public sealed class SmartTrimService : IDisposable
 
     private async Task RunTrimAsync()
     {
-        if (!_settings.SmartTrimEnabled) return;
+        if (!_settings.MemoryReclaimEnabled) return;
 
         var processes = await _processProvider.GetProcessesAsync();
         var metrics   = await _metricsProvider.GetMetricsAsync();
 
         double availPct = 100.0 - metrics.Memory.UsedPercent;
-        bool   highPressure = availPct < _settings.SmartTrimPressurePercent;
+        bool   highPressure = availPct < _settings.MemoryReclaimPressurePercent;
 
         int fgPid  = _foregroundWindow.GetForegroundProcessId();
-        long minWs = (long)_settings.SmartTrimMinWorkingSetMB * 1024 * 1024;
+        long minWs = (long)_settings.MemoryReclaimMinWorkingSetMB * 1024 * 1024;
         var now    = DateTime.UtcNow;
 
         foreach (var proc in processes)

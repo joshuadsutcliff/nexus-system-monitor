@@ -1,8 +1,8 @@
 ﻿<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:NexusMonitor.UI.ViewModels"
-             x:Class="NexusMonitor.UI.Views.ProBalanceView"
-             x:DataType="vm:ProBalanceViewModel"
+             x:Class="NexusMonitor.UI.Views.AutoBalanceView"
+             x:DataType="vm:AutoBalanceViewModel"
              x:CompileBindings="False">
 
   <DockPanel>
@@ -15,7 +15,7 @@
             BorderThickness="0,0,0,1">
       <DockPanel>
         <TextBlock DockPanel.Dock="Left"
-                   Text="ProBalance"
+                   Text="Auto-Balance"
                    FontSize="{DynamicResource NxFont16}" FontWeight="SemiBold"
                    Foreground="{DynamicResource TextPrimaryBrush}"
                    VerticalAlignment="Center"/>
@@ -44,7 +44,7 @@
             <StackPanel Grid.Column="0" Spacing="6">
               <StackPanel Orientation="Horizontal" Spacing="10">
                 <TextBlock Text="⚖" FontSize="20" VerticalAlignment="Center"/>
-                <TextBlock Text="ProBalance CPU Balancer"
+                <TextBlock Text="Auto-Balance CPU Balancer"
                            FontSize="{DynamicResource NxFont16}" FontWeight="SemiBold"
                            Foreground="{DynamicResource TextPrimaryBrush}"
                            VerticalAlignment="Center"/>
@@ -240,7 +240,7 @@
                            FontSize="{DynamicResource NxFont13}" FontWeight="SemiBold"
                            Foreground="{DynamicResource TextPrimaryBrush}"
                            HorizontalAlignment="Center"/>
-                <TextBlock Text="Enable ProBalance above and the log will populate as processes are throttled and restored."
+                <TextBlock Text="Enable Auto-Balance above and the log will populate as processes are throttled and restored."
                            FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"
                            HorizontalAlignment="Center" TextWrapping="Wrap" MaxWidth="360"/>
               </StackPanel>

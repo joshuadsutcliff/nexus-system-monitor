@@ -170,14 +170,14 @@ public static class NexusServiceCollectionExtensions
 
         // Automation services
         services.AddSingleton<ProcessActionLock>();
-        services.AddSingleton<ProBalanceService>();
+        services.AddSingleton<AutoBalanceService>();
         services.AddSingleton<RulesEngine>();
         services.AddSingleton<RulesPersistence>();
         services.AddSingleton<PerformanceProfileService>();
         services.AddSingleton<SleepPreventionService>();
         services.AddSingleton<ForegroundBoostService>();
-        services.AddSingleton<IdleSaverService>();
-        services.AddSingleton<SmartTrimService>();
+        services.AddSingleton<IdleThrottleService>();
+        services.AddSingleton<MemoryReclaimService>();
         services.AddSingleton<CpuLimiterService>();
         services.AddSingleton<InstanceBalancerService>();
         services.AddSingleton<QuietHoursService>();

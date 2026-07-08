@@ -115,9 +115,9 @@ public class App : Application
                 .Start(TimeSpan.FromMilliseconds(saved.Current.UpdateIntervalMs));
 
             // Start automation engines
-            // ProBalance only starts if it was enabled in settings
-            if (saved.Current.ProBalanceEnabled)
-                Services.GetRequiredService<ProBalanceService>().Start();
+            // AutoBalance only starts if it was enabled in settings
+            if (saved.Current.AutoBalanceEnabled)
+                Services.GetRequiredService<AutoBalanceService>().Start();
 
             // Start rules engine if rules exist OR there are saved process preferences
             var prefStore = Services.GetRequiredService<ProcessPreferenceStore>();
@@ -156,10 +156,10 @@ public class App : Application
             Services.GetRequiredService<SleepPreventionService>().Start();
             if (saved.Current.ForegroundBoostEnabled)
                 Services.GetRequiredService<ForegroundBoostService>().Start();
-            if (saved.Current.IdleSaverEnabled)
-                Services.GetRequiredService<IdleSaverService>().Start();
-            if (saved.Current.SmartTrimEnabled)
-                Services.GetRequiredService<SmartTrimService>().Start();
+            if (saved.Current.IdleThrottleEnabled)
+                Services.GetRequiredService<IdleThrottleService>().Start();
+            if (saved.Current.MemoryReclaimEnabled)
+                Services.GetRequiredService<MemoryReclaimService>().Start();
             if (saved.Current.CpuLimiterEnabled)
                 Services.GetRequiredService<CpuLimiterService>().Start();
             if (saved.Current.InstanceBalancerEnabled)
@@ -195,15 +195,15 @@ public class App : Application
             // capture is effectively free.
             var dashboardViewModel               = Services.GetRequiredService<DashboardViewModel>();
             var foregroundBoostService           = Services.GetService<ForegroundBoostService>();
-            var idleSaverService                 = Services.GetService<IdleSaverService>();
-            var smartTrimService                 = Services.GetService<SmartTrimService>();
+            var idleThrottleService                 = Services.GetService<IdleThrottleService>();
+            var memoryReclaimService                 = Services.GetService<MemoryReclaimService>();
             var cpuLimiterService                = Services.GetService<CpuLimiterService>();
             var instanceBalancerService          = Services.GetService<InstanceBalancerService>();
             var quietHoursServiceForShutdown     = Services.GetService<QuietHoursService>();
             var updateCheckServiceForShutdown    = Services.GetService<UpdateCheckService>();
             var sleepPreventionService           = Services.GetService<SleepPreventionService>();
             var gamingModeService                = Services.GetService<GamingModeService>();
-            var proBalanceService                = Services.GetService<ProBalanceService>();
+            var autoBalanceService                = Services.GetService<AutoBalanceService>();
             var performanceProfileService        = Services.GetService<PerformanceProfileService>();
             var memoryLeakDetectionService       = Services.GetService<MemoryLeakDetectionService>();
             var alertsServiceForShutdown         = Services.GetService<AlertsService>();
@@ -259,15 +259,15 @@ public class App : Application
 
                 // Automation services (hold OS handles / modified process state)
                 foregroundBoostService?.Stop();
-                idleSaverService?.Stop();
-                smartTrimService?.Stop();
+                idleThrottleService?.Stop();
+                memoryReclaimService?.Stop();
                 cpuLimiterService?.Stop();
                 instanceBalancerService?.Stop();
                 quietHoursServiceForShutdown?.Stop();
                 updateCheckServiceForShutdown?.Stop();
                 sleepPreventionService?.Stop();
                 gamingModeService?.Stop();
-                proBalanceService?.Stop();
+                autoBalanceService?.Stop();
                 performanceProfileService?.DeactivateProfile();
                 memoryLeakDetectionService?.Stop();
 
@@ -570,7 +570,7 @@ public class App : Application
         services.AddSingleton<StartupViewModel>();
         services.AddSingleton<NetworkViewModel>();
         services.AddSingleton<OptimizationViewModel>();
-        services.AddSingleton<ProBalanceViewModel>();
+        services.AddSingleton<AutoBalanceViewModel>();
         services.AddSingleton<RulesViewModel>();
         services.AddSingleton<GamingModeViewModel>();
         services.AddSingleton<AlertsViewModel>();

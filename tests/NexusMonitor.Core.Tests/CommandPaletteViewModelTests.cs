@@ -320,7 +320,7 @@ public class CommandPaletteToggleThemeTests
         Action? onSave = null,
         Action<string>? onThemeChanged = null)
     {
-        var appSettings = new AppSettings { GamingModeEnabled = false, ProBalanceEnabled = false, ThemeMode = initialTheme };
+        var appSettings = new AppSettings { GamingModeEnabled = false, AutoBalanceEnabled = false, ThemeMode = initialTheme };
         var vm = new CommandPaletteViewModel(
             Array.Empty<CommandPaletteItem>(),
             settings: appSettings,
@@ -328,13 +328,13 @@ public class CommandPaletteToggleThemeTests
             onThemeChanged: onThemeChanged);
 
         // Build toggle + theme items via the helpers and add them to a new VM that holds them
-        var gamingToggle   = vm.MakeToggle("Gaming Mode",   "\uF451", () => appSettings.GamingModeEnabled,  v => appSettings.GamingModeEnabled  = v);
-        var probalToggle   = vm.MakeToggle("ProBalance",    "\uF1C0", () => appSettings.ProBalanceEnabled,  v => appSettings.ProBalanceEnabled   = v);
-        var darkTheme      = vm.MakeTheme("Dark Theme",     "\uF468", "Dark");
-        var lightTheme     = vm.MakeTheme("Light Theme",    "\uF07C", "Light");
-        var systemTheme    = vm.MakeTheme("System Theme",   "\uF108", "System");
+        var gamingToggle      = vm.MakeToggle("Gaming Mode",   "\uF451", () => appSettings.GamingModeEnabled,  v => appSettings.GamingModeEnabled  = v);
+        var autoBalanceToggle = vm.MakeToggle("Auto-Balance",  "\uF1C0", () => appSettings.AutoBalanceEnabled,  v => appSettings.AutoBalanceEnabled   = v);
+        var darkTheme         = vm.MakeTheme("Dark Theme",     "\uF468", "Dark");
+        var lightTheme        = vm.MakeTheme("Light Theme",    "\uF07C", "Light");
+        var systemTheme       = vm.MakeTheme("System Theme",   "\uF108", "System");
 
-        var items = new CommandPaletteItem[] { gamingToggle, probalToggle, darkTheme, lightTheme, systemTheme };
+        var items = new CommandPaletteItem[] { gamingToggle, autoBalanceToggle, darkTheme, lightTheme, systemTheme };
         var finalVm = new CommandPaletteViewModel(items, appSettings, onSave, onThemeChanged);
         return (finalVm, appSettings);
     }
@@ -345,12 +345,12 @@ public class CommandPaletteToggleThemeTests
         var (vm, settings) = CreateVmWithToggles();
         vm.Open();
 
-        // GamingMode and ProBalance both start false → "OFF"
+        // GamingMode and AutoBalance both start false → "OFF"
         var gamingItem = vm.FilteredItems.First(i => i.Label == "Gaming Mode");
-        var probalItem = vm.FilteredItems.First(i => i.Label == "ProBalance");
+        var autoBalanceItem = vm.FilteredItems.First(i => i.Label == "Auto-Balance");
 
         gamingItem.StateLabel.Should().Be("OFF");
-        probalItem.StateLabel.Should().Be("OFF");
+        autoBalanceItem.StateLabel.Should().Be("OFF");
 
         // Flip gaming mode on directly, re-open to refresh
         settings.GamingModeEnabled = true;
@@ -366,14 +366,14 @@ public class CommandPaletteToggleThemeTests
         var (vm, settings) = CreateVmWithToggles();
         vm.Open();
 
-        // Externally flip ProBalance
-        settings.ProBalanceEnabled = true;
+        // Externally flip AutoBalance
+        settings.AutoBalanceEnabled = true;
 
         // Re-open — RefreshToggleStates should pick up the change
         vm.Open();
 
-        var probalItem = vm.FilteredItems.First(i => i.Label == "ProBalance");
-        probalItem.StateLabel.Should().Be("ON");
+        var autoBalanceItem = vm.FilteredItems.First(i => i.Label == "Auto-Balance");
+        autoBalanceItem.StateLabel.Should().Be("ON");
     }
 
     [Fact]

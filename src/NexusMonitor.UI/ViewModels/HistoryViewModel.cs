@@ -47,6 +47,12 @@ public partial class HistoryViewModel : ViewModelBase, IDisposable
     [ObservableProperty] private int    _eventCount;
     [ObservableProperty] private string _eventTypeFilter = "All";
 
+    // Empty-state guard — EventCount can't be bound through BoolConverters.Not
+    // directly since it's an int and the converter returns UnsetValue for
+    // non-bool input, leaving IsVisible stuck at its default (true).
+    public bool HasEvents => EventCount > 0;
+    partial void OnEventCountChanged(int value) => OnPropertyChanged(nameof(HasEvents));
+
     public static IReadOnlyList<string> EventTypeFilters { get; } =
     [
         "All",
@@ -63,6 +69,10 @@ public partial class HistoryViewModel : ViewModelBase, IDisposable
 
     [ObservableProperty] private int    _incidentCount;
     [ObservableProperty] private string _classificationFilter = "All";
+
+    // Empty-state guard — same rationale as HasEvents above, for ResourceIncidents.
+    public bool HasIncidents => IncidentCount > 0;
+    partial void OnIncidentCountChanged(int value) => OnPropertyChanged(nameof(HasIncidents));
 
     public static IReadOnlyList<string> ClassificationFilters { get; } =
     [

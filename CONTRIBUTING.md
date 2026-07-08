@@ -128,7 +128,7 @@ Each platform project implements these interfaces. The DI container registers th
 Use imperative mood in the subject line:
 
 ```
-Add SmartTrim memory reclamation service
+Add Memory Reclaim memory reclamation service
 Fix null reference in WindowsProcessProvider.GetModules()
 Improve IO priority handling on Linux procfs
 ```

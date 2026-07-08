@@ -200,7 +200,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Structured logging via Serilog:** Rolling file sink at `%AppData%\NexusMonitor\logs\nexus-.log`
   (daily roll, 10 MB cap, 7-file retention). `Microsoft.Extensions.Logging` wired into DI so all
   services receive typed `ILogger<T>` instances.
-- **Runtime logging for key services:** `RulesEngine`, `GamingModeService`, `ProBalanceService`,
+- **Runtime logging for key services:** `RulesEngine`, `GamingModeService`, `AutoBalanceService`,
   `PerformanceProfileService`, `MetricsStore`, and `SettingsService` now log warnings on
   recoverable failures rather than swallowing exceptions silently.
 - **Startup/shutdown logging:** Unhandled exceptions in `AppDomain`, `TaskScheduler`, and the
@@ -221,18 +221,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   processes and the power plan are restored before the service is torn down.
 
 **Batch 2 — Silent Rx Death + `async void` Crash Risk**
-- **`ForegroundBoostService`, `CpuLimiterService`, `InstanceBalancerService`, `IdleSaverService`,
+- **`ForegroundBoostService`, `CpuLimiterService`, `InstanceBalancerService`, `IdleThrottleService`,
   `SleepPreventionService`:** All rewritten — added `ILogger<T>` injection, Rx error handlers that
   set `_running = false` (so `Start()` can re-subscribe), `_running` guard in `Start()`, and full
   `try/catch` wrappers inside `async void OnTick` to prevent unhandled exceptions from reaching
   `SynchronizationContext` and crashing the process.
 - **`AlertsService`:** Rx error handler now sets `_running = false` instead of silently discarding.
-- **`RulesEngine`, `ProBalanceService`:** Error handlers updated to set `_running = false`; `Start()`
+- **`RulesEngine`, `AutoBalanceService`:** Error handlers updated to set `_running = false`; `Start()`
   guarded against double-subscription.
 
 **Batch 3 — Thread Safety**
 - **`SemaphoreSlim _tickLock = new(1, 1)`** added to `ForegroundBoostService`, `CpuLimiterService`,
-  `InstanceBalancerService`, `IdleSaverService`, `ProBalanceService`, and `RulesEngine`. `OnTick`
+  `InstanceBalancerService`, `IdleThrottleService`, `AutoBalanceService`, and `RulesEngine`. `OnTick`
   skips with `WaitAsync(0)` if the previous tick is still in flight; `Stop()` drains the semaphore
   before calling `RestoreAllAsync` to prevent restoring while a tick holds modified state.
 - **`GamingModeService`:** `_stateLock` SemaphoreSlim serialises `ThrottleBackgroundProcessesAsync`
@@ -244,7 +244,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`AnomalyDetectionService`:** `_cooldownLock` guards `IsCooldownElapsed` / `MarkCooldown`
   against concurrent access from 3 independent Rx subscriptions; added `_running` guard in `Start()`
   and `Stop()`.
-- **`SmartTrimService`:** `ScheduleNextTrim()` now disposes the previous `_timerSubscription`
+- **`MemoryReclaimService`:** `ScheduleNextTrim()` now disposes the previous `_timerSubscription`
   before reassigning, closing a subscription leak that grew unbounded over time.
 
 **Batch 4 — Platform Bugs**
@@ -286,7 +286,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   relabelled on platforms where they have no effect:
   - RulesView editor: CPU Set IDs, I/O Priority, Memory Priority, Efficiency Mode (EcoQoS),
     CPU Affinity Mask hidden on macOS/Linux
-  - AutomationView: EcoQoS checkbox hidden on macOS/Linux; SmartTrim, CPU Limiter, and
+  - AutomationView: EcoQoS checkbox hidden on macOS/Linux; Memory Reclaim, CPU Limiter, and
     Instance Balancer cards hidden on platforms without affinity/trim support
   - ProcessesView: Handles and Memory Map detail sections hidden on macOS/Linux
   - PerformanceProfilesView: Power Plan rows and Efficiency Mode column hidden on macOS
@@ -515,7 +515,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Network connections viewer: TCP/UDP connections with PID, state, send/recv throughput
 
 #### System Intelligence
-- ProBalance automatic load balancing: CPU priority management under load
+- Auto-Balance automatic load balancing: CPU priority management under load
 - Gaming Mode: auto-optimize foreground game processes
 - Rules Engine: define process rules that trigger on events
 - Alerts: configurable threshold-based alerts with OS notifications

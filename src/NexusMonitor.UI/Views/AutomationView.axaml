@@ -70,7 +70,7 @@
           </StackPanel>
         </Border>
 
-        <!-- ══ IdleSaver ════════════════════════════════════════════════ -->
+        <!-- ══ IdleThrottle ════════════════════════════════════════════════ -->
         <Border Padding="16"
                 Background="{DynamicResource BgElevatedBrush}"
                 BorderBrush="{DynamicResource GlassBorderBrush}"
@@ -79,10 +79,10 @@
           <StackPanel Spacing="12">
             <DockPanel>
               <ToggleSwitch DockPanel.Dock="Right"
-                            IsChecked="{Binding IdleSaverEnabled}"
+                            IsChecked="{Binding IdleThrottleEnabled}"
                             VerticalAlignment="Center"/>
               <StackPanel DockPanel.Dock="Left" Spacing="2">
-                <TextBlock Text="IDLESAVER" FontSize="{DynamicResource NxFont10}"
+                <TextBlock Text="IDLE THROTTLE" FontSize="{DynamicResource NxFont10}"
                            FontWeight="Medium" LetterSpacing="0.6"
                            Foreground="{DynamicResource TextTertiaryBrush}"/>
                 <TextBlock Text="Throttles background processes that have been idle for several consecutive ticks. Restores when they become active again."
@@ -90,7 +90,7 @@
                            Foreground="{DynamicResource TextSecondaryBrush}"/>
               </StackPanel>
             </DockPanel>
-            <StackPanel Spacing="10" IsVisible="{Binding IdleSaverEnabled}">
+            <StackPanel Spacing="10" IsVisible="{Binding IdleThrottleEnabled}">
               <Grid ColumnDefinitions="*,14,*">
                 <StackPanel Grid.Column="0" Spacing="4">
                   <TextBlock Text="CPU Idle Threshold (%)"
@@ -98,9 +98,9 @@
                              Foreground="{DynamicResource TextSecondaryBrush}"/>
                   <Grid ColumnDefinitions="*,Auto">
                     <Slider Grid.Column="0" Minimum="0.1" Maximum="10"
-                            Value="{Binding IdleSaverCpuThreshold}"/>
+                            Value="{Binding IdleThrottleCpuThreshold}"/>
                     <TextBlock Grid.Column="1" FontSize="{DynamicResource NxFont11}"
-                               Text="{Binding IdleSaverCpuThreshold, StringFormat='{}{0:F1}%'}"
+                               Text="{Binding IdleThrottleCpuThreshold, StringFormat='{}{0:F1}%'}"
                                Foreground="{DynamicResource AccentBlueBrush}"
                                VerticalAlignment="Center" Margin="6,0,0,0"/>
                   </Grid>
@@ -109,25 +109,25 @@
                   <TextBlock Text="Idle Ticks Required"
                              FontSize="{DynamicResource NxFont12}"
                              Foreground="{DynamicResource TextSecondaryBrush}"/>
-                  <NumericUpDown Value="{Binding IdleSaverIdleTicks}"
+                  <NumericUpDown Value="{Binding IdleThrottleIdleTicks}"
                                  Minimum="1" Maximum="20" Increment="1" FormatString="0"/>
                 </StackPanel>
               </Grid>
-              <CheckBox IsChecked="{Binding IdleSaverUseEfficiencyMode}"
+              <CheckBox IsChecked="{Binding IdleThrottleUseEfficiencyMode}"
                         Content="Also enable Efficiency Mode (EcoQoS) on throttled processes"
                         IsVisible="{Binding Platform.SupportsEfficiencyMode}"/>
               <StackPanel Spacing="4">
                 <TextBlock Text="Excluded processes (comma-separated)"
                            FontSize="{DynamicResource NxFont12}"
                            Foreground="{DynamicResource TextSecondaryBrush}"/>
-                <TextBox Text="{Binding IdleSaverExclusionsText}"
+                <TextBox Text="{Binding IdleThrottleExclusionsText}"
                          Watermark="e.g. audiodg, svchost"/>
               </StackPanel>
             </StackPanel>
           </StackPanel>
         </Border>
 
-        <!-- ══ SmartTrim ════════════════════════════════════════════════ -->
+        <!-- ══ MemoryReclaim ════════════════════════════════════════════════ -->
         <Border Padding="16"
                 Background="{DynamicResource BgElevatedBrush}"
                 BorderBrush="{DynamicResource GlassBorderBrush}"
@@ -137,10 +137,10 @@
           <StackPanel Spacing="12">
             <DockPanel>
               <ToggleSwitch DockPanel.Dock="Right"
-                            IsChecked="{Binding SmartTrimEnabled}"
+                            IsChecked="{Binding MemoryReclaimEnabled}"
                             VerticalAlignment="Center"/>
               <StackPanel DockPanel.Dock="Left" Spacing="2">
-                <TextBlock Text="SMART TRIM (AUTO)" FontSize="{DynamicResource NxFont10}"
+                <TextBlock Text="MEMORY RECLAIM (AUTO)" FontSize="{DynamicResource NxFont10}"
                            FontWeight="Medium" LetterSpacing="0.6"
                            Foreground="{DynamicResource TextTertiaryBrush}"/>
                 <TextBlock Text="Automatically trims process working sets on a timer. Under RAM pressure, trims all background processes. Otherwise trims only large idle processes."
@@ -149,12 +149,12 @@
               </StackPanel>
             </DockPanel>
             <Grid ColumnDefinitions="*,14,*,14,*"
-                  IsVisible="{Binding SmartTrimEnabled}">
+                  IsVisible="{Binding MemoryReclaimEnabled}">
               <StackPanel Grid.Column="0" Spacing="4">
                 <TextBlock Text="Interval (seconds)"
                            FontSize="{DynamicResource NxFont12}"
                            Foreground="{DynamicResource TextSecondaryBrush}"/>
-                <NumericUpDown Value="{Binding SmartTrimInterval}"
+                <NumericUpDown Value="{Binding MemoryReclaimInterval}"
                                Minimum="10" Maximum="3600" Increment="10" FormatString="0"/>
               </StackPanel>
               <StackPanel Grid.Column="2" Spacing="4">
@@ -163,9 +163,9 @@
                            Foreground="{DynamicResource TextSecondaryBrush}"/>
                 <Grid ColumnDefinitions="*,Auto">
                   <Slider Grid.Column="0" Minimum="5" Maximum="50"
-                          Value="{Binding SmartTrimPressurePercent}"/>
+                          Value="{Binding MemoryReclaimPressurePercent}"/>
                   <TextBlock Grid.Column="1" FontSize="{DynamicResource NxFont11}"
-                             Text="{Binding SmartTrimPressurePercent, StringFormat='{}{0:F0}%'}"
+                             Text="{Binding MemoryReclaimPressurePercent, StringFormat='{}{0:F0}%'}"
                              Foreground="{DynamicResource AccentBlueBrush}"
                              VerticalAlignment="Center" Margin="6,0,0,0"/>
                 </Grid>
@@ -174,7 +174,7 @@
                 <TextBlock Text="Min Working Set (MB)"
                            FontSize="{DynamicResource NxFont12}"
                            Foreground="{DynamicResource TextSecondaryBrush}"/>
-                <NumericUpDown Value="{Binding SmartTrimMinWorkingSetMb}"
+                <NumericUpDown Value="{Binding MemoryReclaimMinWorkingSetMb}"
                                Minimum="10" Maximum="4096" Increment="10" FormatString="0"/>
               </StackPanel>
             </Grid>

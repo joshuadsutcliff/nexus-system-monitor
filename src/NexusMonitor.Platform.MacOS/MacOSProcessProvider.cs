@@ -161,7 +161,14 @@ public sealed class MacOSProcessProvider : IProcessProvider, IDisposable
                 int   threadCount    = 0;
 
                 int ret = proc_pidinfo(pid, PROC_PIDTASKINFO, 0, _taskInfoPtr, _taskInfoSize);
-                if (ret == _taskInfoSize)
+                // proc_pidinfo(PROC_PIDTASKINFO) returns 0 (EPERM) for processes owned by
+                // another uid unless we're root — confirmed empirically: root-owned daemons
+                // (e.g. launchd pid 1, logd) fail with errno=1, while same-user processes
+                // succeed and return the full struct (memory + CPU ns together, never split).
+                // Track that failure explicitly so the UI can render "—" instead of a
+                // false "0%" for processes we genuinely cannot read unprivileged.
+                bool taskInfoOk = ret == _taskInfoSize;
+                if (taskInfoOk)
                 {
                     var info      = Marshal.PtrToStructure<proc_taskinfo>(_taskInfoPtr);
                     workingSet    = info.pti_resident_size;
@@ -171,19 +178,28 @@ public sealed class MacOSProcessProvider : IProcessProvider, IDisposable
                     threadCount   = info.pti_threadnum;
                 }
 
-                // CPU% delta — macOS reports times in nanoseconds
+                // CPU% delta — macOS reports times in nanoseconds. Only sample/seed the
+                // delta dictionary when the read actually succeeded, so an unreadable
+                // process doesn't get a fabricated zero baseline.
                 double cpuPercent = 0.0;
-                var cpuNs = (long)(totalUserNs + totalSystemNs);
-                var cpuTs = TimeSpan.FromTicks(cpuNs / 100); // 100ns per tick
-
-                if (_cpuSamples.TryGetValue(pid, out var prev))
+                if (taskInfoOk)
                 {
-                    var cpuDelta  = (cpuTs - prev.cpu).TotalSeconds;
-                    var timeDelta = (now - prev.time).TotalSeconds;
-                    if (timeDelta > 0 && cpuDelta >= 0)
-                        cpuPercent = Math.Clamp(cpuDelta / (timeDelta * s_processorCount) * 100.0, 0, 100);
+                    var cpuNs = (long)(totalUserNs + totalSystemNs);
+                    var cpuTs = TimeSpan.FromTicks(cpuNs / 100); // 100ns per tick
+
+                    if (_cpuSamples.TryGetValue(pid, out var prev))
+                    {
+                        var cpuDelta  = (cpuTs - prev.cpu).TotalSeconds;
+                        var timeDelta = (now - prev.time).TotalSeconds;
+                        if (timeDelta > 0 && cpuDelta >= 0)
+                            cpuPercent = Math.Clamp(cpuDelta / (timeDelta * s_processorCount) * 100.0, 0, 100);
+                    }
+                    _cpuSamples[pid] = (cpuTs, now);
                 }
-                _cpuSamples[pid] = (cpuTs, now);
+                else
+                {
+                    _cpuSamples.Remove(pid);
+                }
 
                 // Classify
                 var category = pid == s_currentPid
@@ -216,7 +232,7 @@ public sealed class MacOSProcessProvider : IProcessProvider, IDisposable
                     NetworkRecvBytesPerSec = 0,
                     IsElevated             = false,
                     IsCritical             = false,
-                    AccessDenied           = false,
+                    AccessDenied           = !taskInfoOk,
                     AffinityMask           = 0,
                     CurrentIoPriority      = IoPriority.Normal,
                     CurrentMemoryPriority  = MemoryPriority.Normal,

@@ -52,11 +52,11 @@ Items are organized into three tiers. Within each tier, order reflects suggested
 **Gap:** Users can't hide irrelevant columns (e.g. GPU column on a machine without a GPU).
 **Implementation:** `ColumnPreferences` in `AppSettings`. Context menu on column headers: "Hide column" / "Column settings." Persisted per-view.
 
-### IdleSaver (background process throttling)
-**Gap:** PL's `IdleSaver` — reclaim CPU from idle/background processes when system is under load.
-**Implementation:** `IdleSaverService` monitors total CPU % above threshold → applies BelowNormal to non-foreground, non-pinned processes.
+### Idle Throttle (background process throttling)
+**Gap:** PL's `IdleThrottle` — reclaim CPU from idle/background processes when system is under load.
+**Implementation:** `IdleThrottleService` monitors total CPU % above threshold → applies BelowNormal to non-foreground, non-pinned processes.
 
-### Working set trim / SmartTrim
+### Working set trim / Memory Reclaim
 **Gap:** PL's memory reclamation. Forces Windows to compress standby memory for selected processes.
 **Implementation:** `SetProcessWorkingSet` / `EmptyWorkingSet` P/Invoke. UI: "Trim memory" button in process context menu + a batch "Trim all" action.
 

@@ -8,9 +8,9 @@ using ReactiveUI;
 
 namespace NexusMonitor.UI.ViewModels;
 
-public partial class ProBalanceViewModel : ViewModelBase, IDisposable
+public partial class AutoBalanceViewModel : ViewModelBase, IDisposable
 {
-    private readonly ProBalanceService _proBalance;
+    private readonly AutoBalanceService _autoBalance;
     private readonly SettingsService   _settings;
     private IDisposable? _sub;
     private const int MaxLogEntries = 200;
@@ -30,11 +30,11 @@ public partial class ProBalanceViewModel : ViewModelBase, IDisposable
     [ObservableProperty] private int _totalRestored   = 0;
 
     // ── Activity log ─────────────────────────────────────────────────────────
-    public ObservableCollection<ProBalanceEvent> EventLog { get; } = [];
+    public ObservableCollection<AutoBalanceEvent> EventLog { get; } = [];
 
-    // ── How ProBalance works ──────────────────────────────────────────────────
+    // ── How Auto-Balance works ──────────────────────────────────────────────────
     public static string HowItWorks =>
-        "ProBalance monitors total system CPU usage every 500 ms. When CPU exceeds the " +
+        "Auto-Balance monitors total system CPU usage every 500 ms. When CPU exceeds the " +
         "threshold, background processes (not the active foreground window) using more " +
         "than 5% CPU are temporarily lowered to \"Below Normal\" priority. When load " +
         "drops below 70% of the threshold, all processes are restored to their original " +
@@ -42,43 +42,43 @@ public partial class ProBalanceViewModel : ViewModelBase, IDisposable
 
     // ── Constructor ───────────────────────────────────────────────────────────
 
-    public ProBalanceViewModel(ProBalanceService proBalance, SettingsService settings)
+    public AutoBalanceViewModel(AutoBalanceService autoBalance, SettingsService settings)
     {
-        Title       = "ProBalance";
-        _proBalance = proBalance;
+        Title       = "Auto-Balance";
+        _autoBalance = autoBalance;
         _settings   = settings;
 
         // Load persisted values via backing fields (no partial callback fire during init)
-        _isEnabled      = settings.Current.ProBalanceEnabled;
-        _cpuThreshold   = settings.Current.ProBalanceCpuThreshold;
+        _isEnabled      = settings.Current.AutoBalanceEnabled;
+        _cpuThreshold   = settings.Current.AutoBalanceCpuThreshold;
         _exclusionsText = string.Join(Environment.NewLine,
-                              settings.Current.ProBalanceExclusions);
+                              settings.Current.AutoBalanceExclusions);
 
         UpdateStatus();
 
         // Subscribe to events on the UI thread
-        _sub = proBalance.Events
+        _sub = autoBalance.Events
             .ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(OnEvent);
 
         // Start the service now if setting was persisted as enabled
-        if (IsEnabled) _proBalance.Start();
+        if (IsEnabled) _autoBalance.Start();
     }
 
     // ── Partial callbacks ─────────────────────────────────────────────────────
 
     partial void OnIsEnabledChanged(bool value)
     {
-        _settings.Current.ProBalanceEnabled = value;
+        _settings.Current.AutoBalanceEnabled = value;
         _settings.Save();
-        if (value) _proBalance.Start();
-        else        _proBalance.Stop();
+        if (value) _autoBalance.Start();
+        else        _autoBalance.Stop();
         UpdateStatus();
     }
 
     partial void OnCpuThresholdChanged(double value)
     {
-        _settings.Current.ProBalanceCpuThreshold = value;
+        _settings.Current.AutoBalanceCpuThreshold = value;
         _settings.Save();
     }
 
@@ -88,13 +88,13 @@ public partial class ProBalanceViewModel : ViewModelBase, IDisposable
                          .Select(s => s.Trim())
                          .Where(s => s.Length > 0)
                          .ToList();
-        _settings.Current.ProBalanceExclusions = lines;
+        _settings.Current.AutoBalanceExclusions = lines;
         _settings.Save();
     }
 
     // ── Event handler ─────────────────────────────────────────────────────────
 
-    private void OnEvent(ProBalanceEvent e)
+    private void OnEvent(AutoBalanceEvent e)
     {
         EventLog.Insert(0, e);
         while (EventLog.Count > MaxLogEntries)
@@ -102,15 +102,15 @@ public partial class ProBalanceViewModel : ViewModelBase, IDisposable
 
         switch (e.Type)
         {
-            case ProBalanceEventType.Throttled:
+            case AutoBalanceEventType.Throttled:
                 ThrottledNow++;
                 TotalThrottled++;
                 break;
-            case ProBalanceEventType.Restored:
+            case AutoBalanceEventType.Restored:
                 if (ThrottledNow > 0) ThrottledNow--;
                 TotalRestored++;
                 break;
-            case ProBalanceEventType.Stopped:
+            case AutoBalanceEventType.Stopped:
                 ThrottledNow = 0;
                 break;
         }

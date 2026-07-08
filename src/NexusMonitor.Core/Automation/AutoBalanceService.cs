@@ -10,30 +10,30 @@ namespace NexusMonitor.Core.Automation;
 /// <summary>
 /// Background daemon that dynamically lowers CPU-hogging background processes
 /// to restore system responsiveness, then restores them when load drops.
-/// Inspired by Process Lasso's ProBalance algorithm.
+/// Inspired by Process Lasso's Auto-Balance algorithm.
 /// </summary>
-public sealed class ProBalanceService : IDisposable
+public sealed class AutoBalanceService : IDisposable
 {
     private readonly IProcessProvider _processProvider;
     private readonly IForegroundWindowProvider _foregroundWindow;
     private readonly AppSettings _settings; // live reference — reads current options each tick
-    private readonly ILogger<ProBalanceService> _logger;
+    private readonly ILogger<AutoBalanceService> _logger;
 
     // pid → original priority (before we throttled them)
     private readonly Dictionary<int, ProcessPriority> _throttled = new();
-    private readonly Subject<ProBalanceEvent> _events = new();
+    private readonly Subject<AutoBalanceEvent> _events = new();
     private IDisposable? _subscription;
     private bool _running;
     private readonly SemaphoreSlim _tickLock = new(1, 1);
 
-    public IObservable<ProBalanceEvent> Events => _events.AsObservable();
+    public IObservable<AutoBalanceEvent> Events => _events.AsObservable();
     public bool IsRunning => _running;
 
-    public ProBalanceService(
+    public AutoBalanceService(
         IProcessProvider processProvider,
         IForegroundWindowProvider foregroundWindow,
         AppSettings settings,
-        ILogger<ProBalanceService> logger)
+        ILogger<AutoBalanceService> logger)
     {
         _processProvider  = processProvider;
         _foregroundWindow = foregroundWindow;
@@ -51,15 +51,15 @@ public sealed class ProBalanceService : IDisposable
         _subscription = _processProvider
             .GetProcessStream(MonitoringCadence.Fast)
             .RetryWithBackoff(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30),
-                onError: ex => _logger.LogWarning(ex, "ProBalanceService process stream faulted; retrying with backoff"))
+                onError: ex => _logger.LogWarning(ex, "AutoBalanceService process stream faulted; retrying with backoff"))
             .Sample(TimeSpan.FromMilliseconds(500))
             .Subscribe(OnTick, ex =>
             {
-                _logger.LogError(ex, "ProBalance stream faulted");
+                _logger.LogError(ex, "AutoBalance stream faulted");
                 _running = false;
             });
-        _events.OnNext(new ProBalanceEvent(
-            ProBalanceEventType.Started, 0, string.Empty,
+        _events.OnNext(new AutoBalanceEvent(
+            AutoBalanceEventType.Started, 0, string.Empty,
             ProcessPriority.Normal, ProcessPriority.Normal, DateTime.UtcNow));
     }
 
@@ -71,8 +71,8 @@ public sealed class ProBalanceService : IDisposable
         _subscription?.Dispose();
         _subscription = null;
         _ = RestoreAllAsync(); // best-effort restore on shutdown — non-critical if processes exit shortly after
-        _events.OnNext(new ProBalanceEvent(
-            ProBalanceEventType.Stopped, 0, string.Empty,
+        _events.OnNext(new AutoBalanceEvent(
+            AutoBalanceEventType.Stopped, 0, string.Empty,
             ProcessPriority.Normal, ProcessPriority.Normal, DateTime.UtcNow));
     }
 
@@ -81,12 +81,12 @@ public sealed class ProBalanceService : IDisposable
         if (!await _tickLock.WaitAsync(0)) return;
         try
         {
-        if (!_settings.ProBalanceEnabled) return;
+        if (!_settings.AutoBalanceEnabled) return;
 
         double totalCpu = processes.Sum(p => p.CpuPercent);
-        double threshold = _settings.ProBalanceCpuThreshold;
+        double threshold = _settings.AutoBalanceCpuThreshold;
         int fgPid = _foregroundWindow.GetForegroundProcessId();
-        var exclusions = _settings.ProBalanceExclusions;
+        var exclusions = _settings.AutoBalanceExclusions;
 
         if (totalCpu >= threshold)
         {
@@ -111,11 +111,11 @@ public sealed class ProBalanceService : IDisposable
                 {
                     await _processProvider.SetPriorityAsync(proc.Pid, ProcessPriority.BelowNormal);
                     _throttled[proc.Pid] = original;
-                    _events.OnNext(new ProBalanceEvent(
-                        ProBalanceEventType.Throttled, proc.Pid, proc.Name,
+                    _events.OnNext(new AutoBalanceEvent(
+                        AutoBalanceEventType.Throttled, proc.Pid, proc.Name,
                         original, ProcessPriority.BelowNormal, DateTime.UtcNow));
                 }
-                catch (Exception ex) { _logger.LogDebug(ex, "ProBalance: throttle {Name} (PID {Pid}) failed", proc.Name, proc.Pid); }
+                catch (Exception ex) { _logger.LogDebug(ex, "AutoBalance: throttle {Name} (PID {Pid}) failed", proc.Name, proc.Pid); }
             }
         }
         else if (totalCpu < threshold * 0.7) // restore at 70% of threshold to avoid oscillation
@@ -129,11 +129,11 @@ public sealed class ProBalanceService : IDisposable
                     await _processProvider.SetPriorityAsync(pid, original);
                     _throttled.Remove(pid);
                     var name = processes.FirstOrDefault(p => p.Pid == pid)?.Name ?? $"PID {pid}";
-                    _events.OnNext(new ProBalanceEvent(
-                        ProBalanceEventType.Restored, pid, name,
+                    _events.OnNext(new AutoBalanceEvent(
+                        AutoBalanceEventType.Restored, pid, name,
                         ProcessPriority.BelowNormal, original, DateTime.UtcNow));
                 }
-                catch (Exception ex) { _throttled.Remove(pid); _logger.LogDebug(ex, "ProBalance: restore PID {Pid} failed", pid); }
+                catch (Exception ex) { _throttled.Remove(pid); _logger.LogDebug(ex, "AutoBalance: restore PID {Pid} failed", pid); }
             }
         }
         else
@@ -146,11 +146,11 @@ public sealed class ProBalanceService : IDisposable
             {
                 var original = _throttled[pid];
                 try { await _processProvider.SetPriorityAsync(pid, original); }
-                catch (Exception ex) { _logger.LogDebug(ex, "ProBalance: mid-zone restore PID {Pid} failed", pid); }
+                catch (Exception ex) { _logger.LogDebug(ex, "AutoBalance: mid-zone restore PID {Pid} failed", pid); }
                 _throttled.Remove(pid);
                 var name = processes.FirstOrDefault(p => p.Pid == pid)?.Name ?? $"PID {pid}";
-                _events.OnNext(new ProBalanceEvent(
-                    ProBalanceEventType.Restored, pid, name,
+                _events.OnNext(new AutoBalanceEvent(
+                    AutoBalanceEventType.Restored, pid, name,
                     ProcessPriority.BelowNormal, original, DateTime.UtcNow));
             }
         }
@@ -160,7 +160,7 @@ public sealed class ProBalanceService : IDisposable
         foreach (var pid in _throttled.Keys.Where(k => !alive.Contains(k)).ToList())
             _throttled.Remove(pid);
         } // end try
-        catch (Exception ex) { _logger.LogDebug(ex, "ProBalance OnTick error"); }
+        catch (Exception ex) { _logger.LogDebug(ex, "AutoBalance OnTick error"); }
         finally { _tickLock.Release(); }
     }
 
@@ -178,7 +178,7 @@ public sealed class ProBalanceService : IDisposable
         foreach (var (pid, original) in _throttled.ToList())
         {
             try { await _processProvider.SetPriorityAsync(pid, original); }
-            catch (Exception ex) { _logger.LogDebug(ex, "ProBalance: RestoreAll PID {Pid} failed", pid); }
+            catch (Exception ex) { _logger.LogDebug(ex, "AutoBalance: RestoreAll PID {Pid} failed", pid); }
         }
         _throttled.Clear();
     }

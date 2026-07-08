@@ -17,6 +17,8 @@ public partial class RulesViewModel : ViewModelBase
     public ObservableCollection<ProcessRule> Rules { get; } = [];
     public ObservableCollection<ProcessRule> FilteredRules { get; } = [];
 
+    [ObservableProperty] private bool _hasFilteredRules;
+
     [ObservableProperty] private ProcessRule? _selectedRule;
     [ObservableProperty] private string _searchText = string.Empty;
 
@@ -64,6 +66,11 @@ public partial class RulesViewModel : ViewModelBase
     public bool IsConditionEnabled => EditConditionTypeIndex > 0;
     public bool IsWatchdogEnabled  => EditWatchdogActionIndex > 0;
 
+    // True when there's a validation error message to display (empty-state/banner
+    // guard — ValidationError.Length can't be bound through BoolConverters.Not
+    // directly since it returns UnsetValue for non-bool input).
+    public bool HasValidationError => !string.IsNullOrEmpty(ValidationError);
+
     partial void OnEditConditionTypeIndexChanged(int value)
         => OnPropertyChanged(nameof(IsConditionEnabled));
     partial void OnEditWatchdogActionIndexChanged(int value)
@@ -71,6 +78,8 @@ public partial class RulesViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsWatchdogEnabled));
         OnPropertyChanged(nameof(IsReduceAffinitySelected));
     }
+    partial void OnValidationErrorChanged(string value)
+        => OnPropertyChanged(nameof(HasValidationError));
 
     partial void OnSearchTextChanged(string value) => ApplyFilter();
 
@@ -87,6 +96,8 @@ public partial class RulesViewModel : ViewModelBase
 
         foreach (var rule in source)
             FilteredRules.Add(rule);
+
+        HasFilteredRules = FilteredRules.Count > 0;
 
         // Restore selection if it still passes the filter
         if (selected is not null && FilteredRules.Contains(selected))

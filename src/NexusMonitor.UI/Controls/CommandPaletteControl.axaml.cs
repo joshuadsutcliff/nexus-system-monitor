@@ -72,6 +72,24 @@ public partial class CommandPaletteControl : UserControl
         e.Handled = true;
     }
 
+    /// <summary>
+    /// Belt-and-suspenders Escape close, mirroring <see cref="WidgetGalleryControl"/>'s own
+    /// UserControl-level <c>OnKeyDown</c> override: <see cref="OnSearchKeyDown"/> already closes
+    /// on Escape while SearchBox has focus (the normal case — SearchBox is focused on open and
+    /// nothing else in this overlay is independently focusable), but routing Escape here too
+    /// means the palette still closes even if focus ever ends up elsewhere within it.
+    /// </summary>
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+
+        if (e.Key == Key.Escape && DataContext is CommandPaletteViewModel vm)
+        {
+            vm.Close();
+            e.Handled = true;
+        }
+    }
+
     private void OnSearchKeyDown(object? sender, KeyEventArgs e)
     {
         var vm = DataContext as CommandPaletteViewModel;

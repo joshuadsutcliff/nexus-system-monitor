@@ -23,14 +23,14 @@ public static class MonitoringCadence
     /// <summary>
     /// 1-second cadence for automation that reacts to fast-changing foreground/gaming
     /// state: <c>ForegroundBoostService</c>, <c>GamingModeService</c>,
-    /// <c>PerformanceProfileService</c>, <c>ProBalanceService</c>.
+    /// <c>PerformanceProfileService</c>, <c>AutoBalanceService</c>.
     /// </summary>
     public static readonly TimeSpan Fast = TimeSpan.FromSeconds(1);
 
     /// <summary>
     /// 2-second cadence for the remaining background services: <c>AlertsService</c>,
     /// <c>RulesEngine</c>, <c>EventMonitorService</c>, <c>AnomalyDetectionService</c>,
-    /// <c>SmartTrimService</c>, <c>InstanceBalancerService</c>, <c>SleepPreventionService</c>,
+    /// <c>MemoryReclaimService</c>, <c>InstanceBalancerService</c>, <c>SleepPreventionService</c>,
     /// <c>CpuLimiterService</c>, <c>MemoryLeakDetectionService</c>.
     /// </summary>
     public static readonly TimeSpan Normal = TimeSpan.FromSeconds(2);

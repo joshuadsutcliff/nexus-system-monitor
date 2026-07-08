@@ -26,14 +26,25 @@
                    VerticalAlignment="Center"/>
 
         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-          <!-- View-mode: single pencil toggle; hidden while editing -->
+          <!-- View-mode: labeled Edit entry point; hidden while editing. Icon + text (not a bare
+               glyph) and "nx-btn" chrome — the same regular button chrome the edit-mode toolbar's
+               Tidy/Undo/Cancel buttons use — so this reads as a discoverable action, not a hidden
+               icon-only affordance. -->
           <StackPanel Orientation="Horizontal">
-            <Button Classes="nx-btn-ghost"
+            <Button Classes="nx-btn"
                     IsVisible="{Binding !IsEditMode}"
                     IsEnabled="{Binding CanEditLayout}"
                     Command="{Binding EnterEditModeCommand}"
-                    ToolTip.Tip="Edit layout">
-              <TextBlock Text="✏" FontSize="{DynamicResource NxFont14}" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                    ToolTip.Tip="Customize the dashboard — add, move, and resize widgets.">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <TextBlock Text="&#xf3dd;" FontFamily="{StaticResource NexusIcons}"
+                           FontSize="{DynamicResource NxFont13}"
+                           Foreground="{DynamicResource AccentBlueBrush}"
+                           VerticalAlignment="Center"/>
+                <TextBlock Text="Edit" FontSize="{DynamicResource NxFont12}"
+                           Foreground="{DynamicResource TextPrimaryBrush}"
+                           VerticalAlignment="Center"/>
+              </StackPanel>
             </Button>
           </StackPanel>
           <!-- Edit-mode toolbar. Phase 8 Task 3 gate fix: fades in when entering edit mode — see

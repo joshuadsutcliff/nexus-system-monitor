@@ -194,7 +194,7 @@
               <StackPanel Grid.Column="1" Spacing="6" Margin="12,0,0,0">
                 <Grid ColumnDefinitions="*,Auto">
                   <TextBlock Text="Socket" FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"/>
-                  <TextBlock Grid.Column="1" Text="{Binding Info.Cpu.Socket}"
+                  <TextBlock Grid.Column="1" Text="{Binding SocketDisplay}"
                              FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextSecondaryBrush}"/>
                 </Grid>
                 <Grid ColumnDefinitions="*,Auto">
@@ -238,8 +238,9 @@
 
             <Border Height="1" Background="{DynamicResource BorderSubtleBrush}" Opacity="0.6"/>
 
-            <!-- Slot table header -->
-            <Grid ColumnDefinitions="80,70,70,70,110,*" Margin="0,2,0,0">
+            <!-- Slot table header — hidden when there's no slot data to show (see below) -->
+            <Grid ColumnDefinitions="80,70,70,70,110,*" Margin="0,2,0,0"
+                  IsVisible="{Binding HasRamSlots}">
               <TextBlock Grid.Column="0" Text="Slot" FontSize="{DynamicResource NxFont10}" FontWeight="SemiBold"
                          Foreground="{DynamicResource TextTertiaryBrush}" LetterSpacing="0.5"/>
               <TextBlock Grid.Column="1" Text="Size" FontSize="{DynamicResource NxFont10}" FontWeight="SemiBold"
@@ -253,7 +254,7 @@
               <TextBlock Grid.Column="5" Text="Part Number" FontSize="{DynamicResource NxFont10}" FontWeight="SemiBold"
                          Foreground="{DynamicResource TextTertiaryBrush}" LetterSpacing="0.5"/>
             </Grid>
-            <ItemsControl ItemsSource="{Binding Info.RamSlots}">
+            <ItemsControl ItemsSource="{Binding Info.RamSlots}" IsVisible="{Binding HasRamSlots}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate>
                   <Border Padding="0,5" Margin="0,1" CornerRadius="6"
@@ -284,6 +285,13 @@
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
+
+            <!-- Unified memory (e.g. Apple Silicon): no discrete slots to enumerate — collapse the
+                 table to a single quiet line instead of headers over zero rows. -->
+            <TextBlock Text="Unified memory — no discrete slots"
+                       IsVisible="{Binding !HasRamSlots}"
+                       FontSize="{DynamicResource NxFont12}"
+                       Foreground="{DynamicResource TextTertiaryBrush}"/>
           </StackPanel>
         </Border>
 

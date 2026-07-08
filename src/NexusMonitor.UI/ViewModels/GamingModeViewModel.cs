@@ -44,6 +44,7 @@ public partial class GamingModeViewModel : ViewModelBase, IDisposable
     // ── Activity log ─────────────────────────────────────────────────────────
 
     public ObservableCollection<string> StatusLog { get; } = [];
+    [ObservableProperty] private bool _hasStatusLog;
 
     // ── Constructor ───────────────────────────────────────────────────────────
 
@@ -143,6 +144,7 @@ public partial class GamingModeViewModel : ViewModelBase, IDisposable
     private void ClearLog()
     {
         StatusLog.Clear();
+        HasStatusLog = StatusLog.Count > 0;
     }
 
     // ── Internal helpers ──────────────────────────────────────────────────────
@@ -152,6 +154,7 @@ public partial class GamingModeViewModel : ViewModelBase, IDisposable
         StatusLog.Insert(0, $"[{DateTime.Now:HH:mm:ss}] {message}");
         while (StatusLog.Count > MaxLogEntries)
             StatusLog.RemoveAt(StatusLog.Count - 1);
+        HasStatusLog = StatusLog.Count > 0;
 
         // Keep ThrottledCount in sync
         RefreshStats();

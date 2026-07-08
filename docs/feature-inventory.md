@@ -62,7 +62,7 @@ Exhaustive checklist of every implemented feature, organized by category. Versio
 
 ## 3. System Intelligence
 
-- [x] ProBalance: automatic CPU priority management under load (v0.1.0)
+- [x] Auto-Balance: automatic CPU priority management under load (v0.1.0)
 - [x] Gaming Mode: one-click optimization for foreground game processes (v0.1.0)
 - [x] Rules Engine: define process rules with conditions and auto-actions (v0.1.0)
 - [x] Watchdog monitoring: CPU/RAM threshold triggers over configurable duration (v0.1.0)

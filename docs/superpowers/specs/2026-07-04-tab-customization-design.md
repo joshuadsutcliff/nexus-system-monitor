@@ -55,7 +55,7 @@ Edit chrome per widget: drag handle, corner+edge resize grips (snap to cells), r
 
 Core: `WidgetDescriptor { TypeId, Name, Category, DefaultSize, MinSize, CapabilityRequirement (IPlatformCapabilities predicate or sensor availability), ConfigSchema }`. UI: factory map TypeId → (Control, ViewModel). Gallery lists only widgets whose capability requirement this platform satisfies.
 
-Categories mirror the product: **Performance** (CPU/memory/disk/network/GPU charts), **Health** (score, trends, predictions, bottleneck), **Processes** (top-N, group summaries), **Features** (Alerts feed, Gaming Mode status, Disk Analyzer summary, Network Scanner results, Automation/Rules status, ProBalance activity, History sparklines, Diagnostics), **Info** (system info, uptime/clock, notes).
+Categories mirror the product: **Performance** (CPU/memory/disk/network/GPU charts), **Health** (score, trends, predictions, bottleneck), **Processes** (top-N, group summaries), **Features** (Alerts feed, Gaming Mode status, Disk Analyzer summary, Network Scanner results, Automation/Rules status, Auto-Balance activity, History sparklines, Diagnostics), **Info** (system info, uptime/clock, notes).
 
 ### 4.2 Tier 1 — prebuilt panels
 

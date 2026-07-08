@@ -25,9 +25,9 @@ internal static class ServiceStarter
         services.GetRequiredService<SystemHealthService>()
             .Start(TimeSpan.FromMilliseconds(settings.UpdateIntervalMs));
 
-        // ProBalance only starts if enabled
-        if (settings.ProBalanceEnabled)
-            services.GetRequiredService<ProBalanceService>().Start();
+        // AutoBalance only starts if enabled
+        if (settings.AutoBalanceEnabled)
+            services.GetRequiredService<AutoBalanceService>().Start();
 
         // Rules engine if rules exist OR there are saved process preferences
         var prefStore = services.GetRequiredService<ProcessPreferenceStore>();
@@ -64,10 +64,10 @@ internal static class ServiceStarter
         services.GetRequiredService<SleepPreventionService>().Start();
         if (settings.ForegroundBoostEnabled)
             services.GetRequiredService<ForegroundBoostService>().Start();
-        if (settings.IdleSaverEnabled)
-            services.GetRequiredService<IdleSaverService>().Start();
-        if (settings.SmartTrimEnabled)
-            services.GetRequiredService<SmartTrimService>().Start();
+        if (settings.IdleThrottleEnabled)
+            services.GetRequiredService<IdleThrottleService>().Start();
+        if (settings.MemoryReclaimEnabled)
+            services.GetRequiredService<MemoryReclaimService>().Start();
         if (settings.CpuLimiterEnabled)
             services.GetRequiredService<CpuLimiterService>().Start();
         if (settings.InstanceBalancerEnabled)
@@ -81,12 +81,12 @@ internal static class ServiceStarter
     {
         // Automation services (hold OS handles / modified process state)
         services.GetService<ForegroundBoostService>()?.Stop();
-        services.GetService<IdleSaverService>()?.Stop();
-        services.GetService<SmartTrimService>()?.Stop();
+        services.GetService<IdleThrottleService>()?.Stop();
+        services.GetService<MemoryReclaimService>()?.Stop();
         services.GetService<CpuLimiterService>()?.Stop();
         services.GetService<InstanceBalancerService>()?.Stop();
         services.GetService<SleepPreventionService>()?.Stop();
-        services.GetService<ProBalanceService>()?.Stop();
+        services.GetService<AutoBalanceService>()?.Stop();
         services.GetService<PerformanceProfileService>()?.DeactivateProfile();
         services.GetService<MemoryLeakDetectionService>()?.Stop();
 

@@ -176,7 +176,7 @@ public sealed class SystemHealthService : IDisposable
 
         // ── Active automation count ───────────────────────────────────────────
         var automations = 0;
-        if (_settings.ProBalanceEnabled)   automations++;
+        if (_settings.AutoBalanceEnabled)   automations++;
         if (_settings.GamingModeEnabled)   automations++;
         if (_settings.Rules.Count > 0)     automations++;
         if (_settings.AlertRules.Count > 0) automations++;

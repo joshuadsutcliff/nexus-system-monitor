@@ -42,6 +42,9 @@ public partial class AlertsViewModel : ViewModelBase, IDisposable
     public ObservableCollection<AlertRule>  FilteredRules    { get; } = [];
     public ObservableCollection<AlertEvent> FilteredEventLog { get; } = [];
 
+    [ObservableProperty] private bool _hasFilteredRules;
+    [ObservableProperty] private bool _hasFilteredEventLog;
+
     // ── Event log ─────────────────────────────────────────────────────────────
     public ObservableCollection<AlertEvent> EventLog { get; } = [];
 
@@ -111,6 +114,9 @@ public partial class AlertsViewModel : ViewModelBase, IDisposable
                     FilteredEventLog.Add(evt);
             }
         }
+
+        HasFilteredRules    = FilteredRules.Count > 0;
+        HasFilteredEventLog = FilteredEventLog.Count > 0;
     }
 
     // ── Event handler ─────────────────────────────────────────────────────────

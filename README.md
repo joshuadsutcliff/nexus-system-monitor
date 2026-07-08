@@ -12,7 +12,7 @@
 
 **One tool. Every platform. Complete system visibility.**
 
-Process Lasso is Windows-only. WizTree is Windows-only. Activity Monitor is macOS-only. htop is terminal-only. Nexus does what all of them do — on all three platforms, with a consistent interface you learn once.
+Your process tuner only runs on one OS. Your disk analyzer is a separate download. Your terminal monitor can't click. Nexus replaces the patchwork — real-time monitoring, deep process control, rules-based automation, and disk analysis in a single app for Windows, macOS, and Linux, with a dashboard you design yourself and one interface you learn once.
 
 > **Testing on macOS or Linux?** → [TESTING.md](TESTING.md) — step-by-step setup, what to test, and how to report issues.
 
@@ -35,13 +35,13 @@ Process Lasso is Windows-only. WizTree is Windows-only. Activity Monitor is macO
 
 ## Philosophy
 
-Every operating system ships its own task manager, and power users inevitably turn to a patchwork of third-party tools — Process Lasso on Windows, Activity Monitor on macOS, htop on Linux, System Informer for deep inspection, and more. Each one has a different interface, different capabilities, and different learning curves.
+Every operating system ships its own task manager, and power users inevitably turn to a patchwork of third-party tools — a process tuner on one platform, a menu-bar monitor on another, a terminal monitor over SSH, a separate deep-inspection utility for the hard problems. Each one has a different interface, different capabilities, and different learning curves.
 
 Nexus System Monitor exists to end that fragmentation.
 
 The goal is a **synonymous user experience across every desktop platform**. The same layout, the same depth of detail, the same workflows — regardless of whether you're sitting in front of a Windows workstation, a MacBook, or a Linux desktop. You learn the tool once, and it works everywhere.
 
-This isn't a lowest-common-denominator approach. Nexus aims for the **union** of features found in the best system tools available today — the real-time metrics of Windows Task Manager, the process control of Process Lasso, the deep inspection of System Informer, and the hardware detail of system profilers — unified under a modern, visually consistent UI inspired by Apple's iOS 26, MacOS, Windows 11, and the freedom that is expected with Linux customization.
+This isn't a lowest-common-denominator approach. Nexus aims for the **union** of features found in the best system tools available today — real-time metrics, deep process control and inspection, rules-based automation, and full hardware detail — unified under a modern, visually consistent UI inspired by Apple's iOS 26, MacOS, Windows 11, and the freedom that is expected with Linux customization. Where an operating system doesn't expose a Windows concept, Nexus implements the platform's native equivalent rather than shipping a stub — that's an active engineering commitment, tracked feature by feature.
 
 ---
 
@@ -106,7 +106,7 @@ This isn't a lowest-common-denominator approach. Nexus aims for the **union** of
 - Suppress background process interference
 - Prioritize game processes automatically
 
-### ProBalance
+### Auto-Balance
 - Automatic load balancing across running processes
 - Prevent any single process from monopolizing system resources
 
@@ -163,7 +163,7 @@ All tabs show real data on all three platforms. Windows has the deepest detail l
 **Platform-specific notes:**
 - **System Info tab** shows full WMI hardware inventory on Windows; hostname, OS, architecture, uptime, and RAM on macOS/Linux
 - **Gaming Mode** power plan switching on macOS may require `sudo` (pmset restriction). Process throttling works without elevation.
-- **ProBalance** on Linux under Wayland without a compositor that supports `xdotool` will treat all background processes equally (no foreground window detection). Fully functional on X11 and macOS.
+- **Auto-Balance** relies on foreground-window detection to decide which process the user is actively using. That detection is fully implemented on Windows today; on macOS and Linux it is part of the platform-symmetry roadmap, and until it lands Auto-Balance applies its restraint uniformly rather than favoring the foreground app.
 
 ### Platform support matrix
 
@@ -222,7 +222,7 @@ The table above is a summary; feature-level support varies more than "Full" impl
 
 - [.NET 8 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/8.0)
 - **macOS:** macOS 12 Monterey or later (Intel or Apple Silicon)
-- **Linux:** Any modern distribution — systemd, SysVinit (Fedora, Debian, etc.), or OpenRC (Gentoo, Alpine) are all supported. X11 recommended for ProBalance; Wayland works with reduced foreground-window detection.
+- **Linux:** Any modern distribution — systemd, SysVinit (Fedora, Debian, etc.), or OpenRC (Gentoo, Alpine) are all supported. X11 recommended for Auto-Balance; Wayland works with reduced foreground-window detection.
 
 ### From Source
 
@@ -253,7 +253,7 @@ dotnet run --project src/NexusMonitor.UI/NexusMonitor.UI.csproj
 > xattr -cr path/to/NexusMonitor.app
 > ```
 
-> **Gaming Mode / power plans:** Switching power profiles uses `pmset`, which may require `sudo` on some machines. Process throttling (ProBalance, Gaming Mode process priority) works without elevation.
+> **Gaming Mode / power plans:** Switching power profiles uses `pmset`, which may require `sudo` on some machines. Process throttling (Auto-Balance, Gaming Mode process priority) works without elevation.
 
 #### Linux
 

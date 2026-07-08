@@ -304,9 +304,9 @@ public partial class MainWindow : Window
             () => appSettings.GamingModeEnabled,
             v => appSettings.GamingModeEnabled = v,
             onSave));
-        items.Add(CommandPaletteViewModel.MakeToggle("ProBalance", "\uEA51",
-            () => appSettings.ProBalanceEnabled,
-            v => appSettings.ProBalanceEnabled = v,
+        items.Add(CommandPaletteViewModel.MakeToggle("Auto-Balance", "\uEA51",
+            () => appSettings.AutoBalanceEnabled,
+            v => appSettings.AutoBalanceEnabled = v,
             onSave));
         items.Add(CommandPaletteViewModel.MakeToggle("Desktop Notifications", "\uF115",
             () => appSettings.DesktopNotificationsEnabled,
@@ -347,7 +347,30 @@ public partial class MainWindow : Window
                         execute: () => mainVm.Navigate(captured));
                 })
                 .ToList();
-            // Prepend navigation items before the settings-based items already in the list
+
+            // Dashboard action commands — navigate to Dashboard first (Navigate() no-ops if
+            // already there), then drive DashboardViewModel directly via the same singleton
+            // instance the Dashboard NavItem resolves (services.AddSingleton<DashboardViewModel>()
+            // in App.axaml.cs), so these work regardless of which tab is currently selected.
+            // EnterEditModeCommand/OpenGalleryCommand both self-guard (no-op on a null
+            // EnginePage / while not yet in edit mode), matching the header button's own
+            // CanEditLayout gating without needing to duplicate it here.
+            var dashboardNav = mainVm.NavItems.First(n => !n.IsSeparator && n.Label == "Dashboard");
+            navItems.Add(new CommandPaletteItem("Edit Dashboard", "\uF3DD", "Dashboard", execute: () =>
+            {
+                mainVm.Navigate(dashboardNav);
+                App.Services.GetRequiredService<DashboardViewModel>().EnterEditModeCommand.Execute(null);
+            }));
+            navItems.Add(new CommandPaletteItem("Add Widget…", "\uF109", "Dashboard", execute: () =>
+            {
+                mainVm.Navigate(dashboardNav);
+                var dashboardVm = App.Services.GetRequiredService<DashboardViewModel>();
+                dashboardVm.EnterEditModeCommand.Execute(null);
+                dashboardVm.OpenGalleryCommand.Execute(null);
+            }));
+
+            // Prepend navigation + dashboard-action items before the settings-based items
+            // already in the list
             _commandPaletteVm!.PrependItems(navItems);
         }
 

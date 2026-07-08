@@ -461,8 +461,8 @@
             <DataTemplate DataType="vm:SystemInfoViewModel">
               <views:SystemInfoView />
             </DataTemplate>
-            <DataTemplate DataType="vm:ProBalanceViewModel">
-              <views:ProBalanceView />
+            <DataTemplate DataType="vm:AutoBalanceViewModel">
+              <views:AutoBalanceView />
             </DataTemplate>
             <DataTemplate DataType="vm:RulesViewModel">
               <views:RulesView />

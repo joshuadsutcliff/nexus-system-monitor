@@ -30,17 +30,17 @@ public static class RecommendationEngine
 
         // ── CPU ───────────────────────────────────────────────────────────────
 
-        if (snapshot.Cpu.CurrentValue > 85 && !settings.ProBalanceEnabled)
+        if (snapshot.Cpu.CurrentValue > 85 && !settings.AutoBalanceEnabled)
         {
             results.Add(new Recommendation
             {
                 Title    = "CPU is under heavy load",
-                Body     = "ProBalance can automatically keep your computer responsive by slowing background apps. It's free and reversible.",
+                Body     = "Auto-Balance can automatically keep your computer responsive by slowing background apps. It's free and reversible.",
                 Severity = RecommendationSeverity.Warning,
-                Action   = RecommendationAction.EnableProBalance,
+                Action   = RecommendationAction.EnableAutoBalance,
             });
         }
-        else if (snapshot.Cpu.CurrentValue > 85 && settings.ProBalanceEnabled)
+        else if (snapshot.Cpu.CurrentValue > 85 && settings.AutoBalanceEnabled)
         {
             var top = snapshot.TopConsumers.FirstOrDefault();
             if (top is not null)
@@ -62,11 +62,11 @@ public static class RecommendationEngine
             results.Add(new Recommendation
             {
                 Title    = "Memory is nearly full",
-                Body     = "SmartTrim can reclaim memory from background apps that aren't actively using it, without closing them.",
+                Body     = "Memory Reclaim can reclaim memory from background apps that aren't actively using it, without closing them.",
                 Severity = snapshot.Memory.CurrentValue > 95
                     ? RecommendationSeverity.Critical
                     : RecommendationSeverity.Warning,
-                Action   = RecommendationAction.EnableSmartTrim,
+                Action   = RecommendationAction.EnableMemoryReclaim,
             });
         }
 

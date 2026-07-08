@@ -7,14 +7,20 @@ using NexusMonitor.UI.ViewModels;
 namespace NexusMonitor.UI.Controls;
 
 /// <summary>
-/// Full-screen glass overlay listing <see cref="WidgetCatalog.Entries"/> for the user to add
-/// to the page being edited. Visibility is driven by <see cref="DashboardViewModel.IsGalleryOpen"/>.
-/// Backdrop click dismisses the gallery; the card itself stops the click from reaching the backdrop.
+/// Full-screen glass overlay presenting <see cref="WidgetCatalog.Groups"/> (a grouped card
+/// gallery, one quiet section header per <see cref="WidgetCatalogGroup"/>) for the user to add
+/// a widget to the page being edited. Visibility is driven by
+/// <see cref="DashboardViewModel.IsGalleryOpen"/>. Backdrop click dismisses the gallery; the card
+/// itself stops the click from reaching the backdrop.
 /// Focus management mirrors <see cref="CommandPaletteControl"/>: opening the gallery captures the
 /// previously-focused element and moves focus to the card so Escape is routed here immediately;
 /// closing restores focus to whatever was focused beforehand. Fade-in on open mirrors
 /// <see cref="CommandPaletteControl"/> too (see <see cref="OnPropertyChanged"/>), gated on
 /// <see cref="DashboardViewModel.EditChromeMotionEnabled"/> (Phase 8 Task 3 gate fix).
+/// Each section is its own <c>ListBox</c> (Classes="nx-gallery-list", WrapPanel items panel) so
+/// arrow keys navigate the card grid via Avalonia's built-in directional navigation; Enter adds
+/// the selected card's widget (<see cref="OnCardsListKeyDown"/>), same as a card click
+/// (<see cref="OnCardItemPointerPressed"/>).
 /// </summary>
 public partial class WidgetGalleryControl : UserControl
 {
@@ -106,5 +112,38 @@ public partial class WidgetGalleryControl : UserControl
     {
         // Stop the pointer event reaching the backdrop border so it doesn't close the gallery.
         e.Handled = true;
+    }
+
+    /// <summary>
+    /// A widget card was clicked: add its widget and stop the pointer event from reaching the
+    /// gallery card's own handler (which would otherwise do nothing further, but keeps the same
+    /// "innermost element owns its own click" idiom as <see cref="OnCardPointerPressed"/>).
+    /// <see cref="DashboardViewModel.AddWidget"/> (via <c>AddWidgetCommand</c>) already sets
+    /// <see cref="DashboardViewModel.IsGalleryOpen"/> false after adding, so the gallery closes
+    /// itself — matching the iOS widget gallery's close-after-add convention.
+    /// </summary>
+    private void OnCardItemPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (sender is Border { DataContext: WidgetCatalogEntry entry } && DataContext is DashboardViewModel vm)
+        {
+            vm.AddWidgetCommand.Execute(entry.TypeId);
+        }
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// Enter adds the focused section's selected card, same as clicking it
+    /// (<see cref="OnCardItemPointerPressed"/>). Arrow-key navigation between cards is handled
+    /// by the ListBox itself (WrapPanel's built-in directional navigation) — this handler only
+    /// adds the Enter-to-activate behavior a plain ListBox selection doesn't have.
+    /// </summary>
+    private void OnCardsListKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        if (sender is ListBox { SelectedItem: WidgetCatalogEntry entry } && DataContext is DashboardViewModel vm)
+        {
+            vm.AddWidgetCommand.Execute(entry.TypeId);
+            e.Handled = true;
+        }
     }
 }

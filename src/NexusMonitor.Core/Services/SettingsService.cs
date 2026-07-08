@@ -36,12 +36,68 @@ public class SettingsService : IDisposable
             using var doc = JsonDocument.Parse(json);
             if (!doc.RootElement.TryGetProperty("ThemeMode", out _))
                 Current.ThemeMode = Current.IsDarkTheme ? "Dark" : "Light";
+
+            MigrateLegacyBrandedKeys(doc.RootElement);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to load settings from {Path}; using defaults", _path);
             Current = new();
         }
+    }
+
+    // ── De-branding settings-key migration (added 2026-07-07) ───────────────────
+    // ProBalance/IdleSaver/SmartTrim were renamed to AutoBalance/IdleThrottle/MemoryReclaim.
+    // Existing settings.json files on disk still use the old flat key names, and
+    // System.Text.Json silently leaves the new (renamed) properties at their default
+    // value when it doesn't find a matching key — it does NOT fall back to the old
+    // key. This table copies each old key's raw JSON value onto the new property,
+    // but only when the new key isn't already present (so a settings.json that's
+    // already been re-saved under the new names is left alone).
+    //
+    // The next Save() persists only the new key names, so this shim is self-healing:
+    // once a user's settings.json has been loaded+saved once post-upgrade, this table
+    // never matches anything for them again. Safe to delete outright once pre-rename
+    // settings.json files are no longer expected in the wild (post-1.x).
+    private static readonly (string OldKey, string NewKey, Action<AppSettings, JsonElement> Apply)[]
+        _legacyBrandedKeyMigrations =
+    {
+        ("ProBalanceEnabled",      "AutoBalanceEnabled",      (s, v) => s.AutoBalanceEnabled      = v.GetBoolean()),
+        ("ProBalanceCpuThreshold", "AutoBalanceCpuThreshold", (s, v) => s.AutoBalanceCpuThreshold = v.GetDouble()),
+        ("ProBalanceExclusions",   "AutoBalanceExclusions",   (s, v) => s.AutoBalanceExclusions   = v.Deserialize<List<string>>() ?? new()),
+
+        ("IdleSaverEnabled",           "IdleThrottleEnabled",           (s, v) => s.IdleThrottleEnabled           = v.GetBoolean()),
+        ("IdleSaverCpuThreshold",      "IdleThrottleCpuThreshold",      (s, v) => s.IdleThrottleCpuThreshold      = v.GetDouble()),
+        ("IdleSaverIdleTicksRequired", "IdleThrottleIdleTicksRequired", (s, v) => s.IdleThrottleIdleTicksRequired = v.GetInt32()),
+        ("IdleSaverExclusions",        "IdleThrottleExclusions",        (s, v) => s.IdleThrottleExclusions        = v.Deserialize<List<string>>() ?? new()),
+        ("IdleSaverUseEfficiencyMode", "IdleThrottleUseEfficiencyMode", (s, v) => s.IdleThrottleUseEfficiencyMode = v.GetBoolean()),
+
+        ("SmartTrimEnabled",         "MemoryReclaimEnabled",         (s, v) => s.MemoryReclaimEnabled         = v.GetBoolean()),
+        ("SmartTrimIntervalSeconds", "MemoryReclaimIntervalSeconds", (s, v) => s.MemoryReclaimIntervalSeconds = v.GetInt32()),
+        ("SmartTrimPressurePercent", "MemoryReclaimPressurePercent", (s, v) => s.MemoryReclaimPressurePercent = v.GetDouble()),
+        ("SmartTrimMinWorkingSetMB", "MemoryReclaimMinWorkingSetMB", (s, v) => s.MemoryReclaimMinWorkingSetMB = v.GetInt32()),
+    };
+
+    private void MigrateLegacyBrandedKeys(JsonElement root)
+    {
+        foreach (var (oldKey, newKey, apply) in _legacyBrandedKeyMigrations)
+        {
+            if (root.TryGetProperty(newKey, out _)) continue;          // already on the new key — nothing to do
+            if (!root.TryGetProperty(oldKey, out var oldValue)) continue; // no legacy value to migrate
+
+            try { apply(Current, oldValue); }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to migrate legacy setting {OldKey} -> {NewKey}", oldKey, newKey);
+            }
+        }
+
+        // Value-level migration: NavOrder entries and DefaultTab persist the sidebar LABEL text,
+        // so a pre-rename settings.json contains the literal "ProBalance" — without this rewrite
+        // the user's saved nav order / default tab silently resets after the rebrand.
+        for (int i = 0; i < Current.NavOrder.Count; i++)
+            if (Current.NavOrder[i] == "ProBalance") Current.NavOrder[i] = "Auto-Balance";
+        if (Current.DefaultTab == "ProBalance") Current.DefaultTab = "Auto-Balance";
     }
 
     /// <summary>

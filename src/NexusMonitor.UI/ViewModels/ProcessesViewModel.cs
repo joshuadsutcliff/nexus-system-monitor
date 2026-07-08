@@ -33,6 +33,21 @@ public partial class ProcessesViewModel : ViewModelBase, IActivatable, IDisposab
 
     /// <summary>Exposes platform capability flags for binding in the View.</summary>
     public IPlatformCapabilities Platform { get; }
+
+    /// <summary>
+    /// True when the active process provider actually populates <see cref="ProcessRowViewModel.UserName"/>.
+    /// False on macOS — MacOSProcessProvider always leaves UserName empty (no per-process owner
+    /// lookup implemented), so the column would otherwise just be dead space on every row.
+    /// Linux and Windows both populate it, so the column stays visible there.
+    /// </summary>
+    public bool ShowUserColumn => !OperatingSystem.IsMacOS();
+
+    /// <summary>
+    /// True when the active process provider actually populates <see cref="ProcessRowViewModel.Description"/>.
+    /// False on macOS — MacOSProcessProvider always leaves Description empty.
+    /// </summary>
+    public bool ShowDescriptionColumn => !OperatingSystem.IsMacOS();
+
     // 4E: Per-selection CTS — cancelled each time SelectedProcess changes to abort stale detail loads
     private CancellationTokenSource _detailCts = new();
     private IDisposable? _subscription;

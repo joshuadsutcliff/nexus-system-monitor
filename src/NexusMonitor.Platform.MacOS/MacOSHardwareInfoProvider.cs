@@ -39,7 +39,10 @@ public sealed class MacOSHardwareInfoProvider
             L2CacheKB:     (int)(SysctlLong("hw.l2cachesize") / 1024),
             L3CacheKB:     (int)(SysctlLong("hw.l3cachesize") / 1024),
             MaxClockMhz:   maxFreqMhz,
-            Socket:        model,
+            // "Socket" is a meaningless concept on Apple Silicon (SoC, no discrete socket) — it was
+            // previously filled with hw.model, which just duplicated the Motherboard Model field in
+            // the System Info UI. Leave empty; SystemInfoViewModel.SocketDisplay renders "—".
+            Socket:        string.Empty,
             Stepping:      stepping);
 
         var gpus    = ReadGpus();

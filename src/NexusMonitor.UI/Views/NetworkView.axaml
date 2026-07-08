@@ -114,7 +114,9 @@
           <DataGridTextColumn Header="Local Port"     Binding="{Binding LocalPort}"     SortMemberPath="LocalPort"     Width="118"  IsReadOnly="True"/>
           <DataGridTextColumn Header="Remote Address" Binding="{Binding RemoteAddress}" SortMemberPath="RemoteAddress" Width="1.5*" MinWidth="135" IsReadOnly="True"/>
           <DataGridTextColumn Header="Remote Port"    Binding="{Binding RemotePort}"    SortMemberPath="RemotePort"    Width="132"  IsReadOnly="True"/>
-          <DataGridTemplateColumn Header="State" Width="100" SortMemberPath="State">
+          <!-- Width 100 clipped the longest state label ("ESTABLISHED") to "ESTABLISH" — widened to
+               fit that label (and others like "CLOSE_WAIT"/"TIME_WAIT") plus the badge's padding/margin. -->
+          <DataGridTemplateColumn Header="State" Width="132" SortMemberPath="State">
             <DataGridTemplateColumn.CellTemplate>
               <DataTemplate>
                 <Border CornerRadius="4"
