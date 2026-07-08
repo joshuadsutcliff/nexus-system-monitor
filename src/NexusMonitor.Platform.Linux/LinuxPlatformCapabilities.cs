@@ -24,6 +24,10 @@ public sealed class LinuxPlatformCapabilities : IPlatformCapabilities
     public bool SupportsMemoryMap          => true;
     public bool SupportsPowerPlan          => true;
     public string OpenLocationMenuLabel    => "Show in Files";
+    // Unused today — SupportsCreateDump is false on Linux (CreateDumpFileAsync throws
+    // PlatformNotSupportedException), so no save dialog ever reads this. "dmp" kept as the
+    // neutral default consistent with the interface doc comment should a Linux dump path land.
+    public string DumpFileExtension        => "dmp";
     public bool SupportsDirectX            => false;
     public bool SupportsStartupToggle      => true;
 }

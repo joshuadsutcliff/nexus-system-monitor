@@ -355,11 +355,11 @@
                     <!-- Efficiency Mode -->
                     <StackPanel Grid.Column="0" Spacing="4"
                                 IsVisible="{Binding Platform.SupportsEfficiencyMode}">
-                      <TextBlock Text="Efficiency Mode (EcoQoS)" FontSize="{DynamicResource NxFont12}"
+                      <TextBlock Text="Efficiency Mode" FontSize="{DynamicResource NxFont12}"
                                  Foreground="{DynamicResource TextSecondaryBrush}"/>
                       <ComboBox ItemsSource="{x:Static vm:RulesViewModel.EfficiencyOptions}"
                                 SelectedIndex="{Binding EditEfficiencyIndex}"/>
-                      <TextBlock Text="Windows 11+ EcoQoS: reduces power and heat for background apps."
+                      <TextBlock Text="Reduces power and heat for background apps (Windows EcoQoS / macOS background QoS clamp)."
                                  FontSize="{DynamicResource NxFont10}" Foreground="{DynamicResource TextTertiaryBrush}"
                                  TextWrapping="Wrap"/>
                     </StackPanel>
