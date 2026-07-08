@@ -57,6 +57,7 @@ public partial class OptimizationViewModel : ViewModelBase, IActivatable, IDispo
     // ── Data ─────────────────────────────────────────────────────────────────
 
     [ObservableProperty] private ObservableCollection<RecommendationRow> _recommendations = [];
+    [ObservableProperty] private bool _hasRecommendations;
 
     // ── Overview stats ────────────────────────────────────────────────────────
 
@@ -159,6 +160,7 @@ public partial class OptimizationViewModel : ViewModelBase, IActivatable, IDispo
         MediumCount     = r.MediumCount;
         SummaryLine     = r.SummaryLine;
         SyncCollection(Recommendations, r.Recs);
+        HasRecommendations = r.Recs.Count > 0;
     }
 
     /// <summary>
@@ -269,7 +271,7 @@ public partial class OptimizationViewModel : ViewModelBase, IActivatable, IDispo
 
     /// <summary>Trim working sets of all non-system processes to free up RAM.</summary>
     [RelayCommand]
-    private async Task SmartTrimAll()
+    private async Task MemoryReclaimAll()
     {
         LastAction = string.Empty;
         int count = 0;
@@ -291,11 +293,11 @@ public partial class OptimizationViewModel : ViewModelBase, IActivatable, IDispo
                 catch { /* access denied or exited */ }
             }
             LastAction = count > 0
-                ? $"SmartTrim: trimmed {count} processes, freed ~{ProcessRowViewModel.FormatBytes(savedBytes)}."
+                ? $"Memory Reclaim: trimmed {count} processes, freed ~{ProcessRowViewModel.FormatBytes(savedBytes)}."
                 : "No processes trimmed.";
         }
         catch (OperationCanceledException) { }
-        catch (Exception ex) { LastAction = $"SmartTrim failed: {ex.Message}"; }
+        catch (Exception ex) { LastAction = $"Memory Reclaim failed: {ex.Message}"; }
     }
     // ── Helpers ───────────────────────────────────────────────────────────────
 

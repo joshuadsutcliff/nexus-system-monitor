@@ -384,7 +384,7 @@
             <TextBlock Text="No resource incidents recorded in this time range."
                        FontSize="{DynamicResource NxFont12}"
                        Foreground="{DynamicResource TextTertiaryBrush}"
-                       IsVisible="{Binding ResourceIncidents.Count, Converter={x:Static BoolConverters.Not}}"
+                       IsVisible="{Binding !HasIncidents}"
                        Margin="0,4,0,4"/>
 
             <!-- Column headers -->
@@ -495,7 +495,7 @@
                         BorderThickness="1"
                         CornerRadius="10"
                         Padding="8,2"
-                        IsVisible="{Binding EventCount, Converter={x:Static BoolConverters.Not}, ConverterParameter=0}">
+                        IsVisible="{Binding HasEvents}">
                   <TextBlock Text="{Binding EventCount}"
                              FontSize="{DynamicResource NxFont11}"
                              Foreground="{DynamicResource AccentBlueBrush}"
@@ -520,7 +520,7 @@
             <TextBlock Text="No events detected in this time range."
                        FontSize="{DynamicResource NxFont12}"
                        Foreground="{DynamicResource TextTertiaryBrush}"
-                       IsVisible="{Binding Events.Count, Converter={x:Static BoolConverters.Not}}"
+                       IsVisible="{Binding !HasEvents}"
                        Margin="0,4,0,4"/>
 
             <!-- Column headers -->

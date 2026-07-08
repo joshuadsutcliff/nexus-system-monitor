@@ -2,9 +2,9 @@ using Avalonia.Controls;
 
 namespace NexusMonitor.UI.Views;
 
-public partial class ProBalanceView : UserControl
+public partial class AutoBalanceView : UserControl
 {
-    public ProBalanceView()
+    public AutoBalanceView()
     {
         InitializeComponent();
     }

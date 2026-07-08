@@ -55,7 +55,7 @@ public sealed class WindowsProcessProvider : IProcessProvider, IDisposable
     {
         lock (_sharedLock)
         {
-            // Enforce 2-second minimum — ProBalance/GamingMode request 1s but sample
+            // Enforce 2-second minimum — AutoBalance/GamingMode request 1s but sample
             // downstream; we should not double the syscall rate for all subscribers.
             var clampedInterval = interval < TimeSpan.FromSeconds(2)
                 ? TimeSpan.FromSeconds(2) : interval;

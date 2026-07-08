@@ -8,12 +8,14 @@
 
   <UserControl.Styles>
 
-    <!-- Selected item highlight -->
+    <!-- Selected/hover row highlight — subtle dynamic-accent tint (AccentBlueDimBrush tracks
+         the user's chosen accent color, same token the nav selection pill uses at full
+         saturation) rather than the plain neutral BgElevatedBrush this used before. -->
     <Style Selector="Button.palette-item:pointerover /template/ ContentPresenter">
-      <Setter Property="Background" Value="{DynamicResource BgElevatedBrush}"/>
+      <Setter Property="Background" Value="{DynamicResource AccentBlueDimBrush}"/>
     </Style>
     <Style Selector="Button.palette-item.selected /template/ ContentPresenter">
-      <Setter Property="Background" Value="{DynamicResource BgElevatedBrush}"/>
+      <Setter Property="Background" Value="{DynamicResource AccentBlueDimBrush}"/>
     </Style>
     <Style Selector="Button.palette-item /template/ ContentPresenter">
       <Setter Property="Background" Value="Transparent"/>
@@ -38,14 +40,18 @@
             PointerPressed="OnBackdropPointerPressed">
     </Border>
 
-    <!-- Palette card: centered, top-third position -->
+    <!-- Palette card: centered, top-aligned ~15% down the window (Margin top 120 against the
+         1280x800 default window size) — single rounded panel holding both the search row and
+         the results list, Spotlight/Raycast-style. Solid elevated surface (BgElevatedBrush),
+         same family as WidgetGalleryControl's card, rather than the translucent glass panel
+         this used before. -->
     <Border x:Name="PaletteCard"
-            MaxWidth="500"
+            Width="560"
             HorizontalAlignment="Center"
             VerticalAlignment="Top"
             Margin="0,120,0,0"
             CornerRadius="{StaticResource CornerLG}"
-            Background="{DynamicResource GlassBgBrush}"
+            Background="{DynamicResource BgElevatedBrush}"
             BorderBrush="{DynamicResource GlassBorderBrush}"
             BorderThickness="1"
             BoxShadow="{DynamicResource ElevationModal}"
@@ -53,24 +59,34 @@
 
       <StackPanel>
 
-        <!-- Search box row -->
-        <TextBox x:Name="SearchBox"
-                 Text="{Binding SearchText}"
-                 Watermark="Type a command..."
-                 BorderThickness="0"
-                 Background="Transparent"
-                 Padding="16,14"
-                 FontSize="{StaticResource NxFont13}"
-                 Foreground="{DynamicResource TextPrimaryBrush}"
-                 CaretBrush="{DynamicResource TextPrimaryBrush}"
-                 KeyDown="OnSearchKeyDown"/>
+        <!-- Search row: glyph + input, larger font than the results rows -->
+        <Grid ColumnDefinitions="Auto,*" Margin="16,4,16,0">
+          <TextBlock Grid.Column="0"
+                     Text="&#xf68f;"
+                     FontFamily="{StaticResource NexusIcons}"
+                     FontSize="{DynamicResource NxFont16}"
+                     Foreground="{DynamicResource TextSecondaryBrush}"
+                     VerticalAlignment="Center"
+                     Margin="4,0,10,0"/>
+          <TextBox Grid.Column="1"
+                   x:Name="SearchBox"
+                   Text="{Binding SearchText}"
+                   Watermark="Type a command..."
+                   BorderThickness="0"
+                   Background="Transparent"
+                   Padding="0,14"
+                   FontSize="{DynamicResource NxFont15}"
+                   Foreground="{DynamicResource TextPrimaryBrush}"
+                   CaretBrush="{DynamicResource TextPrimaryBrush}"
+                   KeyDown="OnSearchKeyDown"/>
+        </Grid>
 
         <!-- Divider -->
         <Border Height="1"
                 Background="{DynamicResource SeparatorBrush}"
                 Margin="0"/>
 
-        <!-- Results list -->
+        <!-- Results list — max ~8 visible rows, then scrolls -->
         <ScrollViewer MaxHeight="360"
                       HorizontalScrollBarVisibility="Disabled"
                       VerticalScrollBarVisibility="Auto">
@@ -82,7 +98,9 @@
                 <Button HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Left"
                         VerticalContentAlignment="Center"
-                        Padding="12,8"
+                        Padding="12,9"
+                        Margin="6,1"
+                        CornerRadius="{StaticResource CornerSM}"
                         BorderThickness="0"
                         Background="Transparent"
                         Classes="palette-item"
@@ -110,19 +128,26 @@
                                TextTrimming="CharacterEllipsis"
                                Margin="4,0,8,0"/>
 
-                    <!-- Category badge -->
-                    <TextBlock Grid.Column="2"
-                               Text="{Binding Category}"
-                               FontSize="{StaticResource NxFont10}"
-                               Foreground="{DynamicResource TextTertiaryBrush}"
-                               VerticalAlignment="Center"
-                               Margin="0,0,8,0"/>
+                    <!-- Category chip — right-aligned "type chip" -->
+                    <Border Grid.Column="2"
+                            CornerRadius="4"
+                            Padding="6,2"
+                            Margin="0,0,8,0"
+                            Background="{DynamicResource BgPrimaryBrush}"
+                            BorderBrush="{DynamicResource GlassBorderBrush}"
+                            BorderThickness="1"
+                            VerticalAlignment="Center">
+                      <TextBlock Text="{Binding Category}"
+                                 FontSize="{StaticResource NxFont10}"
+                                 Foreground="{DynamicResource TextTertiaryBrush}"
+                                 VerticalAlignment="Center"/>
+                    </Border>
 
                     <!-- State badge (ON/OFF/ACTIVE), hidden when null/empty -->
                     <Border Grid.Column="3"
                             CornerRadius="4"
                             Padding="6,2"
-                            Background="{DynamicResource BgElevatedBrush}"
+                            Background="{DynamicResource BgPrimaryBrush}"
                             BorderBrush="{DynamicResource GlassBorderBrush}"
                             BorderThickness="1"
                             IsVisible="{Binding StateLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"

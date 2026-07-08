@@ -55,7 +55,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
             new NavItem("LAN Scanner",  "\uEA5D", () => services.GetRequiredService<LanScannerViewModel>(),             NavGroup.Tools,    eager: false),
             new NavItem("Optimization", "\uE619", () => services.GetRequiredService<OptimizationViewModel>(),           NavGroup.Tools,    eager: false),
             new NavItem("Profiles",     "\uF63E", () => services.GetRequiredService<PerformanceProfilesViewModel>(),    NavGroup.Tools,    eager: false),
-            new NavItem("ProBalance",   "\uEA51", () => services.GetRequiredService<ProBalanceViewModel>(),             NavGroup.Tools,    eager: false),
+            new NavItem("Auto-Balance",  "\uEA51", () => services.GetRequiredService<AutoBalanceViewModel>(),             NavGroup.Tools,    eager: false),
             // System — alphabetical
             new NavItem("Alerts",       "\uF115", () => services.GetRequiredService<AlertsViewModel>(),       NavGroup.System,   eager: false),
             new NavItem("History",      "\uF47F", () => services.GetRequiredService<HistoryViewModel>(),      NavGroup.System,   eager: false),

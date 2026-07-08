@@ -56,12 +56,12 @@
                      FontSize="36"
                      HorizontalAlignment="Center"
                      Foreground="{DynamicResource ColorSuccessBrush}"/>
-          <TextBlock Text="No memory leaks detected"
+          <TextBlock Text="{Binding EmptyStateHeadline}"
                      FontSize="{DynamicResource NxFont14}"
                      FontWeight="Medium"
                      HorizontalAlignment="Center"
                      Foreground="{DynamicResource TextPrimaryBrush}"/>
-          <TextBlock Text="Processes are monitored for sustained memory growth"
+          <TextBlock Text="{Binding EmptyStateSubtitle}"
                      FontSize="{DynamicResource NxFont13}"
                      HorizontalAlignment="Center"
                      Foreground="{DynamicResource TextSecondaryBrush}"/>

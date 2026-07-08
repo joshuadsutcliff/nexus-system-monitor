@@ -24,6 +24,8 @@ public partial class DiagnosticsViewModel : ViewModelBase, IDisposable
     [ObservableProperty] private int _suspectCount;
     [ObservableProperty] private string _statusText = "Monitoring…";
     [ObservableProperty] private bool _hasSuspects;
+    [ObservableProperty] private string _emptyStateHeadline = "No memory leaks detected";
+    [ObservableProperty] private string _emptyStateSubtitle = "Processes are actively monitored for sustained memory growth.";
 
     public ObservableCollection<LeakSuspectCardViewModel> Suspects { get; } = new();
 
@@ -57,6 +59,23 @@ public partial class DiagnosticsViewModel : ViewModelBase, IDisposable
         StatusText   = IsDetectionEnabled
             ? (suspects.Count > 0 ? $"{suspects.Count} suspect(s) found" : "Monitoring…")
             : "Detection paused";
+
+        RefreshEmptyState();
+    }
+
+    /// <summary>
+    /// Keeps the empty-state card's copy in lockstep with <see cref="IsDetectionEnabled"/> —
+    /// the same flag that drives the toggle and <see cref="StatusText"/> — so the page never
+    /// shows "paused" and "monitored" at the same time.
+    /// </summary>
+    private void RefreshEmptyState()
+    {
+        EmptyStateHeadline = IsDetectionEnabled
+            ? "No memory leaks detected"
+            : "Detection paused";
+        EmptyStateSubtitle = IsDetectionEnabled
+            ? "Processes are actively monitored for sustained memory growth."
+            : "Enable detection above to monitor processes for sustained memory growth.";
     }
 
     partial void OnIsDetectionEnabledChanged(bool value)
@@ -74,6 +93,8 @@ public partial class DiagnosticsViewModel : ViewModelBase, IDisposable
             _leakService.Stop();
             StatusText = "Detection paused";
         }
+
+        RefreshEmptyState();
     }
 
     [RelayCommand]

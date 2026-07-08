@@ -9,16 +9,16 @@ namespace NexusMonitor.Core.Automation;
 
 /// <summary>
 /// Throttles individual background processes that have been idle (low CPU) for
-/// a sustained period. Unlike ProBalance (which reacts to system-wide load),
-/// IdleSaver targets individual idleness regardless of overall load.
+/// a sustained period. Unlike Auto-Balance (which reacts to system-wide load),
+/// Idle Throttle targets individual idleness regardless of overall load.
 /// </summary>
-public sealed class IdleSaverService : IDisposable
+public sealed class IdleThrottleService : IDisposable
 {
     private readonly IProcessProvider          _processProvider;
     private readonly IForegroundWindowProvider _foregroundWindow;
     private readonly AppSettings               _settings;
     private readonly ProcessActionLock         _actionLock;
-    private readonly ILogger<IdleSaverService> _logger;
+    private readonly ILogger<IdleThrottleService> _logger;
 
     // pid → consecutive idle tick count
     private readonly Dictionary<int, int>             _idleTicks       = new();
@@ -32,22 +32,22 @@ public sealed class IdleSaverService : IDisposable
 
     private readonly SemaphoreSlim _tickLock = new(1, 1);
 
-    private const string Owner = "IdleSaver";
+    private const string Owner = "IdleThrottle";
 
     public bool IsRunning => _running;
 
-    public IdleSaverService(
+    public IdleThrottleService(
         IProcessProvider          processProvider,
         IForegroundWindowProvider foregroundWindow,
         AppSettings               settings,
         ProcessActionLock         actionLock,
-        ILogger<IdleSaverService>? logger = null)
+        ILogger<IdleThrottleService>? logger = null)
     {
         _processProvider  = processProvider;
         _foregroundWindow = foregroundWindow;
         _settings         = settings;
         _actionLock       = actionLock;
-        _logger           = logger ?? NullLogger<IdleSaverService>.Instance;
+        _logger           = logger ?? NullLogger<IdleThrottleService>.Instance;
     }
 
     public void Start()
@@ -57,10 +57,10 @@ public sealed class IdleSaverService : IDisposable
         _subscription = _processProvider
             .GetProcessStream(TimeSpan.FromSeconds(2))
             .RetryWithBackoff(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30),
-                onError: ex => _logger.LogWarning(ex, "IdleSaverService process stream faulted; retrying with backoff"))
+                onError: ex => _logger.LogWarning(ex, "IdleThrottleService process stream faulted; retrying with backoff"))
             .Subscribe(OnTick, ex =>
             {
-                _logger.LogError(ex, "IdleSaverService stream faulted");
+                _logger.LogError(ex, "IdleThrottleService stream faulted");
                 _running = false;
             });
     }
@@ -75,7 +75,7 @@ public sealed class IdleSaverService : IDisposable
         {
             await _tickLock.WaitAsync();
             try { await RestoreAllAsync(); }
-            catch (Exception ex) { _logger.LogError(ex, "IdleSaverService restore failed during stop"); }
+            catch (Exception ex) { _logger.LogError(ex, "IdleThrottleService restore failed during stop"); }
             finally { _tickLock.Release(); }
         });
     }
@@ -85,13 +85,13 @@ public sealed class IdleSaverService : IDisposable
         if (!await _tickLock.WaitAsync(0)) return;
         try
         {
-            if (!_settings.IdleSaverEnabled) return;
+            if (!_settings.IdleThrottleEnabled) return;
 
             var fgPid      = _foregroundWindow.GetForegroundProcessId();
-            var exclusions = _settings.IdleSaverExclusions;
-            var threshold  = _settings.IdleSaverCpuThreshold;
-            var ticksReq   = _settings.IdleSaverIdleTicksRequired;
-            var useEco     = _settings.IdleSaverUseEfficiencyMode;
+            var exclusions = _settings.IdleThrottleExclusions;
+            var threshold  = _settings.IdleThrottleCpuThreshold;
+            var ticksReq   = _settings.IdleThrottleIdleTicksRequired;
+            var useEco     = _settings.IdleThrottleUseEfficiencyMode;
             var alive      = new HashSet<int>(processes.Select(p => p.Pid));
 
             // Evict dead PIDs
@@ -164,7 +164,7 @@ public sealed class IdleSaverService : IDisposable
                 }
             }
         }
-        catch (Exception ex) { _logger.LogDebug(ex, "IdleSaverService OnTick error"); }
+        catch (Exception ex) { _logger.LogDebug(ex, "IdleThrottleService OnTick error"); }
         finally { _tickLock.Release(); }
     }
 

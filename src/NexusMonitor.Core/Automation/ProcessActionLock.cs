@@ -5,8 +5,8 @@ namespace NexusMonitor.Core.Automation;
 /// <summary>
 /// Lightweight registry that prevents multiple automation services from
 /// simultaneously modifying the same process's priority/affinity.
-/// Registered as a singleton; injected into ProBalance, ForegroundBoost,
-/// IdleSaver, CpuLimiter, and InstanceBalancer.
+/// Registered as a singleton; injected into AutoBalance, ForegroundBoost,
+/// IdleThrottle, CpuLimiter, and InstanceBalancer.
 /// </summary>
 public sealed class ProcessActionLock
 {

@@ -5,8 +5,8 @@ public enum RecommendationSeverity { Info, Warning, Critical }
 public enum RecommendationAction
 {
     None,
-    EnableProBalance,
-    EnableSmartTrim,
+    EnableAutoBalance,
+    EnableMemoryReclaim,
     EnableGamingMode,
     ReviewProcesses,
     CheckDiskSpace,

@@ -319,13 +319,13 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     public static IReadOnlyList<string> DefaultTabLabels { get; } =
         ["(Last Used)", "Dashboard", "Network", "Performance", "Processes", "Services",
          "Startup", "System Info", "Automation", "Diagnostics", "Disk Analyzer", "Gaming Mode",
-         "LAN Scanner", "Optimization", "Profiles", "ProBalance", "Alerts", "History",
+         "LAN Scanner", "Optimization", "Profiles", "Auto-Balance", "Alerts", "History",
          "Rules", "Settings"];
 
     private static readonly string[] _defaultTabValues =
         ["", "Dashboard", "Network", "Performance", "Processes", "Services",
          "Startup", "System Info", "Automation", "Diagnostics", "Disk Analyzer", "Gaming Mode",
-         "LAN Scanner", "Optimization", "Profiles", "ProBalance", "Alerts", "History",
+         "LAN Scanner", "Optimization", "Profiles", "Auto-Balance", "Alerts", "History",
          "Rules", "Settings"];
 
     /// <summary>All system font families — enumerated lazily on first access (deferred past startup).</summary>
@@ -1929,6 +1929,11 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         try
         {
             var c = Color.Parse(hex);
+            // "AccentBrush" is a second accent key defined in Colors.axaml with ~20 consumers
+            // (Run Analysis, profile views, overlay, …). It must track the user accent too —
+            // updating only the AccentBlue* family left those controls frozen at startup blue
+            // while the rest of the app followed the chosen accent.
+            Application.Current.Resources["AccentBrush"]          = new SolidColorBrush(c);
             Application.Current.Resources["AccentBlueBrush"]      = new SolidColorBrush(c);
             Application.Current.Resources["AccentBlueDimBrush"]   =
                 new SolidColorBrush(new Color(0x1A, c.R, c.G, c.B));

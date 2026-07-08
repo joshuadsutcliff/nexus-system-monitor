@@ -33,9 +33,9 @@
             <TextBlock Text="&#x26A1; Normalize All" FontSize="{DynamicResource NxFont12}"/>
           </Button>
           <Button Classes="nx-btn"
-                  Command="{Binding SmartTrimAllCommand}"
+                  Command="{Binding MemoryReclaimAllCommand}"
                   ToolTip.Tip="Trim working sets of all processes to free up RAM immediately">
-            <TextBlock Text="&#x1F9F9; SmartTrim All" FontSize="{DynamicResource NxFont12}"/>
+            <TextBlock Text="&#x1F9F9; Memory Reclaim All" FontSize="{DynamicResource NxFont12}"/>
           </Button>
         </StackPanel>
       </DockPanel>
@@ -241,7 +241,7 @@
 
             <!-- Empty state -->
             <Border Padding="24,32"
-                    IsVisible="{Binding Recommendations.Count, Converter={x:Static BoolConverters.Not}}">
+                    IsVisible="{Binding !HasRecommendations}">
               <StackPanel HorizontalAlignment="Center" Spacing="8">
                 <TextBlock Text="✅" FontSize="32" HorizontalAlignment="Center"/>
                 <TextBlock Text="No high-impact processes detected"

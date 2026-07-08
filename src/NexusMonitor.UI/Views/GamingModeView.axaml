@@ -315,8 +315,7 @@
 
             <!-- Empty state -->
             <Border Padding="24,28"
-                    IsVisible="{Binding StatusLog.Count,
-                                        Converter={x:Static BoolConverters.Not}}">
+                    IsVisible="{Binding !HasStatusLog}">
               <StackPanel HorizontalAlignment="Center" Spacing="8">
                 <TextBlock Text="&#x1F3AE;" FontSize="28" HorizontalAlignment="Center"
                            Foreground="{DynamicResource TextTertiaryBrush}"/>

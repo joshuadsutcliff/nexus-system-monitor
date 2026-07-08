@@ -92,11 +92,18 @@
                                Foreground="{DynamicResource TextPrimaryBrush}"
                                TextTrimming="CharacterEllipsis"/>
                     <Grid Grid.Row="1" ColumnDefinitions="*,Auto" Margin="0,2,0,3">
+                      <!-- DeviceSubName can be a long path (e.g. macOS volume mount points like
+                           "/Volumes/TimeMachine") that, unlike the DeviceName row above, had no
+                           trimming — it ran straight into ValueDisplay's "0%" with no separation.
+                           Column 0 is "*" so it's already width-bounded by the Grid; adding
+                           ellipsis (matching DeviceName's own TextTrimming above) is what was
+                           missing to make that bound actually clip the text. -->
                       <TextBlock Grid.Column="0"
                                  Text="{Binding DeviceSubName}"
                                  FontSize="{DynamicResource NxFont11}"
                                  Foreground="{DynamicResource TextTertiaryBrush}"
-                                 VerticalAlignment="Center"/>
+                                 VerticalAlignment="Center"
+                                 TextTrimming="CharacterEllipsis"/>
                       <TextBlock Grid.Column="1"
                                  Text="{Binding ValueDisplay}"
                                  FontSize="{DynamicResource NxFont13}" FontWeight="SemiBold"

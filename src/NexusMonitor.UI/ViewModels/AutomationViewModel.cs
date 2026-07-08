@@ -22,18 +22,18 @@ public partial class AutomationViewModel : ViewModelBase
     [ObservableProperty] private bool   _foregroundBoostEnabled;
     [ObservableProperty] private string _foregroundBoostExclusionsText = "";
 
-    // ── IdleSaver ───────────────────────────────────────────────────────────
-    [ObservableProperty] private bool   _idleSaverEnabled;
-    [ObservableProperty] private double _idleSaverCpuThreshold;
-    [ObservableProperty] private int    _idleSaverIdleTicks;
-    [ObservableProperty] private bool   _idleSaverUseEfficiencyMode;
-    [ObservableProperty] private string _idleSaverExclusionsText = "";
+    // ── IdleThrottle ───────────────────────────────────────────────────────────
+    [ObservableProperty] private bool   _idleThrottleEnabled;
+    [ObservableProperty] private double _idleThrottleCpuThreshold;
+    [ObservableProperty] private int    _idleThrottleIdleTicks;
+    [ObservableProperty] private bool   _idleThrottleUseEfficiencyMode;
+    [ObservableProperty] private string _idleThrottleExclusionsText = "";
 
-    // ── SmartTrim ───────────────────────────────────────────────────────────
-    [ObservableProperty] private bool   _smartTrimEnabled;
-    [ObservableProperty] private int    _smartTrimInterval;
-    [ObservableProperty] private double _smartTrimPressurePercent;
-    [ObservableProperty] private int    _smartTrimMinWorkingSetMb;
+    // ── MemoryReclaim ───────────────────────────────────────────────────────────
+    [ObservableProperty] private bool   _memoryReclaimEnabled;
+    [ObservableProperty] private int    _memoryReclaimInterval;
+    [ObservableProperty] private double _memoryReclaimPressurePercent;
+    [ObservableProperty] private int    _memoryReclaimMinWorkingSetMb;
 
     // ── CPU Limiter ─────────────────────────────────────────────────────────
     [ObservableProperty] private bool _cpuLimiterEnabled;
@@ -77,16 +77,16 @@ public partial class AutomationViewModel : ViewModelBase
         ForegroundBoostEnabled       = _settings.ForegroundBoostEnabled;
         ForegroundBoostExclusionsText = string.Join(", ", _settings.ForegroundBoostExclusions);
 
-        IdleSaverEnabled           = _settings.IdleSaverEnabled;
-        IdleSaverCpuThreshold      = _settings.IdleSaverCpuThreshold;
-        IdleSaverIdleTicks         = _settings.IdleSaverIdleTicksRequired;
-        IdleSaverUseEfficiencyMode  = _settings.IdleSaverUseEfficiencyMode;
-        IdleSaverExclusionsText    = string.Join(", ", _settings.IdleSaverExclusions);
+        IdleThrottleEnabled           = _settings.IdleThrottleEnabled;
+        IdleThrottleCpuThreshold      = _settings.IdleThrottleCpuThreshold;
+        IdleThrottleIdleTicks         = _settings.IdleThrottleIdleTicksRequired;
+        IdleThrottleUseEfficiencyMode  = _settings.IdleThrottleUseEfficiencyMode;
+        IdleThrottleExclusionsText    = string.Join(", ", _settings.IdleThrottleExclusions);
 
-        SmartTrimEnabled         = _settings.SmartTrimEnabled;
-        SmartTrimInterval        = _settings.SmartTrimIntervalSeconds;
-        SmartTrimPressurePercent = _settings.SmartTrimPressurePercent;
-        SmartTrimMinWorkingSetMb = _settings.SmartTrimMinWorkingSetMB;
+        MemoryReclaimEnabled         = _settings.MemoryReclaimEnabled;
+        MemoryReclaimInterval        = _settings.MemoryReclaimIntervalSeconds;
+        MemoryReclaimPressurePercent = _settings.MemoryReclaimPressurePercent;
+        MemoryReclaimMinWorkingSetMb = _settings.MemoryReclaimMinWorkingSetMB;
 
         CpuLimiterEnabled = _settings.CpuLimiterEnabled;
         CpuLimiterRules.Clear();
@@ -117,16 +117,16 @@ public partial class AutomationViewModel : ViewModelBase
         _settings.ForegroundBoostEnabled    = ForegroundBoostEnabled;
         _settings.ForegroundBoostExclusions = ParseList(ForegroundBoostExclusionsText);
 
-        _settings.IdleSaverEnabled           = IdleSaverEnabled;
-        _settings.IdleSaverCpuThreshold      = IdleSaverCpuThreshold;
-        _settings.IdleSaverIdleTicksRequired = IdleSaverIdleTicks;
-        _settings.IdleSaverUseEfficiencyMode  = IdleSaverUseEfficiencyMode;
-        _settings.IdleSaverExclusions        = ParseList(IdleSaverExclusionsText);
+        _settings.IdleThrottleEnabled           = IdleThrottleEnabled;
+        _settings.IdleThrottleCpuThreshold      = IdleThrottleCpuThreshold;
+        _settings.IdleThrottleIdleTicksRequired = IdleThrottleIdleTicks;
+        _settings.IdleThrottleUseEfficiencyMode  = IdleThrottleUseEfficiencyMode;
+        _settings.IdleThrottleExclusions        = ParseList(IdleThrottleExclusionsText);
 
-        _settings.SmartTrimEnabled         = SmartTrimEnabled;
-        _settings.SmartTrimIntervalSeconds = SmartTrimInterval;
-        _settings.SmartTrimPressurePercent = SmartTrimPressurePercent;
-        _settings.SmartTrimMinWorkingSetMB = SmartTrimMinWorkingSetMb;
+        _settings.MemoryReclaimEnabled         = MemoryReclaimEnabled;
+        _settings.MemoryReclaimIntervalSeconds = MemoryReclaimInterval;
+        _settings.MemoryReclaimPressurePercent = MemoryReclaimPressurePercent;
+        _settings.MemoryReclaimMinWorkingSetMB = MemoryReclaimMinWorkingSetMb;
 
         _settings.CpuLimiterEnabled = CpuLimiterEnabled;
         _settings.CpuLimiterRules   = CpuLimiterRules.ToList();

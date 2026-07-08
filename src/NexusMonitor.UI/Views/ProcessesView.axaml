@@ -310,8 +310,16 @@
             <DataGridTemplateColumn.CellTemplate>
               <DataTemplate x:DataType="vm:ProcessRowViewModel">
                 <Grid Margin="6,0" RowDefinitions="Auto,3">
+                  <!-- Genuinely unreadable without root (other-uid process) — show "—", not a false 0% -->
                   <TextBlock Grid.Row="0"
-                              Text="{Binding CpuDisplay}"
+                              Text="—"
+                              IsVisible="{Binding IsAccessDenied}"
+                              FontSize="{DynamicResource NxFont11}"
+                              HorizontalAlignment="Right"
+                              Foreground="{DynamicResource TextTertiaryBrush}"/>
+                  <TextBlock Grid.Row="0"
+                              Text="{Binding CpuPercent, StringFormat='{}{0:F1}%'}"
+                              IsVisible="{Binding !IsAccessDenied}"
                               FontSize="{DynamicResource NxFont11}"
                               HorizontalAlignment="Right"
                               Foreground="{Binding CpuPercent, Converter={StaticResource CpuHeat}}"/>
@@ -410,7 +418,7 @@
           </DataGridTemplateColumn>
 
           <!-- Group badge column (Phase 22b) -->
-          <DataGridTemplateColumn Header="Group" Width="Auto" SortMemberPath="GroupName" MinWidth="60">
+          <DataGridTemplateColumn Header="Group" Width="Auto" SortMemberPath="GroupName" MinWidth="90">
             <DataGridTemplateColumn.CellTemplate>
               <DataTemplate x:DataType="vm:ProcessRowViewModel">
                 <Border Background="{Binding GroupColor, Converter={StaticResource HexBrush}}"
@@ -425,29 +433,38 @@
             </DataGridTemplateColumn.CellTemplate>
           </DataGridTemplateColumn>
 
+          <!-- Priority/Threads/Handles: widened from 80/100/100 — those pixel widths were too
+               narrow for the header text itself ("Priority"/"Threads"/"Handles" + sort glyph),
+               clipping to "P"/"T"/etc. MinWidth added as a floor if the user manually resizes. -->
           <DataGridTextColumn Header="Priority"
                               Binding="{Binding BasePriority}"
-                              Width="80"
+                              Width="110" MinWidth="90"
                               IsReadOnly="True"/>
 
           <DataGridTextColumn Header="Threads"
                               Binding="{Binding ThreadCount}"
-                              Width="100"
+                              Width="110" MinWidth="90"
                               IsReadOnly="True"/>
 
           <DataGridTextColumn Header="Handles"
                               Binding="{Binding HandleCount}"
-                              Width="100"
+                              Width="110" MinWidth="90"
                               IsReadOnly="True"/>
 
+          <!-- Hidden on macOS: MacOSProcessProvider never populates UserName/Description
+               (no per-process owner/description lookup implemented), so these would just be
+               empty dead space on every row. DataGridColumn isn't in the visual tree, so it
+               can't inherit DataContext — bind via ElementName to the named DataGrid instead. -->
           <DataGridTextColumn Header="User"
                               Binding="{Binding UserName}"
                               Width="0.8*" MinWidth="85"
+                              IsVisible="{Binding DataContext.ShowUserColumn, ElementName=ProcessGrid}"
                               IsReadOnly="True"/>
 
           <DataGridTextColumn Header="Description"
                               Binding="{Binding Description}"
                               Width="2.0*" MinWidth="100"
+                              IsVisible="{Binding DataContext.ShowDescriptionColumn, ElementName=ProcessGrid}"
                               IsReadOnly="True"/>
 
         </DataGrid.Columns>

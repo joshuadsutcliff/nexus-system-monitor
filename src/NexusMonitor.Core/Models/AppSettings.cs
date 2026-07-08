@@ -45,10 +45,10 @@ public class AppSettings
     public bool   DesktopNotificationsEnabled  { get; set; } = false;
     public bool   AnomalyNotificationsEnabled  { get; set; } = false;
 
-    // ProBalance
-    public bool          ProBalanceEnabled      { get; set; } = false;
-    public double        ProBalanceCpuThreshold { get; set; } = 80.0;
-    public List<string>  ProBalanceExclusions   { get; set; } = new();
+    // AutoBalance
+    public bool          AutoBalanceEnabled      { get; set; } = false;
+    public double        AutoBalanceCpuThreshold { get; set; } = 80.0;
+    public List<string>  AutoBalanceExclusions   { get; set; } = new();
 
     // Rules
     public List<ProcessRule> Rules { get; set; } = new();
@@ -102,18 +102,18 @@ public class AppSettings
     public bool          ForegroundBoostEnabled    { get; set; } = false;
     public List<string>  ForegroundBoostExclusions { get; set; } = new();
 
-    // IdleSaver (Phase 18)
-    public bool          IdleSaverEnabled           { get; set; } = false;
-    public double        IdleSaverCpuThreshold      { get; set; } = 1.0;
-    public int           IdleSaverIdleTicksRequired { get; set; } = 3;
-    public List<string>  IdleSaverExclusions        { get; set; } = new();
-    public bool          IdleSaverUseEfficiencyMode { get; set; } = true;
+    // IdleThrottle (Phase 18)
+    public bool          IdleThrottleEnabled           { get; set; } = false;
+    public double        IdleThrottleCpuThreshold      { get; set; } = 1.0;
+    public int           IdleThrottleIdleTicksRequired { get; set; } = 3;
+    public List<string>  IdleThrottleExclusions        { get; set; } = new();
+    public bool          IdleThrottleUseEfficiencyMode { get; set; } = true;
 
-    // SmartTrim Automation (Phase 18)
-    public bool   SmartTrimEnabled         { get; set; } = false;
-    public int    SmartTrimIntervalSeconds { get; set; } = 60;
-    public double SmartTrimPressurePercent { get; set; } = 20.0;
-    public int    SmartTrimMinWorkingSetMB { get; set; } = 100;
+    // MemoryReclaim Automation (Phase 18)
+    public bool   MemoryReclaimEnabled         { get; set; } = false;
+    public int    MemoryReclaimIntervalSeconds { get; set; } = 60;
+    public double MemoryReclaimPressurePercent { get; set; } = 20.0;
+    public int    MemoryReclaimMinWorkingSetMB { get; set; } = 100;
 
     // CPU Limiter (Phase 18)
     public bool                  CpuLimiterEnabled { get; set; } = false;

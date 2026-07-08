@@ -8,7 +8,7 @@ status: deprecated
 
 > [!warning] DEPRECATED — Reference Only
 > This gap analysis was last updated at v0.1.7. Several items it lists as missing have since been implemented or reclassified:
-> - **IdleSaver** and **SmartTrim** exist in the codebase (`IdleSaverService.cs`, `SmartTrimService.cs`)
+> - **Idle Throttle** and **Memory Reclaim** exist in the codebase (`IdleThrottleService.cs`, `MemoryReclaimService.cs`)
 > - **Disk Analyzer** is being enabled in v0.3.0 (no longer "currently disabled")
 > - The approved v1.0 plan adds 10 new features not in this document
 >
@@ -43,11 +43,11 @@ Feature-by-feature comparison of Nexus System Monitor against **Process Lasso** 
 | Kill process tree | ✅ Implemented | — | |
 | Suspend / resume | ✅ Implemented | — | |
 
-### B. ProBalance & Automation
+### B. Auto-Balance & Automation
 
 | PL Feature | Nexus Status | Priority | Notes |
 |------------|-------------|---------|-------|
-| ProBalance (automatic load balancing) | ✅ Implemented | — | |
+| Auto-Balance (automatic load balancing) | ✅ Implemented | — | |
 | Gaming Mode (foreground optimization) | ✅ Implemented | — | |
 | Rules Engine (auto actions on events) | ✅ Implemented | — | |
 | Watchdog monitoring | ✅ Implemented | — | CPU/RAM threshold triggers |
@@ -61,8 +61,8 @@ Feature-by-feature comparison of Nexus System Monitor against **Process Lasso** 
 | PL Feature | Nexus Status | Priority | Notes |
 |------------|-------------|---------|-------|
 | Performance Mode (manual profile activate) | ✅ Implemented | — | PerformanceProfilesView — named profiles with process rules and power plan switching (v0.1.7) |
-| IdleSaver (throttle inactive processes) | ❌ Missing | P2 | Background CPU reclamation |
-| SmartTrim (proactive memory trimming) | ❌ Missing | P2 | Reduce standby memory usage |
+| Idle Throttle (throttle inactive processes) | ❌ Missing | P2 | Background CPU reclamation |
+| Memory Reclaim (proactive memory trimming) | ❌ Missing | P2 | Reduce standby memory usage |
 | Process Working Set trim | ✅ Implemented | — | `IProcessProvider.TrimWorkingSetAsync` → `EmptyWorkingSet` in `WindowsProcessProvider` (v0.1.7) |
 | Gaming profile (full) | ✅ Partial | P2 | Exists; less featureful than PL's implementation |
 

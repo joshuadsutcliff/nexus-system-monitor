@@ -269,7 +269,7 @@
   <!-- ===== TOGGLE BUTTON — original accent/gray PILL =====
        Unchanged (Phase 8 UI polish, Task 6): this "nx-toggle" class is still used, WITH literal
        text Content, by 9 call sites outside Settings — NetworkView, ServicesView, ProcessesView
-       (x4: Simplified/Tree/Info Panel/Groups), GamingModeView, ProBalanceView, AlertsView. An
+       (x4: Simplified/Tree/Info Panel/Groups), GamingModeView, AutoBalanceView, AlertsView. An
        earlier pass of this task redefined "nx-toggle" itself into the bare macOS-switch template
        below on the (incorrect) assumption that "Content is never set at any call site" — false;
        those 9 sites set a TextBlock as Content, and the switch template has no ContentPresenter,
