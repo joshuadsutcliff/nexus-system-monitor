@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 
 namespace NexusMonitor.Platform.MacOS;
 
@@ -52,6 +53,15 @@ public sealed class LaunchdPlistIndexSnapshot
 /// registers <see cref="MacOSServicesProvider"/> as a singleton), so the cache naturally persists
 /// for the app's lifetime rather than being rebuilt per Services-tab visit.
 ///
+/// Gate-review follow-up (Task 3 fix pass): the in-memory cache above only helps *within* one
+/// process's lifetime — every fresh app launch still paid the full ~890-plutil cold build (5–15s
+/// of "Loading services…" in the UI). The label→(mtime, facts) cache is now also persisted to disk
+/// (see <see cref="LoadCacheFromDisk"/> / <see cref="PersistCacheToDisk"/>) in the same settings
+/// directory <see cref="Core.Services.SettingsService"/> uses, so a fresh process only re-parses
+/// plists whose mtime changed since the last run. A schema-version mismatch or any load failure
+/// (corrupt file, permission error, etc.) silently falls back to a full rebuild — the cache is
+/// purely an optimization, never a correctness dependency.
+///
 /// `GetDisabledLabels()` is deliberately NOT cached — it's 2 cheap `launchctl print-disabled`
 /// execs, and the brief explicitly allows those per refresh, since disabled state can change
 /// between refreshes (e.g. via System Settings > Login Items &amp; Extensions) without any plist
@@ -60,7 +70,9 @@ public sealed class LaunchdPlistIndexSnapshot
 public sealed class MacOSLaunchdIndex
 {
     // Order matches the brief's listing. First match for a given filename-derived label wins in
-    // the vanishingly rare case of a same-named plist appearing under two of these roots.
+    // the vanishingly rare case of a same-named plist appearing under two of these roots — see
+    // BuildLabelMaps, which walks this list in order to make that precedence deterministic rather
+    // than dependent on Dictionary<TKey,TValue>'s unspecified enumeration order.
     private static readonly string[] s_plistDirs =
     [
         "/System/Library/LaunchDaemons",
@@ -70,13 +82,54 @@ public sealed class MacOSLaunchdIndex
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "LaunchAgents"),
     ];
 
+    // Disk-persisted cache: same settings directory convention as SettingsService, one JSON file,
+    // written atomically (temp-file-then-rename) after a build that actually changed something.
+    private const int CacheSchemaVersion = 1;
+
+    private static readonly string s_cachePath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "NexusMonitor", "launchd-plist-cache.json");
+
+    private static readonly JsonSerializerOptions s_jsonOpts = new() { WriteIndented = true };
+
+    /// <summary>Test-only accessor for the disk-persisted cache file path, so integration tests can
+    /// delete it before measuring a genuine cold build (a prior test run — or an earlier test in the
+    /// same run — may have already persisted a cache at this path).</summary>
+    internal static string CachePathForTesting => s_cachePath;
+
     private readonly object _lock = new();
     private readonly Dictionary<string, PlistCacheEntry> _byPath = new(StringComparer.Ordinal);
 
-    private readonly record struct PlistCacheEntry(DateTime Mtime, bool RunAtLoad, bool KeepAliveTruthy, string? Label);
+    // ParseFailed is the finding-5 negative-caching sentinel: a plist that fails to parse is
+    // cached keyed by mtime exactly like a successfully-parsed one, so an unmodified bad plist is
+    // never re-shelled-out to plutil on every rebuild. Entries with ParseFailed=true contribute no
+    // facts to either label map (see BuildLabelMaps) — behaviorally identical to "no plist found".
+    private readonly record struct PlistCacheEntry(DateTime Mtime, bool RunAtLoad, bool KeepAliveTruthy, string? Label, bool ParseFailed);
+
+    // ── on-disk cache file shape (plain DTOs — kept private, only System.Text.Json needs them) ──
+
+    private sealed class PersistedCacheFile
+    {
+        public int SchemaVersion { get; set; }
+        public Dictionary<string, PersistedCacheEntry> Entries { get; set; } = new();
+    }
+
+    private sealed class PersistedCacheEntry
+    {
+        public long MtimeTicks { get; set; }
+        public bool RunAtLoad { get; set; }
+        public bool KeepAliveTruthy { get; set; }
+        public string? Label { get; set; }
+        public bool ParseFailed { get; set; }
+    }
 
     [DllImport("libSystem.dylib")]
     private static extern uint getuid();
+
+    public MacOSLaunchdIndex()
+    {
+        LoadCacheFromDisk();
+    }
 
     /// <summary>
     /// Returns the current label→plist-facts index, rebuilding (re-running `plutil`) only for
@@ -110,7 +163,7 @@ public sealed class MacOSLaunchdIndex
                     catch { continue; }
 
                     if (_byPath.TryGetValue(path, out var cached) && cached.Mtime == mtime)
-                        continue; // unchanged since last build — skip the plutil spawn entirely
+                        continue; // unchanged since last build (good or negative-cached bad) — skip the plutil spawn entirely
 
                     toConvert.Add((path, mtime));
                 }
@@ -123,7 +176,8 @@ public sealed class MacOSLaunchdIndex
             // cuts wall-clock time substantially without violating the "no per-service spawn"
             // rule: this is still exactly one spawn per plist file, per changed-since-last-build
             // file, not per launchctl-list service.
-            if (toConvert.Count > 0)
+            var mutated = toConvert.Count > 0;
+            if (mutated)
             {
                 var results = new System.Collections.Concurrent.ConcurrentBag<(string Path, PlistCacheEntry Entry)>();
                 Parallel.ForEach(
@@ -131,9 +185,33 @@ public sealed class MacOSLaunchdIndex
                     new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount) },
                     item =>
                     {
-                        var xml = RunPlutilConvertToXml(item.Path);
-                        if (!LaunchdStartType.TryParsePlist(xml, out var parsedFacts)) return;
-                        results.Add((item.Path, new PlistCacheEntry(item.Mtime, parsedFacts.RunAtLoad, parsedFacts.KeepAliveTruthy, parsedFacts.Label)));
+                        // Per-item try/catch (matching RunPlutilConvertToXml's defensive pattern):
+                        // TryParsePlist now catches broadly internally too (see LaunchdStartType),
+                        // but this outer guard ensures that even an exception from somewhere else
+                        // in this lambda can never escape Parallel.ForEach and empty the ENTIRE
+                        // services list for the refresh — it degrades exactly one plist instead.
+                        try
+                        {
+                            var xml = RunPlutilConvertToXml(item.Path);
+                            if (LaunchdStartType.TryParsePlist(xml, out var parsedFacts))
+                            {
+                                results.Add((item.Path, new PlistCacheEntry(
+                                    item.Mtime, parsedFacts.RunAtLoad, parsedFacts.KeepAliveTruthy, parsedFacts.Label, ParseFailed: false)));
+                            }
+                            else
+                            {
+                                // Negative cache (finding 5): a known-bad plist gets the same
+                                // mtime-keyed cache lifecycle as a good one, so it isn't retried
+                                // via plutil on every subsequent rebuild until it actually changes.
+                                results.Add((item.Path, new PlistCacheEntry(
+                                    item.Mtime, false, false, null, ParseFailed: true)));
+                            }
+                        }
+                        catch
+                        {
+                            // Truly unanticipated failure: don't cache anything for this path, so
+                            // it's simply retried (not permanently poisoned) on the next rebuild.
+                        }
                     });
 
                 foreach (var (path, entry) in results)
@@ -142,24 +220,71 @@ public sealed class MacOSLaunchdIndex
 
             // Drop entries for plists that disappeared since the last build (rare: an uninstall).
             foreach (var stalePath in _byPath.Keys.Where(p => !seenPaths.Contains(p)).ToList())
+            {
                 _byPath.Remove(stalePath);
+                mutated = true;
+            }
+
+            if (mutated)
+                PersistCacheToDisk();
 
             // Rebuilding the label-keyed lookup maps from the (now current) path cache is pure
             // in-memory dictionary work — no I/O, no plutil — so it's cheap to do unconditionally
             // rather than trying to patch two derived indexes incrementally.
-            var byFilenameLabel = new Dictionary<string, LaunchdPlistFacts>(StringComparer.Ordinal);
-            var byInternalLabel = new Dictionary<string, LaunchdPlistFacts>(StringComparer.Ordinal);
-            foreach (var (path, entry) in _byPath)
-            {
-                var facts = new LaunchdPlistFacts(entry.RunAtLoad, entry.KeepAliveTruthy);
-                var filenameLabel = Path.GetFileNameWithoutExtension(path);
-                byFilenameLabel.TryAdd(filenameLabel, facts);
-                if (!string.IsNullOrEmpty(entry.Label))
-                    byInternalLabel.TryAdd(entry.Label, facts);
-            }
+            var entries = _byPath.Select(kv => (
+                kv.Key, kv.Value.RunAtLoad, kv.Value.KeepAliveTruthy, kv.Value.Label, kv.Value.ParseFailed));
+            var (byFilenameLabel, byInternalLabel) = BuildLabelMaps(entries, s_plistDirs);
 
             return new LaunchdPlistIndexSnapshot(byFilenameLabel, byInternalLabel);
         }
+    }
+
+    /// <summary>
+    /// Pure, dependency-free construction of the two label-keyed lookup maps from the flat
+    /// path→facts cache. Deliberately walks <paramref name="orderedDirs"/> in the caller-supplied
+    /// order (rather than iterating the cache's own — unordered — storage) so that "first match
+    /// for a filename-derived label wins" is actually deterministic across the 5 launchd
+    /// directories, matching the precedence the class doc promises. Kept as an internal static
+    /// method (no field access) so it's unit-testable with plain fixture paths.
+    /// </summary>
+    internal static (Dictionary<string, LaunchdPlistFacts> ByFilenameLabel, Dictionary<string, LaunchdPlistFacts> ByInternalLabel) BuildLabelMaps(
+        IEnumerable<(string Path, bool RunAtLoad, bool KeepAliveTruthy, string? Label, bool ParseFailed)> entries,
+        IReadOnlyList<string> orderedDirs)
+    {
+        var byFilenameLabel = new Dictionary<string, LaunchdPlistFacts>(StringComparer.Ordinal);
+        var byInternalLabel = new Dictionary<string, LaunchdPlistFacts>(StringComparer.Ordinal);
+
+        // Group entries by containing directory once (O(n)), then walk orderedDirs below — this
+        // is what makes cross-directory precedence deterministic instead of depending on
+        // Dictionary<TKey,TValue>'s unspecified enumeration order (the bug this method pins:
+        // _byPath used to be walked directly, populated via a ConcurrentBag merge with no
+        // ordering guarantee at all).
+        var byDir = new Dictionary<string, List<(string Path, bool RunAtLoad, bool KeepAliveTruthy, string? Label)>>(StringComparer.Ordinal);
+        foreach (var dir in orderedDirs)
+            byDir.TryAdd(dir, new List<(string, bool, bool, string?)>());
+
+        foreach (var (path, runAtLoad, keepAliveTruthy, label, parseFailed) in entries)
+        {
+            if (parseFailed) continue; // known-bad sentinel — no facts to contribute (same as "no plist found")
+
+            var dir = Path.GetDirectoryName(path);
+            if (dir is not null && byDir.TryGetValue(dir, out var list))
+                list.Add((path, runAtLoad, keepAliveTruthy, label));
+        }
+
+        foreach (var dir in orderedDirs)
+        {
+            foreach (var (path, runAtLoad, keepAliveTruthy, label) in byDir[dir])
+            {
+                var facts = new LaunchdPlistFacts(runAtLoad, keepAliveTruthy);
+                var filenameLabel = Path.GetFileNameWithoutExtension(path);
+                byFilenameLabel.TryAdd(filenameLabel, facts);
+                if (!string.IsNullOrEmpty(label))
+                    byInternalLabel.TryAdd(label, facts);
+            }
+        }
+
+        return (byFilenameLabel, byInternalLabel);
     }
 
     /// <summary>
@@ -173,6 +298,77 @@ public sealed class MacOSLaunchdIndex
         result.UnionWith(LaunchdStartType.ParseDisabledLabels(MacOSServicesProvider.RunLaunchctl("print-disabled system")));
         result.UnionWith(LaunchdStartType.ParseDisabledLabels(MacOSServicesProvider.RunLaunchctl($"print-disabled gui/{getuid()}")));
         return result;
+    }
+
+    /// <summary>
+    /// Loads the disk-persisted path→facts cache written by <see cref="PersistCacheToDisk"/> on a
+    /// prior run, so the very first <see cref="GetOrBuildIndex"/> call in THIS process only
+    /// re-converts plists whose mtime changed since then, instead of paying the full ~890-plutil
+    /// cold build every app launch. Called once from the constructor. Any failure — file missing,
+    /// corrupt JSON, schema-version mismatch, permission error — silently leaves <see cref="_byPath"/>
+    /// empty, which is exactly the pre-existing "no cache yet" cold-start behavior; this is purely
+    /// an optimization, never allowed to crash or block startup.
+    /// </summary>
+    private void LoadCacheFromDisk()
+    {
+        try
+        {
+            if (!File.Exists(s_cachePath)) return;
+
+            var json = File.ReadAllText(s_cachePath);
+            var persisted = JsonSerializer.Deserialize<PersistedCacheFile>(json);
+            if (persisted is null || persisted.SchemaVersion != CacheSchemaVersion) return;
+
+            foreach (var (path, entry) in persisted.Entries)
+            {
+                _byPath[path] = new PlistCacheEntry(
+                    new DateTime(entry.MtimeTicks, DateTimeKind.Utc),
+                    entry.RunAtLoad, entry.KeepAliveTruthy, entry.Label, entry.ParseFailed);
+            }
+        }
+        catch
+        {
+            _byPath.Clear();
+        }
+    }
+
+    /// <summary>
+    /// Atomically persists the current path→facts cache to <see cref="s_cachePath"/> (write to a
+    /// `.tmp` file then rename over the target — same convention <see cref="Core.Services.SettingsService"/>
+    /// uses — so a crash mid-write never leaves a corrupt file for the next load to choke on).
+    /// Called only when a build actually changed <see cref="_byPath"/>, from within the
+    /// <see cref="_lock"/> already held by <see cref="GetOrBuildIndex"/>. Best-effort: any failure
+    /// just means the next process pays a (partial or full) cold rebuild — never lets a disk error
+    /// surface past this method.
+    /// </summary>
+    private void PersistCacheToDisk()
+    {
+        try
+        {
+            var persisted = new PersistedCacheFile { SchemaVersion = CacheSchemaVersion };
+            foreach (var (path, entry) in _byPath)
+            {
+                persisted.Entries[path] = new PersistedCacheEntry
+                {
+                    MtimeTicks      = entry.Mtime.Ticks,
+                    RunAtLoad       = entry.RunAtLoad,
+                    KeepAliveTruthy = entry.KeepAliveTruthy,
+                    Label           = entry.Label,
+                    ParseFailed     = entry.ParseFailed,
+                };
+            }
+
+            var json = JsonSerializer.Serialize(persisted, s_jsonOpts);
+            Directory.CreateDirectory(Path.GetDirectoryName(s_cachePath)!);
+            var tmp = s_cachePath + ".tmp";
+            File.WriteAllText(tmp, json);
+            File.Move(tmp, s_cachePath, overwrite: true);
+        }
+        catch
+        {
+            // Best-effort persistence only — never let a failed write break the in-memory result
+            // already computed for this call.
+        }
     }
 
     private static string RunPlutilConvertToXml(string path)

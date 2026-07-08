@@ -262,6 +262,46 @@ public class LaunchdStartTypeTests
         LaunchdStartType.TryParsePlist("   ", out _).Should().BeFalse();
     }
 
+    // ── Gate-review finding: malformed-plist blast radius ───────────────────────
+    //
+    // TryParsePlist used to catch only XmlException; any other exception type escaped, aggregated
+    // out of the Parallel.ForEach in MacOSLaunchdIndex.GetOrBuildIndex, and emptied the ENTIRE
+    // services list for that refresh instead of degrading just the one bad plist. The catch clause
+    // is now broadened to `catch (Exception)`.
+    //
+    // We could not construct an input that throws anything OTHER than XmlException through this
+    // method's only I/O-free parsing path (XmlReader + XDocument.Load over a StringReader) — a raw
+    // NUL character, a lone UTF-16 surrogate (both as a raw char and as a numeric character
+    // reference), an undeclared entity reference, a duplicate attribute, and an invalid XML
+    // declaration version were all empirically verified (via a standalone scratch program using
+    // the exact same XmlReaderSettings as this method) to surface as System.Xml.XmlException, not
+    // some other type. The tests below pin the "never throws" contract across that same set of
+    // malformed inputs — the best available proxy for the non-XmlException case the gate review
+    // couldn't itself reproduce.
+    [Theory]
+    [InlineData("<plist><dict><key>Label</key><string>a&undefined;b</string></dict></plist>")]  // undeclared entity
+    [InlineData("<plist><dict><key>Label</key><string>a&#xD800;b</string></dict></plist>")]     // invalid numeric char ref (lone surrogate)
+    [InlineData("<plist a=\"1\" a=\"2\"><dict/></plist>")]                                      // duplicate attribute
+    [InlineData("<?xml version=\"9.9\"?><plist><dict/></plist>")]                               // invalid XML-decl version
+    [InlineData("not xml at all { }")]
+    [InlineData("<plist><dict><key>Label</key><string>unterminated")]
+    public void TryParsePlist_MalformedInputs_NeverThrows_AlwaysReturnsFalse(string malformed)
+    {
+        var act = () => LaunchdStartType.TryParsePlist(malformed, out _);
+        act.Should().NotThrow();
+        LaunchdStartType.TryParsePlist(malformed, out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public void TryParsePlist_NulCharacter_NeverThrows_AlwaysReturnsFalse()
+    {
+        var malformed = "<plist><dict><key>Label</key><string>a" + '\0' + "b</string></dict></plist>";
+
+        var act = () => LaunchdStartType.TryParsePlist(malformed, out _);
+        act.Should().NotThrow();
+        LaunchdStartType.TryParsePlist(malformed, out _).Should().BeFalse();
+    }
+
     [Fact]
     public void TryParsePlist_NoDtd_StillParsesOffline()
     {

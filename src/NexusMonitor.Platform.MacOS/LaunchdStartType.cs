@@ -153,8 +153,18 @@ public static class LaunchdStartType
             facts = new PlistFacts(runAtLoad, keepAlive, label);
             return true;
         }
-        catch (XmlException)
+        catch (Exception)
         {
+            // Broadened from `catch (XmlException)` (gate-review finding): this used to only catch
+            // the XML-parsing failure mode, so any other exception type — from XDocument.Load or
+            // anywhere else in this method — escaped uncaught, aggregated out of the
+            // Parallel.ForEach in MacOSLaunchdIndex.GetOrBuildIndex, and emptied the ENTIRE services
+            // list for that refresh instead of degrading just the one bad plist. Every malformed-
+            // XML input we could construct (NUL/control chars, lone surrogates, bad numeric char
+            // refs, undeclared entities, duplicate attributes, bad XML-decl version) still surfaces
+            // as XmlException in practice — this broadening is defense-in-depth for whatever
+            // exception type a future .NET runtime or an unanticipated plist shape might throw, not
+            // evidence a different type has actually been observed.
             return false;
         }
     }
