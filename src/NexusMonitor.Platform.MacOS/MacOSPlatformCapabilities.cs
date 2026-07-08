@@ -13,6 +13,19 @@ public sealed class MacOSPlatformCapabilities : IPlatformCapabilities
     public bool UsesMetaKey                => true;
     public string FileManagerName          => "Finder";
     public string ServiceManagerName       => "Launch Daemons";
+    // Sym-1 Task 3 (2026-07-08): ServicesView.axaml's binding on this flag gates ONLY the
+    // "Set Startup Type" context-menu submenu (the write/edit path — SetStartupTypeCommand ->
+    // MacOSServicesProvider.SetStartTypeAsync, which unconditionally throws
+    // PlatformNotSupportedException; there is no launchd runtime call that flips a job's start
+    // policy). The Start Type display column and detail-sidebar row are NOT gated by this flag —
+    // they're unconditionally visible, and MacOSServicesProvider now populates them with honest
+    // launchd-derived values (Automatic/Manual/Disabled/Unknown) instead of a hardcoded Unknown.
+    // Per the brief's binding flag ruling: do NOT flip this to true, since doing so would surface
+    // an edit menu whose backing implementation is absent, not just a display column. Keep false
+    // until a real write path exists (would need plist mutation + launchctl bootout/bootstrap,
+    // itself needing elevated permissions for system-owned LaunchDaemons — the same class of
+    // problem as SupportsStartupToggle below). If read/write ever need independent gating, split
+    // this into two capability flags rather than reusing one for both.
     public bool SupportsServiceStartupType => false;
     public bool SupportsRegistry           => false;
     public bool SupportsEfficiencyMode     => false;
