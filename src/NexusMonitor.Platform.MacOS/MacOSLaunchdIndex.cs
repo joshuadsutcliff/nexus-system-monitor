@@ -267,7 +267,7 @@ public sealed class MacOSLaunchdIndex
         {
             if (parseFailed) continue; // known-bad sentinel — no facts to contribute (same as "no plist found")
 
-            var dir = Path.GetDirectoryName(path);
+            var dir = PosixDirectoryName(path);
             if (dir is not null && byDir.TryGetValue(dir, out var list))
                 list.Add((path, runAtLoad, keepAliveTruthy, label));
         }
@@ -277,7 +277,7 @@ public sealed class MacOSLaunchdIndex
             foreach (var (path, runAtLoad, keepAliveTruthy, label) in byDir[dir])
             {
                 var facts = new LaunchdPlistFacts(runAtLoad, keepAliveTruthy);
-                var filenameLabel = Path.GetFileNameWithoutExtension(path);
+                var filenameLabel = PosixFileNameWithoutExtension(path);
                 byFilenameLabel.TryAdd(filenameLabel, facts);
                 if (!string.IsNullOrEmpty(label))
                     byInternalLabel.TryAdd(label, facts);
@@ -285,6 +285,30 @@ public sealed class MacOSLaunchdIndex
         }
 
         return (byFilenameLabel, byInternalLabel);
+    }
+
+    // launchd plist paths are POSIX by definition ("/Library/LaunchDaemons/foo.plist") regardless
+    // of what OS this code happens to be JIT'd on. System.IO.Path's behavior is host-OS-sensitive
+    // (Windows recognizes '\' as the primary separator, and depending on runtime specifics can
+    // disagree with a pure '/'-delimited split), which made cross-directory precedence matching
+    // above a Windows-vs-macOS/Linux correctness bug: unit tests exercising this pure function
+    // with POSIX fixture paths passed on macOS/Linux runners but failed on Windows CI. These two
+    // helpers do explicit ordinal '/'-based string slicing instead of calling into Path.*, so the
+    // result is identical on every host OS by construction — there is no branch, flag, or
+    // OS-conditional logic to keep in sync, because the code never asks the host what a directory
+    // separator is.
+    private static string? PosixDirectoryName(string path)
+    {
+        var slash = path.LastIndexOf('/');
+        return slash < 0 ? null : path[..slash];
+    }
+
+    private static string PosixFileNameWithoutExtension(string path)
+    {
+        var slash = path.LastIndexOf('/');
+        var fileName = slash < 0 ? path : path[(slash + 1)..];
+        var dot = fileName.LastIndexOf('.');
+        return dot < 0 ? fileName : fileName[..dot];
     }
 
     /// <summary>
