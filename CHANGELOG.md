@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-09
+
 ### Added
 - **Customizable dashboard:** the Dashboard is now a fully editable widget grid — enter edit
   mode to drag, resize, add, and remove widgets, with step-by-step Undo and a one-click Tidy
@@ -32,11 +34,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Mica`) now drives an actual native transparency material per platform, with an automatic
   fallback chain when a platform can't render the requested level and a defensive re-apply if
   the OS transiently rejects it on launch.
-
-### Removed
-- **`EnablePageEngine` experimental flag:** the customizable dashboard is always on now — the
-  Settings → Experimental toggle is gone. The `EnablePageEngine` field remains on old settings
-  files purely so they still deserialize; nothing reads it anymore.
+- **Linux: real AMD GPU temperature.** The GPU card now reports actual temperature readings for
+  AMD GPUs on Linux, alongside the existing NVIDIA support, instead of a placeholder value.
+- **Linux: I/O priority, process handles, and memory map.** The Processes tab's I/O priority
+  control now works on Linux, and the Handles and Memory Map detail views — previously
+  Windows-only — now show real data on Linux as well.
+- **macOS: Services now show a real startup type.** The Services list reports actual
+  Automatic / Manual / Disabled status (read from the system's launch service records) instead
+  of always showing "Unknown".
+- **macOS: Efficiency Mode.** Processes can now be switched into the OS's low-priority background
+  mode on macOS, matching the existing Windows and Linux behavior.
+- **macOS: Create Dump File.** Capturing a diagnostic dump for a process is now supported on
+  macOS (a call-stack sample report rather than a full memory dump).
+- **macOS: Processes tab shows the owning user.** The User column, previously blank on macOS,
+  is now populated for every process.
 
 ### Changed
 - **Dashboard layout-load failures** now fall back to the factory-default layout with an in-app
@@ -47,6 +58,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Logo and titlebar:** the app logo and wordmark moved to the upper-right of the titlebar,
   vertically centered with the traffic-light window controls, keeping the rest of the titlebar
   clean; window-control centering was also normalized across platforms.
+- **Clearer feature names:** the automation features are now Auto-Balance, Idle Throttle, and
+  Memory Reclaim; existing settings migrate automatically.
+- **Dashboard edit mode is easier to find:** the unlabeled pencil icon is now a labeled "Edit"
+  button, and the Command Palette gains "Edit Dashboard" and "Add Widget…" entries.
+- **Widget gallery redesigned:** adding a widget now opens a proper gallery — icon-tile cards
+  grouped into Monitoring, Analysis, and Insights — instead of a plain dropdown list.
+- **Command Palette redesigned:** now a single rounded card with a search icon and type labels,
+  closer to a native Spotlight-style launcher.
+- **Accent color now applies everywhere:** a handful of controls (including the Run Analysis
+  button) stayed on the default blue when a custom accent color was set; they now follow the
+  chosen accent like the rest of the app.
+- **Fit-and-finish:** System Info no longer shows a cryptic internal model code for "Socket" on
+  Mac, and shows a plain "Unified memory" note instead of an empty RAM-slot table; the Network
+  tab's connection-state column no longer clips "ESTABLISHED"; Performance sub-navigation labels
+  no longer collide with their metrics.
+
+### Fixed
+- **Crash on quit.** The app could crash when closing on macOS; the shutdown sequence is now
+  handled correctly on every close path (window close, Cmd+Q, tray quit).
+- **macOS Network tab:** IPv6 connections were silently missing and are now shown; process IDs
+  in the connection list — previously often wrong — are now accurate.
+- **Disk Analyzer no longer jitters during a scan:** the stats bar, Scan/Cancel button, and
+  status text no longer shift position while a scan is running.
+- **Honest status instead of silent failure:** Foreground Boost and part of Gaming Mode now
+  disable themselves with an explanation on platforms that don't support them, instead of
+  looking active while doing nothing; the health score no longer rates GPU health as
+  "Excellent" when no real GPU data exists; unavailable readings (temperature, clock speed,
+  cache size) now show "—" instead of a misleading zero; the LAN Scanner discloses when a scan
+  ran without the permissions needed for complete results.
+- **Theme switching fixed from the Command Palette:** switching themes there previously left
+  glass effects, accent colors, and shadows out of sync with the new theme; it now applies
+  fully. The Font Family selector no longer shows a blank box after switching away from the
+  default, and the System Info Uptime field — previously blank on every platform — now displays
+  correctly.
+- **macOS Processes tab:** per-process CPU usage was blank for almost every process; it now
+  shows a real percentage for processes the app can read, and "—" (rather than a false 0%) for
+  processes it can't.
+- **Diagnostics and Optimization pages now reflect real state:** the Diagnostics empty message
+  no longer claims monitoring is active while it's paused, and the Optimization "all clear"
+  checkmark no longer stays visible when there are recommendations waiting. The same underlying
+  display bug is fixed in several other places it was hiding: an always-visible error banner in
+  Rules, and stray banners in History, Alerts, and Gaming Mode.
+
+### Removed
+- **`EnablePageEngine` experimental flag:** the customizable dashboard is always on now — the
+  Settings → Experimental toggle is gone. The `EnablePageEngine` field remains on old settings
+  files purely so they still deserialize; nothing reads it anymore.
 
 ## [0.5.2] - 2026-06-18
 
@@ -554,7 +612,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **macOS 12+ (Intel + Apple Silicon):** Full support. Unsigned — see README for Gatekeeper bypass.
 - **Linux (x64, ARM64):** Full support. Best tested on Ubuntu 22.04+.
 
-[Unreleased]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.4.1...v0.5.0

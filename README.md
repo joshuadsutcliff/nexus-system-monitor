@@ -20,13 +20,19 @@ Your process tuner only runs on one OS. Your disk analyzer is a separate downloa
 
 ## Screenshots
 
-> Screenshots coming soon. See the [Releases](https://github.com/joshuadsutcliff/nexus-system-monitor/releases) page for download links.
+*System Health Dashboard — Crystal Glass dark theme (macOS)*
 
-<!-- TODO: Add screenshots of:
-  - System Health Dashboard (health score, sparklines, bottleneck detection)
+![System Health Dashboard](docs/screenshots/dashboard-dark.png)
+
+*Process list with per-user visibility and live impact metrics*
+
+![Processes](docs/screenshots/processes-dark.png)
+
+See the [Releases](https://github.com/joshuadsutcliff/nexus-system-monitor/releases) page for download links.
+
+<!-- TODO: More screenshots to add:
   - Dashboard edit mode (drag/resize widgets, widget gallery, pop-out windows)
-  - Process list (color-coded categories, Impact Score, rules indicators)
-  - Crystal Glass theme dark + light
+  - Crystal Glass theme light
   - Theme customization panel
   - Side-by-side: Windows / macOS / Linux
 -->
