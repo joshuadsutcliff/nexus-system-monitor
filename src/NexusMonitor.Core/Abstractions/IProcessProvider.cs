@@ -22,7 +22,12 @@ public interface IProcessProvider
     Task<IReadOnlyList<HandleInfo>> GetHandlesAsync(int pid, CancellationToken ct = default);
     Task<IReadOnlyList<MemoryRegionInfo>> GetMemoryMapAsync(int pid, CancellationToken ct = default);
 
-    /// <summary>Creates a minidump of the process at the specified path.</summary>
+    /// <summary>
+    /// Captures a diagnostic snapshot of the process at the specified path. On Windows this is a
+    /// real minidump (MiniDumpWriteDump). On macOS it is a `sample`(1) call-stack sampling
+    /// report — a text profile of executing functions, not a memory dump, since no minidump
+    /// equivalent exists there. Not implemented on Linux.
+    /// </summary>
     Task CreateDumpFileAsync(int pid, string outputPath, CancellationToken ct = default);
 
     /// <summary>Returns (processAffinityMask, systemAffinityMask) for the given process.</summary>

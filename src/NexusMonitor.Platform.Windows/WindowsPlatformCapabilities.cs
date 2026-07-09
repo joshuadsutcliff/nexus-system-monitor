@@ -20,6 +20,7 @@ public sealed class WindowsPlatformCapabilities : IPlatformCapabilities
     public bool SupportsMemoryMap          => true;
     public bool SupportsPowerPlan          => true;
     public string OpenLocationMenuLabel    => "Open File Location";
+    public string DumpFileExtension        => "dmp";
     public bool SupportsDirectX            => true;
     public bool SupportsStartupToggle      => true;
 }

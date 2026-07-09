@@ -18,7 +18,10 @@ public record MemoryRegionInfo(
     string State,             // "Committed" | "Reserved"
     string RegionType,        // "Private" | "Mapped" | "Image"
     string Protection,        // "RW" | "RX" | "R" | "RWX" | "No Access" | "Guard"
-    string Description)       // image path for Image regions, "" otherwise
+    string Description)       // Windows: image path for Image regions only, "" otherwise.
+                               // Linux: backing file path for Image/Mapped regions, or a bracket
+                               // tag ([heap]/[stack]/[vdso]/...) for Private regions, "" when
+                               // nothing is known (anonymous mapping).
 {
     /// <summary>Base address formatted as hex string.</summary>
     public string BaseAddressHex => $"0x{BaseAddress:X12}";

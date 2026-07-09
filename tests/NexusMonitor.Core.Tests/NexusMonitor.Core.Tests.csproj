@@ -12,6 +12,8 @@
     <PackageReference Include="Moq" Version="4.20.72" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <ProjectReference Include="..\..\src\NexusMonitor.Core\NexusMonitor.Core.csproj" />
+    <ProjectReference Include="..\..\src\NexusMonitor.Platform.Linux\NexusMonitor.Platform.Linux.csproj" />
+    <ProjectReference Include="..\..\src\NexusMonitor.Platform.MacOS\NexusMonitor.Platform.MacOS.csproj" />
     <PackageReference Include="Microsoft.Reactive.Testing" Version="6.0.1" />
     <PackageReference Include="FluentAssertions" Version="6.12.2" />
   </ItemGroup>

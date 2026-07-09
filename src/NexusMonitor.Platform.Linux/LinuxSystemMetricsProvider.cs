@@ -671,9 +671,10 @@ public sealed class LinuxSystemMetricsProvider : ISystemMetricsProvider, IDispos
     {
         try
         {
-            var busyPath = "/sys/class/drm/card0/device/gpu_busy_percent";
-            var vramUsed = "/sys/class/drm/card0/device/mem_info_vram_used";
-            var vramTot  = "/sys/class/drm/card0/device/mem_info_vram_total";
+            var deviceDir = "/sys/class/drm/card0/device";
+            var busyPath = Path.Combine(deviceDir, "gpu_busy_percent");
+            var vramUsed = Path.Combine(deviceDir, "mem_info_vram_used");
+            var vramTot  = Path.Combine(deviceDir, "mem_info_vram_total");
 
             if (!File.Exists(busyPath)) return [];
 
@@ -695,11 +696,48 @@ public sealed class LinuxSystemMetricsProvider : ISystemMetricsProvider, IDispos
                     UsagePercent               = Math.Clamp(busy, 0, 100),
                     DedicatedMemoryUsedBytes   = used,
                     DedicatedMemoryTotalBytes  = total,
-                    TemperatureCelsius         = 0,
+                    TemperatureCelsius         = ReadAmdGpuTemperature(deviceDir),
                 },
             ];
         }
         catch { return []; }
+    }
+
+    /// <summary>
+    /// Reads the amdgpu hwmon temp*_input/temp*_label files under
+    /// <paramref name="deviceDir"/>/hwmon/hwmon*/ and delegates selection to the pure
+    /// <see cref="AmdGpuTemperature.SelectTemperatureCelsius"/> helper. Scoped to card0 only
+    /// (matches the rest of <see cref="ReadAmdGpu"/>); not extended to multi-GPU enumeration.
+    /// </summary>
+    private static double ReadAmdGpuTemperature(string deviceDir)
+    {
+        try
+        {
+            var hwmonRoot = Path.Combine(deviceDir, "hwmon");
+            if (!Directory.Exists(hwmonRoot)) return 0;
+
+            foreach (var hwmon in Directory.GetDirectories(hwmonRoot))
+            {
+                var readings = new List<AmdGpuTemperature.Reading>();
+                for (int i = 1; i <= 16; i++)
+                {
+                    var inputPath = Path.Combine(hwmon, $"temp{i}_input");
+                    if (!File.Exists(inputPath)) continue;
+                    if (!long.TryParse(File.ReadAllText(inputPath).Trim(), out var mC)) continue;
+
+                    string? label = null;
+                    var labelPath = Path.Combine(hwmon, $"temp{i}_label");
+                    if (File.Exists(labelPath)) label = File.ReadAllText(labelPath).Trim();
+
+                    readings.Add(new AmdGpuTemperature.Reading(i, label, mC));
+                }
+
+                if (readings.Count > 0)
+                    return AmdGpuTemperature.SelectTemperatureCelsius(readings);
+            }
+        }
+        catch { }
+        return 0;
     }
 
     // ── Static helpers ─────────────────────────────────────────────────────────

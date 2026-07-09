@@ -36,11 +36,13 @@ public partial class ProcessesViewModel : ViewModelBase, IActivatable, IDisposab
 
     /// <summary>
     /// True when the active process provider actually populates <see cref="ProcessRowViewModel.UserName"/>.
-    /// False on macOS — MacOSProcessProvider always leaves UserName empty (no per-process owner
-    /// lookup implemented), so the column would otherwise just be dead space on every row.
-    /// Linux and Windows both populate it, so the column stays visible there.
+    /// Sym-1 Task 4 (2026-07-08): MacOSProcessProvider now resolves each process's owner via
+    /// sysctl(KERN_PROC_PID) -> uid -> getpwuid_r, so the column is populated (and shown) on
+    /// macOS too. Linux and Windows both already populated it. This is effectively "always true"
+    /// today but is kept as its own flag rather than removed, in case a future platform needs the
+    /// gate again.
     /// </summary>
-    public bool ShowUserColumn => !OperatingSystem.IsMacOS();
+    public bool ShowUserColumn => true;
 
     /// <summary>
     /// True when the active process provider actually populates <see cref="ProcessRowViewModel.Description"/>.
@@ -535,14 +537,15 @@ public partial class ProcessesViewModel : ViewModelBase, IActivatable, IDisposab
             var mainWin = (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
             if (mainWin is null) return;
 
+            var ext = Platform.DumpFileExtension;
             var sp = mainWin.StorageProvider;
             var file = await sp.SaveFilePickerAsync(new FilePickerSaveOptions
             {
                 Title = $"Save dump file for {SelectedProcess.Name}",
-                SuggestedFileName = $"{SelectedProcess.Name}_{SelectedProcess.Pid}.dmp",
+                SuggestedFileName = $"{SelectedProcess.Name}_{SelectedProcess.Pid}.{ext}",
                 FileTypeChoices =
                 [
-                    new FilePickerFileType("Dump files") { Patterns = ["*.dmp"] },
+                    new FilePickerFileType("Dump files") { Patterns = [$"*.{ext}"] },
                     new FilePickerFileType("All files")  { Patterns = ["*"] },
                 ],
             });

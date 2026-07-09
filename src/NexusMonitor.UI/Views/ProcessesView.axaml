@@ -451,16 +451,20 @@
                               Width="110" MinWidth="90"
                               IsReadOnly="True"/>
 
-          <!-- Hidden on macOS: MacOSProcessProvider never populates UserName/Description
-               (no per-process owner/description lookup implemented), so these would just be
-               empty dead space on every row. DataGridColumn isn't in the visual tree, so it
-               can't inherit DataContext — bind via ElementName to the named DataGrid instead. -->
+          <!-- Sym-1 Task 4 (2026-07-08): MacOSProcessProvider now populates UserName (uid ->
+               account name via sysctl+getpwuid_r), so the User column is shown on every
+               platform (ShowUserColumn is effectively always true now). Description remains
+               unpopulated on macOS (no per-process description lookup implemented), so that
+               column stays gated below. DataGridColumn isn't in the visual tree, so it can't
+               inherit DataContext — bind via ElementName to the named DataGrid instead. -->
           <DataGridTextColumn Header="User"
                               Binding="{Binding UserName}"
                               Width="0.8*" MinWidth="85"
                               IsVisible="{Binding DataContext.ShowUserColumn, ElementName=ProcessGrid}"
                               IsReadOnly="True"/>
 
+          <!-- Hidden on macOS: MacOSProcessProvider never populates Description (no per-process
+               description lookup implemented), so it would just be empty dead space on every row. -->
           <DataGridTextColumn Header="Description"
                               Binding="{Binding Description}"
                               Width="2.0*" MinWidth="100"

@@ -12,4 +12,9 @@
     <PackageReference Include="System.Reactive" Version="6.0.1" />
     <ProjectReference Include="..\NexusMonitor.Core\NexusMonitor.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>NexusMonitor.Core.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
 </Project>

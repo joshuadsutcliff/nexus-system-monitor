@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Moq;
 using NexusMonitor.Core.Abstractions;
+using NexusMonitor.Platform.Linux;
 using Xunit;
 
 namespace NexusMonitor.Core.Tests;
@@ -27,6 +28,17 @@ public class MockPlatformCapabilitiesTests
     [Fact] public void OpenLocationMenuLabel_IsOpenFileLocation() => _sut.OpenLocationMenuLabel.Should().Be("Open File Location");
     [Fact] public void SupportsDirectX_IsTrue() => _sut.SupportsDirectX.Should().BeTrue();
     [Fact] public void SupportsStartupToggle_IsTrue() => _sut.SupportsStartupToggle.Should().BeTrue();
+}
+
+public class LinuxPlatformCapabilitiesTests
+{
+    private readonly LinuxPlatformCapabilities _sut = new();
+
+    // Sym-1 Task 2 flips these three from false to true now that SetIoPriorityAsync,
+    // GetHandlesAsync, and GetMemoryMapAsync are real implementations rather than stubs.
+    [Fact] public void SupportsIoPriority_IsTrue() => _sut.SupportsIoPriority.Should().BeTrue();
+    [Fact] public void SupportsHandles_IsTrue() => _sut.SupportsHandles.Should().BeTrue();
+    [Fact] public void SupportsMemoryMap_IsTrue() => _sut.SupportsMemoryMap.Should().BeTrue();
 }
 
 public class PlatformCapabilitiesContractTests

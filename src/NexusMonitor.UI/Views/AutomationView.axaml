@@ -114,7 +114,7 @@
                 </StackPanel>
               </Grid>
               <CheckBox IsChecked="{Binding IdleThrottleUseEfficiencyMode}"
-                        Content="Also enable Efficiency Mode (EcoQoS) on throttled processes"
+                        Content="Also enable Efficiency Mode on throttled processes"
                         IsVisible="{Binding Platform.SupportsEfficiencyMode}"/>
               <StackPanel Spacing="4">
                 <TextBlock Text="Excluded processes (comma-separated)"
