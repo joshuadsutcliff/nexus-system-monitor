@@ -25,13 +25,20 @@ namespace NexusMonitor.Core.Tests;
 ///    121+). Do NOT re-pin either snapshot (idle-0 or loaded-nonzero) as the sole expected value;
 ///    the plausibility filter is already designed to handle both honestly.
 ///
-/// AVAILABILITY-GATED (2026-07-11, PR #24 CI failure): GitHub's macos-latest runner is a VM with
-/// no real AppleSMC/PMU sensors — <see cref="MacSensorAvailability"/> detects at runtime whether
-/// each test's sensor route is actually backed by hardware and every test below branches on it:
-/// full plausible-value assertions when present (this machine, real Mac CI hardware if ever
-/// added), honest-degrade assertions (never throws, reads settle to 0/null) when absent (GitHub's
-/// VM runner today). No test silently no-ops on "sensor absent" — that would hide a real
-/// regression on VM runners just as easily as asserting real-hardware values there flakes.
+/// AVAILABILITY-GATED (2026-07-11, PR #24 CI round 1 failure): GitHub's macos-latest runner is a
+/// VM with no real AppleSMC/PMU sensors — <see cref="MacSensorAvailability"/> detects at runtime
+/// whether each test's sensor route is actually backed by hardware and every test below branches
+/// on it: full plausible-value assertions when present (this machine, real Mac CI hardware if
+/// ever added), honest-degrade assertions (never throws, reads settle to 0/null) when absent
+/// (GitHub's VM runner today). No test silently no-ops on "sensor absent" — that would hide a
+/// real regression on VM runners just as easily as asserting real-hardware values there flakes.
+///
+/// REFINED (2026-07-11, PR #24 CI round 2): the IOAccelerator sibling file's first pass wrongly
+/// conflated "no usable sensor data" with "the underlying service/handle is null" — CI round 2
+/// proved a stats-less-but-present node is a real shape a VM can produce. Applying the same
+/// lesson here pre-emptively: the AppleSMC absent branches below tolerate <c>Open()</c> returning
+/// either null (service truly absent) OR a non-null instance that simply has no plausible CPU key
+/// on this host — both degrade the same way (reads never throw, Dispose stays idempotent).
 /// </summary>
 public class MacOSTemperatureIntegrationTests
 {
@@ -138,17 +145,39 @@ public class MacOSTemperatureIntegrationTests
     {
         if (!OperatingSystem.IsMacOS()) return;
 
-        // This test's entire purpose is timing real AppleSMC reads — on a host where the service
-        // is absent (GitHub's macos-latest VM runner, PR #24 CI) there is nothing to time. The
-        // honest-degrade invariant here is simply "Open() returns null, never throws."
+        // This test's entire purpose is timing real AppleSMC reads — on a host where no CPU key
+        // is availability-detected as plausible there is nothing meaningful to time. Tolerant of
+        // both shapes (PR #24 CI round 2 taught this lesson for IOAccelerator; applying it here
+        // pre-emptively for the same conflation risk): AppleSMC may be genuinely absent
+        // (Open() == null) OR it may open with the service present but no CPU key on this host
+        // reading plausible — either way, the honest-degrade invariant is "never throws," not
+        // "Open() must be exactly null."
         if (!MacSensorAvailability.HasAppleSmcCpuKey)
         {
-            _output.WriteLine("sensor absent — degraded-mode assertions ran");
             AppleSmc? smcAbsent = null;
             Action act = () => smcAbsent = AppleSmc.Open();
             act.Should().NotThrow("AppleSmc.Open() must never throw even when the service is entirely absent from this host");
-            smcAbsent.Should().BeNull("AppleSMC is absent on this host (e.g. a CI VM) — Open() must degrade to null, never throw or fabricate a connection");
-            smcAbsent?.Dispose();
+
+            if (smcAbsent is not null)
+            {
+                var absentKeySet = SmcTemperature.ResolveKeySet(
+                    System.Runtime.InteropServices.RuntimeInformation.OSArchitecture ==
+                        System.Runtime.InteropServices.Architecture.Arm64
+                        ? "Apple M4" : "Intel",
+                    System.Runtime.InteropServices.RuntimeInformation.OSArchitecture ==
+                        System.Runtime.InteropServices.Architecture.Arm64);
+                var absentKeys = absentKeySet.CpuPerformance.Concat(absentKeySet.CpuEfficiency).Concat(absentKeySet.Gpu).ToArray();
+
+                Action readAct = () => { foreach (var k in absentKeys) _ = smcAbsent.ReadTemperature(k); };
+                readAct.Should().NotThrow("reading resolved keys on a service that opens but yields no plausible sensor must never throw");
+                smcAbsent.Dispose();
+                smcAbsent.Dispose(); // idempotent: second dispose must be a safe no-op
+                _output.WriteLine("sensor absent — degraded-mode assertions ran (AppleSMC opened but no plausible CPU key on this host; nothing to time)");
+            }
+            else
+            {
+                _output.WriteLine("sensor absent — degraded-mode assertions ran (AppleSMC service not present at all)");
+            }
             return;
         }
 
@@ -286,8 +315,19 @@ public class MacOSTemperatureIntegrationTests
             }
             else
             {
-                smc.Should().BeNull($"cycle {i}: AppleSMC is absent on this host (e.g. a CI VM) — Open() must degrade to null consistently, never throw");
-                smc?.Dispose();                 // no-op (null), kept for structural/no-throw parity with the present-hardware branch
+                // Tolerant of both shapes (PR #24 CI round 2 taught this lesson for
+                // IOAccelerator; applying it here pre-emptively for the same conflation risk):
+                // AppleSMC may be genuinely absent (smc is null) OR it may open with the service
+                // present but no CPU key on this host reading plausible. Either way, reading must
+                // never throw and Dispose must stay clean/idempotent — a null instance has
+                // nothing to dispose and is not a failure.
+                if (smc is not null)
+                {
+                    Action act = () => smc.ReadTemperature("Tp01");
+                    act.Should().NotThrow($"cycle {i}: reading a key on a service that opens but yields no plausible sensor must never throw");
+                    smc.Dispose();
+                    smc.Dispose();               // idempotent: second dispose must be a safe no-op
+                }
             }
         }
         _output.WriteLine($"50 AppleSMC open/{(available ? "read/" : "")}dispose/dispose cycles completed without failure.");

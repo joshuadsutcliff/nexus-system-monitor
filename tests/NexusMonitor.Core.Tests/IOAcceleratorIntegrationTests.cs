@@ -18,14 +18,25 @@ namespace NexusMonitor.Core.Tests;
 /// "PerformanceStatistics" dict exposes "Device Utilization %" (Int) and "In use system memory" /
 /// "Alloc system memory" (bytes) live and unprivileged.
 ///
-/// AVAILABILITY-GATED (2026-07-11, PR #24 CI failure): GitHub's macos-latest runner is a VM with
-/// no GPU IOAccelerator registry node — <see cref="MacSensorAvailability.HasIoAcceleratorStats"/>
+/// AVAILABILITY-GATED (2026-07-11, PR #24 CI round 1): GitHub's macos-latest runner is a VM with
+/// no usable GPU PerformanceStatistics — <see cref="MacSensorAvailability.HasIoAcceleratorStats"/>
 /// detects at runtime whether it's actually present and every test below branches on it: full
 /// plausible-value assertions when present (this machine, real Mac CI hardware if ever added),
-/// honest-degrade assertions (never throws, <c>Open()</c> returns null, reads settle to 0) when
-/// absent (GitHub's VM runner today). No test silently no-ops on "sensor absent" — that would
-/// hide a real regression on VM runners just as easily as asserting real-hardware values there
-/// flakes.
+/// honest-degrade assertions (never throws, reads settle to null/0) when absent (GitHub's VM
+/// runner today). No test silently no-ops on "sensor absent" — that would hide a real regression
+/// on VM runners just as easily as asserting real-hardware values there flakes.
+///
+/// REFINED (2026-07-11, PR #24 CI round 2): the first pass's absent-branch assertions wrongly
+/// conflated "no PerformanceStatistics available" with "no IOAccelerator registry entry exists" —
+/// asserting <c>Open() == null</c> in every absent branch. CI round 2 proved this false: GitHub's
+/// macos-latest VM DOES have a real IOAccelerator registry entry (<c>Open()</c> returns a non-null
+/// instance there), it simply exposes no usable "PerformanceStatistics" dict/utilization key —
+/// exactly the case <see cref="MacSensorAvailability.HasIoAcceleratorStats"/> already detects
+/// correctly by checking <c>ReadPerformanceStatistics()</c>, not <c>Open()</c>. Every absent
+/// branch below now tolerates BOTH shapes: <c>Open()</c> may return null (no node at all) OR a
+/// non-null instance (a node exists but yields nothing) — when non-null, reading a sample must
+/// never throw and must degrade to <c>null</c> (never a fabricated zeroed sample), and Dispose
+/// must stay clean/idempotent.
 /// </summary>
 public class IOAcceleratorIntegrationTests
 {
@@ -43,8 +54,22 @@ public class IOAcceleratorIntegrationTests
 
         if (!available)
         {
-            _output.WriteLine("sensor absent — degraded-mode assertions ran");
-            accel.Should().BeNull("no IOAccelerator registry entry exists on this host (e.g. a CI VM) — Open() must degrade to null, never throw");
+            // Tolerant of both shapes (PR #24 CI round 2): Open() may return null (no registry
+            // entry at all) OR a non-null instance (a node exists — confirmed on GitHub's
+            // macos-latest VM — but exposes no usable PerformanceStatistics). Either way, reading
+            // a sample must never throw and must degrade to null, never a fabricated sample.
+            if (accel is not null)
+            {
+                GpuPerformanceSample? absentSample = null;
+                Action act = () => absentSample = accel.ReadPerformanceStatistics();
+                act.Should().NotThrow("ReadPerformanceStatistics must never throw even when the node exposes no usable PerformanceStatistics");
+                absentSample.Should().BeNull("a node with no usable utilization key must degrade to a null sample, not a fabricated zeroed one");
+                _output.WriteLine("sensor absent — degraded-mode assertions ran (node present but stats-less)");
+            }
+            else
+            {
+                _output.WriteLine("sensor absent — degraded-mode assertions ran (no registry entry at all)");
+            }
             return;
         }
 
@@ -193,8 +218,28 @@ public class IOAcceleratorIntegrationTests
 
         if (!available)
         {
-            _output.WriteLine("sensor absent — degraded-mode assertions ran (no accelerator to leak-test)");
-            accel.Should().BeNull("no IOAccelerator registry entry exists on this host (e.g. a CI VM) — Open() must degrade to null, never throw");
+            // Tolerant of both shapes (PR #24 CI round 2): a node may exist (confirmed on
+            // GitHub's macos-latest VM) but expose no usable PerformanceStatistics. If so, still
+            // exercise repeated reads for no-throw/honest-null degrade — there IS a live
+            // io_object_t handle being read every iteration, so this is meaningful coverage, just
+            // without the RSS-growth leak measurement (nothing to leak-test if every reachable
+            // path here is "return null immediately").
+            if (accel is not null)
+            {
+                const int absentReads = 1000;
+                for (int i = 0; i < absentReads; i++)
+                {
+                    GpuPerformanceSample? absentSample = null;
+                    Action act = () => absentSample = accel.ReadPerformanceStatistics();
+                    act.Should().NotThrow($"read {i}: must never throw even when the node exposes no PerformanceStatistics");
+                    absentSample.Should().BeNull($"read {i}: a node with no usable utilization key must degrade to a null sample");
+                }
+                _output.WriteLine($"sensor absent — degraded-mode assertions ran (node present but stats-less; {absentReads} reads stayed null, no throw)");
+            }
+            else
+            {
+                _output.WriteLine("sensor absent — degraded-mode assertions ran (no registry entry at all; nothing to leak-test)");
+            }
             return;
         }
 
@@ -287,8 +332,18 @@ public class IOAcceleratorIntegrationTests
             }
             else
             {
-                accel.Should().BeNull($"cycle {i}: no IOAccelerator registry entry exists on this host (e.g. a CI VM) — Open() must degrade to null consistently, never throw");
-                accel?.Dispose(); // no-op (null), kept for structural/no-throw parity with the present-hardware branch
+                // Tolerant of both shapes (PR #24 CI round 2): a node may exist (confirmed on
+                // GitHub's macos-latest VM) but expose no usable PerformanceStatistics — reading
+                // it must never throw, and Dispose must stay clean/idempotent, same as the
+                // present-hardware branch. A genuinely absent registry entry (accel is null) has
+                // nothing to dispose and is not a failure either.
+                if (accel is not null)
+                {
+                    Action act = () => { _ = accel.ReadPerformanceStatistics(); };
+                    act.Should().NotThrow($"cycle {i}: reading a stats-less IOAccelerator node must never throw");
+                    accel.Dispose();
+                    accel.Dispose(); // idempotent: second dispose must be a safe no-op
+                }
             }
         }
         _output.WriteLine($"50 IOAccelerator open/{(available ? "read/" : "")}dispose/dispose cycles completed without failure.");
@@ -304,8 +359,26 @@ public class IOAcceleratorIntegrationTests
 
         if (!available)
         {
-            _output.WriteLine("sensor absent — degraded-mode assertions ran (nothing to time)");
-            accel.Should().BeNull("no IOAccelerator registry entry exists on this host (e.g. a CI VM) — Open() must degrade to null, never throw");
+            // Tolerant of both shapes (PR #24 CI round 2): a node may exist (confirmed on
+            // GitHub's macos-latest VM) but expose no usable PerformanceStatistics — nothing
+            // meaningful to time (no real telemetry cost to regression-guard), but confirm
+            // repeated reads degrade cleanly (no throw, honest null).
+            if (accel is not null)
+            {
+                const int absentTicks = 100;
+                for (int i = 0; i < absentTicks; i++)
+                {
+                    GpuPerformanceSample? absentSample = null;
+                    Action act = () => absentSample = accel.ReadPerformanceStatistics();
+                    act.Should().NotThrow($"tick {i}: must never throw even when the node exposes no PerformanceStatistics");
+                    absentSample.Should().BeNull($"tick {i}: a node with no usable utilization key must degrade to a null sample");
+                }
+                _output.WriteLine("sensor absent — degraded-mode assertions ran (node present but stats-less; nothing to time)");
+            }
+            else
+            {
+                _output.WriteLine("sensor absent — degraded-mode assertions ran (no registry entry at all; nothing to time)");
+            }
             return;
         }
 
