@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using FluentAssertions;
+using NexusMonitor.Core.Tests.Helpers;
 using NexusMonitor.Platform.MacOS;
 using Xunit;
 using Xunit.Abstractions;
@@ -16,6 +17,15 @@ namespace NexusMonitor.Core.Tests;
 /// (.superpowers/sdd/sym2-ground-truth.md, base M4 Mac mini): IOAccelerator's
 /// "PerformanceStatistics" dict exposes "Device Utilization %" (Int) and "In use system memory" /
 /// "Alloc system memory" (bytes) live and unprivileged.
+///
+/// AVAILABILITY-GATED (2026-07-11, PR #24 CI failure): GitHub's macos-latest runner is a VM with
+/// no GPU IOAccelerator registry node — <see cref="MacSensorAvailability.HasIoAcceleratorStats"/>
+/// detects at runtime whether it's actually present and every test below branches on it: full
+/// plausible-value assertions when present (this machine, real Mac CI hardware if ever added),
+/// honest-degrade assertions (never throws, <c>Open()</c> returns null, reads settle to 0) when
+/// absent (GitHub's VM runner today). No test silently no-ops on "sensor absent" — that would
+/// hide a real regression on VM runners just as easily as asserting real-hardware values there
+/// flakes.
 /// </summary>
 public class IOAcceleratorIntegrationTests
 {
@@ -28,7 +38,17 @@ public class IOAcceleratorIntegrationTests
     {
         if (!OperatingSystem.IsMacOS()) return;
 
+        var available = MacSensorAvailability.HasIoAcceleratorStats;
         using var accel = IOAccelerator.Open();
+
+        if (!available)
+        {
+            _output.WriteLine("sensor absent — degraded-mode assertions ran");
+            accel.Should().BeNull("no IOAccelerator registry entry exists on this host (e.g. a CI VM) — Open() must degrade to null, never throw");
+            return;
+        }
+
+        _output.WriteLine("sensor present — full-fidelity assertions running");
         accel.Should().NotBeNull("this M4 has exactly one IOAccelerator registry entry (probe-confirmed)");
 
         var sample = accel!.ReadPerformanceStatistics();
@@ -47,27 +67,57 @@ public class IOAcceleratorIntegrationTests
     {
         if (!OperatingSystem.IsMacOS()) return;
 
+        var available = MacSensorAvailability.HasIoAcceleratorStats;
+        _output.WriteLine(available
+            ? "sensor present — full-fidelity assertions running"
+            : "sensor absent — degraded-mode assertions ran");
+
         using var provider = new MacOSSystemMetricsProvider();
         var metrics = await provider.GetMetricsAsync();
 
-        metrics.Gpus.Should().NotBeEmpty("system_profiler reports the built-in GPU on this machine");
-        var gpu = metrics.Gpus[0];
-        _output.WriteLine($"GPU: {gpu.Name} usage={gpu.UsagePercent:F1}% " +
-                           $"dedicatedUsed={gpu.DedicatedMemoryUsedBytes} shared(alloc)={gpu.SharedMemoryUsedBytes}");
+        if (available)
+        {
+            metrics.Gpus.Should().NotBeEmpty("system_profiler reports the built-in GPU on this machine");
+            var gpu = metrics.Gpus[0];
+            _output.WriteLine($"GPU: {gpu.Name} usage={gpu.UsagePercent:F1}% " +
+                               $"dedicatedUsed={gpu.DedicatedMemoryUsedBytes} shared(alloc)={gpu.SharedMemoryUsedBytes}");
 
-        gpu.UsagePercent.Should().BeInRange(0.0, 100.0);
-        gpu.DedicatedMemoryUsedBytes.Should().BeGreaterThan(0,
-            "\"In use system memory\" (the binding honest-memory mapping) is always non-zero on a running desktop session");
+            gpu.UsagePercent.Should().BeInRange(0.0, 100.0);
+            gpu.DedicatedMemoryUsedBytes.Should().BeGreaterThan(0,
+                "\"In use system memory\" (the binding honest-memory mapping) is always non-zero on a running desktop session");
+        }
+        else if (metrics.Gpus.Count > 0)
+        {
+            // A VM may still enumerate a (virtual) GPU via system_profiler even with no
+            // IOAccelerator registry node behind it — the honest-degrade result is 0 everywhere
+            // IOAccelerator would have supplied a value, never a crash or a fabricated figure.
+            var gpu = metrics.Gpus[0];
+            _output.WriteLine($"GPU: {gpu.Name} usage={gpu.UsagePercent:F1}% " +
+                               $"dedicatedUsed={gpu.DedicatedMemoryUsedBytes} shared(alloc)={gpu.SharedMemoryUsedBytes}");
+            gpu.UsagePercent.Should().Be(0.0, "no IOAccelerator registry entry exists on this host (e.g. a CI VM) — GPU utilization must degrade to honest 0");
+            gpu.DedicatedMemoryUsedBytes.Should().Be(0, "no IOAccelerator registry entry exists on this host (e.g. a CI VM) — GPU memory must degrade to honest 0");
+        }
+        else
+        {
+            _output.WriteLine("No GPU row from system_profiler either — nothing to check.");
+        }
+
         // GPU temperature must still go through Task 5's plausibility filter, unchanged by Task 6
-        // (Task 6 must not regress or bypass it). DRIFT ADDENDUM
+        // (Task 6 must not regress or bypass it) and independent of IOAccelerator availability
+        // (temperature comes from SMC, not IOAccelerator). DRIFT ADDENDUM
         // (.superpowers/sdd/sym2-ground-truth.md, bottom): base-M4 Tg* keys read garbage at idle
         // GPU utilization but real plausible values under sustained GPU load, so this is NOT a
         // fixed 0 on this machine — the invariant is honest-unavailable (0) OR plausible
         // (10-120); a filtered-out garbage value must never appear either way. Do not re-pin this
-        // to either snapshot.
-        (gpu.TemperatureCelsius == 0.0 || (gpu.TemperatureCelsius >= 10.0 && gpu.TemperatureCelsius <= 120.0))
-            .Should().BeTrue(
-                "GPU temp must be either honestly unavailable (0) or plausible (10-120 °C, real value seen under sustained GPU load per the drift addendum) — Task 5's plausibility filter must still reject any garbage value");
+        // to either snapshot. Already covers the sensor-absent case (0 is one of the two allowed
+        // states), so no separate availability branch is needed for this specific assertion.
+        if (metrics.Gpus.Count > 0)
+        {
+            var gpuTemp = metrics.Gpus[0].TemperatureCelsius;
+            (gpuTemp == 0.0 || (gpuTemp >= 10.0 && gpuTemp <= 120.0))
+                .Should().BeTrue(
+                    "GPU temp must be either honestly unavailable (0) or plausible (10-120 °C, real value seen under sustained GPU load per the drift addendum) — Task 5's plausibility filter must still reject any garbage value");
+        }
     }
 
     [Fact]
@@ -75,10 +125,17 @@ public class IOAcceleratorIntegrationTests
     {
         if (!OperatingSystem.IsMacOS()) return;
 
+        var available = MacSensorAvailability.HasIoAcceleratorStats;
+        _output.WriteLine(available
+            ? "sensor present — full-fidelity assertions running"
+            : "sensor absent — degraded-mode assertions ran");
+
         using var provider = new MacOSSystemMetricsProvider();
         var utilSamples = new List<double>();
         var memSamples  = new List<long>();
 
+        // Runs the full 10-tick window regardless of availability — "no crash over N ticks" is
+        // exactly the honest-degrade invariant this loop proves on a sensor-absent host.
         for (int i = 0; i < 10; i++)
         {
             var m = await provider.GetMetricsAsync();
@@ -109,14 +166,39 @@ public class IOAcceleratorIntegrationTests
             : "Both series were static across this window — legitimate on an idle desktop " +
               "session with no active GPU-bound workload (documented per brief, not a bug).");
 
+        // Utilization's [0,100] range is valid whether or not IOAccelerator is present (0 is a
+        // member of the range either way), so it stays a single unconditional assertion. Memory
+        // is where availability matters: a real IOAccelerator always yields a non-zero "in use"
+        // figure while any GPU client runs; an absent one (e.g. a CI VM) must honestly degrade to
+        // exactly 0, never a fabricated positive figure and never a crash.
         foreach (var u in utilSamples) u.Should().BeInRange(0.0, 100.0);
-        foreach (var m in memSamples)  m.Should().BeGreaterThan(0);
+        if (available)
+        {
+            foreach (var m in memSamples) m.Should().BeGreaterThan(0);
+        }
+        else
+        {
+            foreach (var m in memSamples) m.Should().Be(0,
+                "no IOAccelerator registry entry exists on this host (e.g. a CI VM) — GPU memory must degrade to honest 0, never a fabricated figure");
+        }
     }
 
     [Fact]
     public void IOAccelerator_OneThousandConsecutiveReads_NoLeakByRssGrowth()
     {
         if (!OperatingSystem.IsMacOS()) return;
+
+        var available = MacSensorAvailability.HasIoAcceleratorStats;
+        using var accel = IOAccelerator.Open();
+
+        if (!available)
+        {
+            _output.WriteLine("sensor absent — degraded-mode assertions ran (no accelerator to leak-test)");
+            accel.Should().BeNull("no IOAccelerator registry entry exists on this host (e.g. a CI VM) — Open() must degrade to null, never throw");
+            return;
+        }
+
+        _output.WriteLine("sensor present — full-fidelity assertions running");
 
         // De-flake note (Sym-2 final-review MF-1, test-only — product code is correct):
         // whole-process WorkingSet64 is a coarse signal polluted by the managed-heap high-water
@@ -156,7 +238,6 @@ public class IOAcceleratorIntegrationTests
             return Process.GetCurrentProcess().WorkingSet64;
         }
 
-        using var accel = IOAccelerator.Open();
         accel.Should().NotBeNull();
 
         // Warm up (first read pays any one-time cost) before baselining.
@@ -189,15 +270,28 @@ public class IOAcceleratorIntegrationTests
     {
         if (!OperatingSystem.IsMacOS()) return;
 
+        var available = MacSensorAvailability.HasIoAcceleratorStats;
+        _output.WriteLine(available
+            ? "sensor present — full-fidelity assertions running"
+            : "sensor absent — degraded-mode assertions ran");
+
         for (int i = 0; i < 50; i++)
         {
             var accel = IOAccelerator.Open();
-            accel.Should().NotBeNull($"cycle {i}: IOAccelerator should still open — leaked registry entries would eventually degrade this");
-            _ = accel!.ReadPerformanceStatistics();
-            accel.Dispose();
-            accel.Dispose(); // idempotent: second dispose must be a safe no-op
+            if (available)
+            {
+                accel.Should().NotBeNull($"cycle {i}: IOAccelerator should still open — leaked registry entries would eventually degrade this");
+                _ = accel!.ReadPerformanceStatistics();
+                accel.Dispose();
+                accel.Dispose(); // idempotent: second dispose must be a safe no-op
+            }
+            else
+            {
+                accel.Should().BeNull($"cycle {i}: no IOAccelerator registry entry exists on this host (e.g. a CI VM) — Open() must degrade to null consistently, never throw");
+                accel?.Dispose(); // no-op (null), kept for structural/no-throw parity with the present-hardware branch
+            }
         }
-        _output.WriteLine("50 IOAccelerator open/read/dispose/dispose cycles completed without failure.");
+        _output.WriteLine($"50 IOAccelerator open/{(available ? "read/" : "")}dispose/dispose cycles completed without failure.");
     }
 
     [Fact]
@@ -205,7 +299,17 @@ public class IOAcceleratorIntegrationTests
     {
         if (!OperatingSystem.IsMacOS()) return;
 
+        var available = MacSensorAvailability.HasIoAcceleratorStats;
         using var accel = IOAccelerator.Open();
+
+        if (!available)
+        {
+            _output.WriteLine("sensor absent — degraded-mode assertions ran (nothing to time)");
+            accel.Should().BeNull("no IOAccelerator registry entry exists on this host (e.g. a CI VM) — Open() must degrade to null, never throw");
+            return;
+        }
+
+        _output.WriteLine("sensor present — full-fidelity assertions running");
         accel.Should().NotBeNull();
 
         _ = accel!.ReadPerformanceStatistics(); // warm up
