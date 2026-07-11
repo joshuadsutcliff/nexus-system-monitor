@@ -20,6 +20,17 @@ public partial class MainWindow : Window
     // so the second Close() call (inside ShowClosePromptAsync) isn't cancelled again.
     private bool _forceClose;
 
+    // Guards SaveSession against firing more than once per app lifetime. With the
+    // RequestAppExit() shutdown flow, OnClosing can legitimately run SaveSession from the
+    // "Exit"/prompt path AND, later, from the ApplicationShutdown-reason guard when the
+    // deferred TryShutdown()'s window sweep re-enters OnClosing for this same window. By that
+    // second call, this window's PlatformImpl may already be torn down — Position's getter
+    // returns (0,0) once disposed — so a second, late SaveSession() would clobber the correct
+    // geometry saved by the first call with garbage. First call wins; every later call is a
+    // no-op. Same single-fire pattern as _shutdownHandled (App.axaml.cs) and _exitRequested
+    // (App.axaml.cs) elsewhere in this diff.
+    private bool _sessionSaved;
+
     /// <summary>Set to true before calling <see cref="App.RequestAppExit"/> from the tray exit
     /// handler so OnClosing allows the close to proceed on Linux.</summary>
     internal static bool ForceQuitFromTray { get; set; }
@@ -165,6 +176,9 @@ public partial class MainWindow : Window
 
     private void SaveSession()
     {
+        if (_sessionSaved) return;
+        _sessionSaved = true;
+
         var settings = _settings;
         var vm       = DataContext as MainViewModel;
         settings.Current.LastActiveTab   = vm?.SelectedNavItem?.Label ?? string.Empty;
