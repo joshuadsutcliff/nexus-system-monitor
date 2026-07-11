@@ -20,8 +20,8 @@ public partial class MainWindow : Window
     // so the second Close() call (inside ShowClosePromptAsync) isn't cancelled again.
     private bool _forceClose;
 
-    /// <summary>Set to true before calling desktop.Shutdown() from the tray exit handler
-    /// so OnClosing allows the close to proceed on Linux.</summary>
+    /// <summary>Set to true before calling <see cref="App.RequestAppExit"/> from the tray exit
+    /// handler so OnClosing allows the close to proceed on Linux.</summary>
     internal static bool ForceQuitFromTray { get; set; }
 
     /// <summary>Resolved once, at construction, and reused for every shutdown-path access
@@ -64,6 +64,22 @@ public partial class MainWindow : Window
     {
         base.OnClosing(e);
 
+        // App-wide shutdown sweep (App.RequestAppExit() -> TryShutdown() -> DoShutdown's foreach
+        // over every ownerless window) reaches MainWindow here with this reason. It must NEVER
+        // cancel or re-prompt at this point: with ShutdownMode.OnExplicitShutdown, DoShutdown's
+        // ignoreCancel is false (true only for the old force:true Shutdown() call, or
+        // OnMainWindowClose mode — neither applies here), so e.Cancel = true here would abort the
+        // ENTIRE app shutdown, not just this window's close. By the time CloseCore reaches here
+        // with this reason, every real "quit" affordance has already funneled through
+        // RequestAppExit() first, and ShutdownRequested (App.axaml.cs) has already run its
+        // cleanup (services stopped, pop-outs/overlay closed, DI disposed) — this window's own
+        // close just needs to save session state and get out of the way.
+        if (e.CloseReason == WindowCloseReason.ApplicationShutdown)
+        {
+            SaveSession();
+            return;
+        }
+
         // Tray "Quit" on Linux: allow the close immediately
         if (ForceQuitFromTray) { SaveSession(); return; }
 
@@ -83,6 +99,7 @@ public partial class MainWindow : Window
 
             case "Exit":
                 SaveSession();
+                App.RequestAppExit();
                 return; // allow normal close
         }
 
@@ -125,6 +142,7 @@ public partial class MainWindow : Window
             else
             {
                 _forceClose = true;
+                App.RequestAppExit();
                 Close();
             }
         }

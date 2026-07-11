@@ -48,6 +48,14 @@ public class App : Application
     // see the guard at the top of the handler below for the full explanation).
     private bool _shutdownHandled;
 
+    // Guards RequestAppExit against being invoked more than once per app lifetime (e.g.
+    // MainWindow's OnClosing "Exit" case racing a tray Exit click, or the close-prompt's "Close
+    // Application" choice arriving after a quit is already in flight). Distinct from
+    // _shutdownHandled above, which guards the ShutdownRequested handler's BODY — this guards
+    // the request itself, so a second RequestAppExit() call is a silent no-op rather than
+    // posting a redundant TryShutdown() to the dispatcher.
+    private bool _exitRequested;
+
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
@@ -91,6 +99,17 @@ public class App : Application
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            // v0.6.1 hotfix: the app must never quit-or-not based on how many windows happen to
+            // be open. Avalonia's default (OnLastWindowClose) only auto-shuts-down when the
+            // OverlayWindow and every WidgetPopOutWindow are ALSO closed — but those are only
+            // ever closed from INSIDE the ShutdownRequested handler below, which OnLastWindowClose
+            // needs to have already fired to reach. That circularity is exactly why closing the
+            // main window left the process alive whenever the overlay widget (or a pop-out) was
+            // showing. Exit is now explicit-only: every real "quit" affordance funnels through
+            // RequestAppExit() (see below), which calls TryShutdown() directly regardless of
+            // window count.
+            desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
             var mainWindow = new MainWindow
             {
                 DataContext = Services.GetRequiredService<MainViewModel>()
@@ -434,6 +453,60 @@ public class App : Application
         base.OnFrameworkInitializationCompleted();
     }
 
+    // ── App exit ──────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Single entry point every "really quit the app" affordance must route through instead of
+    /// calling desktop.Shutdown()/TryShutdown() directly: MainWindow's OnClosing "Exit" case, the
+    /// close-prompt's "Close Application" choice, and the tray icon's Exit item. Idempotent — a
+    /// second call is a silent no-op (see <see cref="_exitRequested"/>).
+    ///
+    /// Two things this deliberately gets right that a naive <c>desktop.Shutdown()</c> call
+    /// (v0.6.0's tray Exit handler; also the first-draft ruling for this hotfix) does not:
+    ///
+    /// 1. Calls <see cref="IClassicDesktopStyleApplicationLifetime.TryShutdown"/> — NOT
+    ///    <c>Shutdown()</c>. Verified against Avalonia 11.2.3 source
+    ///    (ClassicDesktopStyleApplicationLifetime.cs): <c>Shutdown(exitCode)</c> calls
+    ///    <c>DoShutdown(..., force: true, ...)</c>, and <c>DoShutdown</c> only raises
+    ///    <see cref="IClassicDesktopStyleApplicationLifetime.ShutdownRequested"/> when
+    ///    <c>!force</c>. So the OLD tray Exit handler's <c>desktop.Shutdown()</c> call never ran
+    ///    the ShutdownRequested handler below at all — no automation service Stop(), no
+    ///    MetricsStore flush, no DI container Dispose(). <c>TryShutdown()</c> passes
+    ///    <c>force: false</c>, so ShutdownRequested fires exactly like it already does on the
+    ///    native OS quit path (Cmd+Q / dock quit), which is what makes the single
+    ///    <see cref="_shutdownHandled"/>-guarded handler below the one true cleanup path for
+    ///    every exit affordance.
+    ///
+    /// 2. Defers the actual TryShutdown() call off the current call stack via
+    ///    <c>Dispatcher.UIThread.Post</c>. MainWindow's OnClosing case calls this method WHILE
+    ///    still inside its own Close() call, at a point where MainWindow is still present in the
+    ///    lifetime's internal window list (it's only removed once its own Closed event fires,
+    ///    which hasn't happened yet). A synchronous TryShutdown() call from there would let
+    ///    DoShutdown's window sweep invoke CloseCore() on that SAME window a second time while
+    ///    its first OnClosing call is still on the stack — a re-entrancy hazard of exactly the
+    ///    class PR #20's <see cref="_shutdownHandled"/> guard exists to prevent, just on a new
+    ///    path. Posting to the dispatcher lets the current Close() call (and OnClosing) finish
+    ///    unwinding first, so by the time TryShutdown() actually runs, MainWindow's own close has
+    ///    already resolved one way or the other.
+    /// </summary>
+    public static void RequestAppExit()
+    {
+        if (Current is App app)
+            app.RequestExitCore();
+    }
+
+    private void RequestExitCore()
+    {
+        if (_exitRequested) return;
+        _exitRequested = true;
+
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime lifetime)
+                lifetime.TryShutdown();
+        });
+    }
+
     // ── System-tray icon ────────────────────────────────────────────
 
     private void SetupTrayIcon(IClassicDesktopStyleApplicationLifetime desktop)
@@ -487,7 +560,7 @@ public class App : Application
         exitItem.Click += (_, _) =>
         {
             MainWindow.ForceQuitFromTray = true;
-            desktop.Shutdown();
+            RequestAppExit();
         };
 
         _trayIcon.Menu = new NativeMenu();
