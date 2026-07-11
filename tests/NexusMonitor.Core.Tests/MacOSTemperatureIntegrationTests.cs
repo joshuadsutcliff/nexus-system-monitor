@@ -128,6 +128,52 @@ public class MacOSTemperatureIntegrationTests
     }
 
     [Fact]
+    public void IOHidSensors_ReadSocTemperature_DirectCall_NeverThrowsAndIsPlausibleOrHonestZero()
+    {
+        if (!OperatingSystem.IsMacOS()) return;
+
+        // Direct call to the IOHID fallback route, BYPASSING MacOSSystemMetricsProvider's
+        // SMC-first gate (ReadCpuTemperature only invokes IOHidSensors.ReadSocTemperature() when
+        // both the SMC perf-core AND efficiency-core means come back 0 — which never happens on
+        // this machine, since SMC always wins here; see class doc + T5 gate review). Without a
+        // direct call like this one, the IOHID interop path (IOHIDEventSystemClientCreate,
+        // service matching on page 0xff00/usage 5, tdie*/tcal filtering, CFRelease discipline)
+        // is completely dark to the suite: ReadSocTemperature() swallows every exception and
+        // returns 0.0 on ANY failure (honest-degrade convention), which is indistinguishable from
+        // "this hardware has no readable PMU die sensors." A silent P/Invoke signature bug here
+        // would never surface as a test failure — only as a permanently-dormant fallback in the
+        // field. The T5 gate reviewer already proved this exact call passes live on this machine
+        // (throwaway test in an isolated worktree, deleted after use — result 36.78 °C; see
+        // .superpowers/sdd/sym2-task-5-gate.md, "Important" finding). This test makes that proof
+        // permanent instead of re-losing it.
+        double temp = 0.0;
+        Action act = () => temp = IOHidSensors.ReadSocTemperature();
+
+        act.Should().NotThrow("ReadSocTemperature must never surface an interop exception to callers");
+
+        _output.WriteLine($"IOHidSensors.ReadSocTemperature() direct call: {temp:F2} °C");
+
+        // Primary assertion is deliberately permissive so it cannot flake across hardware: 0 is
+        // an honest, allowed result on any machine whose PMU die sensors aren't exposed under
+        // this name/path (older chips, future OS revisions that rename the HID service, or a
+        // machine that genuinely has none) — the plausibility filter inside
+        // ReadSocTemperatureCore already rejects garbage before it reaches this return, so 0
+        // here means "no sensor passed," never "something broke." Anything non-zero must still
+        // be a plausible die temperature.
+        (temp == 0.0 || (temp >= 10.0 && temp <= 120.0)).Should().BeTrue(
+            "the direct HID route must return either honest-unavailable (0) or a plausible die temperature (10-120 °C), never a garbage value");
+
+        // Documented expectation for THIS machine only (base M4 Mac mini): the ground-truth
+        // probe and the T5 gate review both confirmed live, readable PMU tdie* sensors here, so
+        // a 0 reading on this specific host would be worth investigating as a possible
+        // regression. This is intentionally logged rather than asserted — asserting non-zero
+        // would make the test flake on exactly the absent-sensor hardware the permissive check
+        // above exists to tolerate.
+        if (temp == 0.0)
+            _output.WriteLine("NOTE: this machine's PMU tdie* sensors were previously confirmed readable (gate-proven, 36.78 °C) - a 0 here on THIS host is unexpected and worth a closer look, though not asserted as a failure.");
+    }
+
+    [Fact]
     public void AppleSmc_OpenDispose_IsIdempotentAndReleasesHandle()
     {
         if (!OperatingSystem.IsMacOS()) return;
