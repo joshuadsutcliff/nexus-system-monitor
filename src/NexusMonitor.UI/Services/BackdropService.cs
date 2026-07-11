@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Threading;
+using NexusMonitor.Core.Abstractions;
 using NexusMonitor.Core.Backdrop;
 
 namespace NexusMonitor.UI.Services;
@@ -46,6 +47,13 @@ namespace NexusMonitor.UI.Services;
 /// </summary>
 public sealed class BackdropService
 {
+    private readonly IAccessibilitySignals _accessibilitySignals;
+
+    public BackdropService(IAccessibilitySignals accessibilitySignals)
+    {
+        _accessibilitySignals = accessibilitySignals;
+    }
+
     /// <summary>
     /// Raised whenever the observed window's <see cref="TopLevel.ActualTransparencyLevel"/> changes
     /// in a way that flips the rejection state computed by <see cref="BackdropMath.IsRejected"/>.
@@ -96,7 +104,10 @@ public sealed class BackdropService
     /// </summary>
     public void Apply(Window window, bool glassEnabled, string mode)
     {
-        var chain = BackdropMath.GetHintChain(DetectPlatform(), glassEnabled, mode);
+        // OS "Reduce Transparency" runtime clamp (task brief, 2026-07-11): forces the chain to
+        // [None] while the signal is active, WITHOUT touching AppSettings.BackdropBlurMode —
+        // see IAccessibilitySignals' class doc for the non-mutation contract.
+        var chain = BackdropMath.GetHintChain(DetectPlatform(), glassEnabled, mode, _accessibilitySignals.ReduceTransparency);
         _lastRequestedChain = chain;
         window.TransparencyLevelHint = chain.Select(ToAvalonia).ToArray();
 

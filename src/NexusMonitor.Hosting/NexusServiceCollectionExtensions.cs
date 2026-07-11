@@ -52,6 +52,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IShellContextMenuService,     WindowsShellContextMenuService>();
         services.AddSingleton<WindowsHardwareInfoProvider>();
         services.AddSingleton<IPlatformCapabilities,        WindowsPlatformCapabilities>();
+        services.AddSingleton<IAccessibilitySignals,        WindowsAccessibilitySignals>();
 #elif MACOS
         services.AddSingleton<IProcessProvider,             MacOSProcessProvider>();
         services.AddSingleton<ISystemMetricsProvider,       MacOSSystemMetricsProvider>();
@@ -66,6 +67,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IShellContextMenuService,     MacOSShellContextMenuService>();
         services.AddSingleton<MacOSHardwareInfoProvider>();
         services.AddSingleton<IPlatformCapabilities,        MacOSPlatformCapabilities>();
+        services.AddSingleton<IAccessibilitySignals,        MacOSAccessibilitySignals>();
 #elif LINUX
         services.AddSingleton<IProcessProvider,             LinuxProcessProvider>();
         services.AddSingleton<ISystemMetricsProvider,       LinuxSystemMetricsProvider>();
@@ -80,6 +82,10 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IShellContextMenuService,     LinuxShellContextMenuService>();
         services.AddSingleton<LinuxHardwareInfoProvider>();
         services.AddSingleton<IPlatformCapabilities,        LinuxPlatformCapabilities>();
+        // No standard Linux accessibility-preference signal to read here (desktop-environment-
+        // specific — GNOME/KDE each have their own, non-standard, mechanism) — honest false via
+        // the shared Null fallback rather than guessing at one DE's convention.
+        services.AddSingleton<IAccessibilitySignals,        NullAccessibilitySignals>();
 #else
         services.AddSingleton<IProcessProvider,             MockProcessProvider>();
         services.AddSingleton<ISystemMetricsProvider,       MockSystemMetricsProvider>();
@@ -93,6 +99,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<ISleepPreventionProvider,     NullSleepPreventionProvider>();
         services.AddSingleton<IShellContextMenuService,     NullShellContextMenuService>();
         services.AddSingleton<IPlatformCapabilities>(_ => new MockPlatformCapabilities());
+        services.AddSingleton<IAccessibilitySignals,        NullAccessibilitySignals>();
 #endif
         return services;
     }

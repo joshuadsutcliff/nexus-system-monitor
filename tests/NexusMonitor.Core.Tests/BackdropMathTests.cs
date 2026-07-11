@@ -123,6 +123,45 @@ public class BackdropMathTests
             .Should().Equal(BackdropLevel.None);
     }
 
+    // ── GetHintChain — OS "Reduce Transparency" runtime clamp (task brief, 2026-07-11) ───
+
+    [Theory]
+    [InlineData(BackdropPlatform.MacOS)]
+    [InlineData(BackdropPlatform.Windows)]
+    [InlineData(BackdropPlatform.Linux)]
+    public void GetHintChain_ReduceTransparencyTrue_ReturnsNoneOnly_EvenIfGlassEnabledAndModeAcrylic(BackdropPlatform platform)
+    {
+        BackdropMath.GetHintChain(platform, glassEnabled: true, mode: "Acrylic", reduceTransparency: true)
+            .Should().Equal(BackdropLevel.None);
+    }
+
+    [Fact]
+    public void GetHintChain_ReduceTransparencyFalse_ReturnsNormalChain_UnaffectedByClamp()
+    {
+        BackdropMath.GetHintChain(BackdropPlatform.MacOS, glassEnabled: true, mode: "Acrylic", reduceTransparency: false)
+            .Should().Equal(BackdropLevel.AcrylicBlur, BackdropLevel.Blur, BackdropLevel.None);
+    }
+
+    [Fact]
+    public void GetHintChain_DefaultParameter_NoReduceTransparencyClamp_MatchesThreeArgOverloadBehavior()
+    {
+        // Existing callers that don't know about the OS signal (the default parameter) must be
+        // completely unaffected.
+        BackdropMath.GetHintChain(BackdropPlatform.MacOS, glassEnabled: true, mode: "Acrylic")
+            .Should().Equal(BackdropMath.GetHintChain(BackdropPlatform.MacOS, glassEnabled: true, mode: "Acrylic", reduceTransparency: false));
+    }
+
+    [Fact]
+    public void GetHintChain_ReduceTransparencyClears_ReturnsToNormalChain()
+    {
+        // "Signal clears -> rendered on again" precedence, mirrored from AccessibilityClampTests.
+        var whileActive = BackdropMath.GetHintChain(BackdropPlatform.MacOS, glassEnabled: true, mode: "Acrylic", reduceTransparency: true);
+        whileActive.Should().Equal(BackdropLevel.None);
+
+        var afterClears = BackdropMath.GetHintChain(BackdropPlatform.MacOS, glassEnabled: true, mode: "Acrylic", reduceTransparency: false);
+        afterClears.Should().Equal(BackdropLevel.AcrylicBlur, BackdropLevel.Blur, BackdropLevel.None);
+    }
+
     // ── IsRejected ───────────────────────────────────────────────────────────
 
     [Fact]

@@ -82,7 +82,7 @@ public partial class MainWindow : Window
         // constructor runs — safe to resolve here rather than deferring to Loaded.
         var initialSettings = App.Services.GetRequiredService<SettingsService>().Current;
         _motionSettingsService = App.Services.GetRequiredService<MotionSettingsService>();
-        _motionShimmerEnabled  = MotionSettingsService.EffectEnabled(initialSettings, MotionEffect.SpecularShimmer);
+        _motionShimmerEnabled  = _motionSettingsService.EffectEnabled(initialSettings, MotionEffect.SpecularShimmer);
         _motionSettingsService.MotionChanged += OnMotionSettingsChanged;
         UpdatePageTransition();
 
@@ -534,7 +534,7 @@ public partial class MainWindow : Window
     private void OnMotionSettingsChanged()
     {
         var settings = App.Services.GetRequiredService<SettingsService>().Current;
-        _motionShimmerEnabled = MotionSettingsService.EffectEnabled(settings, MotionEffect.SpecularShimmer);
+        _motionShimmerEnabled = _motionSettingsService.EffectEnabled(settings, MotionEffect.SpecularShimmer);
         UpdateShimmerRunState();
         UpdatePageTransition();
     }
@@ -552,7 +552,7 @@ public partial class MainWindow : Window
     private void UpdatePageTransition()
     {
         var settings = App.Services.GetRequiredService<SettingsService>().Current;
-        PageHost.PageTransition = MotionSettingsService.EffectEnabled(settings, MotionEffect.PageTransitions)
+        PageHost.PageTransition = _motionSettingsService.EffectEnabled(settings, MotionEffect.PageTransitions)
             ? new CrossFade(ResolveMotionBase())
             : null;
     }

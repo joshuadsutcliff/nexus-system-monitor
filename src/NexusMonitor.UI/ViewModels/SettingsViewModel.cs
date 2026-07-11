@@ -9,6 +9,8 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.DependencyInjection;
+using NexusMonitor.Core.Abstractions;
+using NexusMonitor.Core.Accessibility;
 using NexusMonitor.Core.Alerts;
 using NexusMonitor.Core.Health;
 using NexusMonitor.Core.Models;
@@ -37,6 +39,7 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     private readonly WorkspaceProfileStore        _profileStore;
     private readonly MotionSettingsService        _motionSettingsService;
     private readonly BackdropService              _backdropService;
+    private readonly IAccessibilitySignals        _accessibilitySignals;
     private readonly ProcessPreferenceStore?      _preferenceStore;
     private readonly WebhookNotificationService              _webhookService;
     private readonly PredictionService?                      _predictionService;
@@ -138,6 +141,28 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     [ObservableProperty] private string _backdropBlurMode = "Acrylic";
     [ObservableProperty] private bool   _isSpecularEnabled;
     [ObservableProperty] private double _specularIntensity = 0.55;
+
+    /// <summary>
+    /// True when the OS "Reduce Transparency" accessibility signal is currently forcing Crystal
+    /// Glass / backdrop blur off at render time (see <see cref="IAccessibilitySignals"/> and
+    /// <see cref="ApplyGlass"/>) — bound by <c>SettingsView.axaml</c> to show a short "reduced by
+    /// system settings" hint next to the Crystal Glass toggle. Never mutates
+    /// <see cref="IsGlassEnabled"/> — the user's own setting stays exactly as they left it. Not an
+    /// <c>[ObservableProperty]</c>: <see cref="IAccessibilitySignals"/> has no change
+    /// notification (see its per-platform implementations' doc comments for why), so this simply
+    /// reflects whatever the signal reads at the moment the binding is evaluated (construction,
+    /// and any other time this VM's PropertyChanged happens to refresh the Settings page).
+    /// </summary>
+    public bool IsTransparencyReducedBySystem => _accessibilitySignals.ReduceTransparency;
+
+    /// <summary>
+    /// True when the OS "Reduce Motion" accessibility signal is currently forcing every animation
+    /// off at render time (see <see cref="IAccessibilitySignals"/> and
+    /// <see cref="MotionSettingsService.EffectEnabled"/>) regardless of the individual
+    /// <c>Animate*</c> toggles below — bound by <c>SettingsView.axaml</c> to show a short "reduced
+    /// by system settings" hint in the Animations card. Never mutates any <c>Animate*</c> setting.
+    /// </summary>
+    public bool IsMotionReducedBySystem => _accessibilitySignals.ReduceMotion;
 
     // ── Depth (Phase 8 UI polish) — shadow/elevation intensity, independent of Crystal Glass;
     // shown in the Crystal Glass card since that's where the app's other layering/depth controls
@@ -358,6 +383,7 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         WebhookNotificationService   webhookService,
         MotionSettingsService        motionSettingsService,
         BackdropService              backdropService,
+        IAccessibilitySignals        accessibilitySignals,
         PredictionService?                      predictionService = null,
         ProcessPreferenceStore?                 preferenceStore = null,
         HealthSnapshotPersistenceService?       healthSnapshotService = null,
@@ -375,6 +401,7 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
         _profileStore     = profileStore;
         _motionSettingsService = motionSettingsService;
         _backdropService       = backdropService;
+        _accessibilitySignals  = accessibilitySignals;
         _webhookService        = webhookService;
         _predictionService     = predictionService;
         _preferenceStore       = preferenceStore;
@@ -1763,6 +1790,14 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     {
         if (Application.Current is null) return;
 
+        // OS "Reduce Transparency" runtime clamp (task brief, 2026-07-11): reassigning the
+        // parameter itself means every use of `enabled` below (bgAlpha/contentAlpha/glassAlpha/
+        // borderAlpha/overlayAlpha/GlassTextEffect) is automatically the EFFECTIVE (rendered)
+        // state, without touching AppSettings.IsGlassEnabled/IsGlassEnabled VM property — the
+        // caller's own stored/displayed value is untouched; see AccessibilityClamp's doc for the
+        // non-mutation contract.
+        enabled = AccessibilityClamp.EffectiveGlassEnabled(enabled, _accessibilitySignals.ReduceTransparency);
+
         // Determine current theme so fallback colours match the active palette.
         bool isDark = Application.Current.RequestedThemeVariant != ThemeVariant.Light;
 
@@ -1867,11 +1902,17 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     /// <summary>
     /// Controls the opacity of ALL specular highlight overlays in MainWindow and OverlayWindow.
     /// Writes the <c>GlassSpecularOpacity</c> double resource consumed by
-    /// <c>Opacity="{DynamicResource GlassSpecularOpacity}"</c> in XAML.
+    /// <c>Opacity="{DynamicResource GlassSpecularOpacity}"</c> in XAML. Instance method (not
+    /// static) so it can apply the OS "Reduce Transparency" runtime clamp via
+    /// <see cref="AccessibilityClamp.EffectiveGlassEnabled"/> — specular highlights are a glass
+    /// effect, so they're forced off whenever glass itself is clamped off, without touching
+    /// <c>AppSettings.IsGlassEnabled</c>.
     /// </summary>
-    private static void ApplySpecular(bool glassEnabled, bool specularEnabled, double intensity)
+    private void ApplySpecular(bool glassEnabled, bool specularEnabled, double intensity)
     {
         if (Application.Current is null) return;
+
+        glassEnabled = AccessibilityClamp.EffectiveGlassEnabled(glassEnabled, _accessibilitySignals.ReduceTransparency);
         Application.Current.Resources["GlassSpecularOpacity"] =
             (glassEnabled && specularEnabled) ? Math.Clamp(intensity, 0, 1) : 0.0;
     }
@@ -1891,6 +1932,14 @@ public partial class SettingsViewModel : ViewModelBase, IDisposable
     /// </summary>
     private void ApplyBackdropMode(bool glassEnabled, string mode)
     {
+        // OS "Reduce Transparency" runtime clamp (task brief, 2026-07-11): reassigning the
+        // parameter cascades the clamp to _backdropService.Apply below (belt-and-suspenders —
+        // BackdropService also applies this same clamp itself, since MainWindow's constructor
+        // calls it directly with the raw, unclamped setting at startup), the shimmer-timer gate
+        // (SetGlassActive), and the overlay widget's transparency hints below — all without
+        // touching AppSettings.IsGlassEnabled/BackdropBlurMode.
+        glassEnabled = AccessibilityClamp.EffectiveGlassEnabled(glassEnabled, _accessibilitySignals.ReduceTransparency);
+
         if (Application.Current?.ApplicationLifetime
                 is IClassicDesktopStyleApplicationLifetime desktop
             && desktop.MainWindow is Window main)

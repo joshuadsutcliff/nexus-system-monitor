@@ -767,6 +767,14 @@
                         VerticalAlignment="Center"/>
         </Grid>
 
+        <!-- OS "Reduce Transparency" runtime clamp hint (task brief, 2026-07-11): shown whenever
+             the accessibility signal is forcing glass/backdrop off at render time, regardless of
+             the toggle above — IsGlassEnabled itself is never touched. -->
+        <TextBlock Text="Reduced by system settings (Reduce Transparency)"
+                   FontSize="{DynamicResource NxFont10}" Foreground="{DynamicResource TextTertiaryBrush}"
+                   IsVisible="{Binding IsTransparencyReducedBySystem}"
+                   Margin="0,2,0,0"/>
+
         <!-- Hairline row separators — Phase 8 UI polish (Task 6), row-grammar pattern-setter
              (2nd of the two named sections, alongside ANIMATIONS above). Packet: "Intra-group
              spacing (row-to-row within a card) is tight (hairline only)" (p8-macos-ref.md
@@ -890,6 +898,13 @@
         <TextBlock Text="Animations" FontSize="{DynamicResource NxFont14}" FontWeight="SemiBold"
                    Foreground="{DynamicResource TextPrimaryBrush}"/>
         <Separator/>
+
+        <!-- OS "Reduce Motion" runtime clamp hint (task brief, 2026-07-11): shown whenever the
+             accessibility signal is forcing every effect below off regardless of its own toggle
+             or the Animation Speed slider — none of those settings are touched. -->
+        <TextBlock Text="Reduced by system settings (Reduce Motion)"
+                   FontSize="{DynamicResource NxFont10}" Foreground="{DynamicResource TextTertiaryBrush}"
+                   IsVisible="{Binding IsMotionReducedBySystem}"/>
 
         <!-- Speed -->
         <StackPanel Spacing="2">
