@@ -4,6 +4,7 @@ using LiveChartsCore;
 using LiveChartsCore.Defaults;
 using LiveChartsCore.SkiaSharpView;
 using LiveChartsCore.SkiaSharpView.Painting;
+using NexusMonitor.Core.Formatting;
 using NexusMonitor.Core.Models;
 using SkiaSharp;
 
@@ -543,10 +544,10 @@ public sealed partial class GpuDeviceViewModel : PerfDeviceViewModel
         // Same honest-unknown-total handling as SubValueDisplay below: an unknown total (0, e.g.
         // Apple Silicon unified memory) must not render "used / 0 GB" (reads as a fabricated
         // zero-capacity pool) — fall back to a used-only figure. Platforms with a real dedicated
-        // pool keep the original "used / total GB" format unchanged.
-        DedicatedDisplay    = DedicatedTotalGb > 0
-            ? $"{DedicatedUsedGb:F1} / {DedicatedTotalGb:F0} GB"
-            : $"{DedicatedUsedGb:F1} GB";
+        // pool keep the original "used / total GB" format unchanged. Pure logic lives in
+        // GpuMemoryDisplayMath (NexusMonitor.Core.Formatting) so it's unit-testable — see
+        // GpuMemoryDisplayMathTests.
+        DedicatedDisplay    = GpuMemoryDisplayMath.FormatUsedTotal(DedicatedUsedGb, DedicatedTotalGb);
         SharedUsedGb        = Math.Round(g.SharedMemoryUsedBytes / 1e9, 1);
         TempC               = Math.Round(g.TemperatureCelsius, 0);
 
@@ -561,10 +562,11 @@ public sealed partial class GpuDeviceViewModel : PerfDeviceViewModel
         // pool to report a total for — see GpuMetrics.DedicatedMemoryTotalBytes). Showing
         // "X.X / 0 GB VRAM" there would read as a fabricated zero-capacity pool, so an unknown
         // total gets a used-only, VRAM-free label instead; platforms with a real dedicated pool
-        // keep the original "used / total GB VRAM" format unchanged.
-        SubValueDisplay = DedicatedTotalGb > 0
-            ? $"{DedicatedUsedGb:F1} / {DedicatedTotalGb:F0} GB VRAM"
-            : $"{DedicatedUsedGb:F1} GB GPU memory";
+        // keep the original "used / total GB VRAM" format unchanged. Pure logic lives in
+        // GpuMemoryDisplayMath (NexusMonitor.Core.Formatting) so it's unit-testable — see
+        // GpuMemoryDisplayMathTests.
+        SubValueDisplay = GpuMemoryDisplayMath.FormatUsedTotal(
+            DedicatedUsedGb, DedicatedTotalGb, totalSuffix: " VRAM", zeroTotalSuffix: " GPU memory");
         Push(History,     _ringIdx, g.UsagePercent);
         Push(MiniHistory, _ringIdx, g.UsagePercent);
         _ringIdx++;
