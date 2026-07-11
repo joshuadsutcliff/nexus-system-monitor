@@ -165,6 +165,15 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
     // GPU identity from system_profiler — cached at startup; utilization unavailable on macOS
     private readonly IReadOnlyList<GpuMetrics> _staticGpuInfo;
 
+    // ── Temperature (SMC primary, IOHID fallback) ─────────────────────────────
+    // Key sets resolved once from the CPU brand string (see SmcTemperature.ResolveKeySet); the
+    // SMC connection is opened lazily on the first tick, reused every tick, closed on Dispose.
+    // All temperature reads happen inside BuildMetrics under _metricsLock, so _smc access is
+    // serialized with itself and with Dispose (which also takes _metricsLock before closing it).
+    private readonly TempKeySet _tempKeySet;
+    private AppleSmc? _smc;
+    private bool      _smcOpenAttempted;
+
     // ── Delta tracking for CPU, disk, and network rates ───────────────────────
     private long[]   _prevCpuTimes = [];
     private uint[][] _prevPerCoreTicks = [];   // [coreIndex][CpuStateMax]
@@ -198,6 +207,8 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
         if (_physicalCores <= 0) _physicalCores = _logicalCores;
         if (_pageSize <= 0)      _pageSize      = 4096;
 
+        _tempKeySet    = SmcTemperature.ResolveKeySet(
+            _cpuModel, RuntimeInformation.OSArchitecture == Architecture.Arm64);
         _staticGpuInfo = ReadGpuIdentityFromSystemProfiler();
     }
 
@@ -296,6 +307,79 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
             _disposed = true;
             _shared?.Dispose();
         }
+        // Close the SMC connection under _metricsLock so no in-flight tick is mid-read. Lock
+        // order (sharedLock → metricsLock elsewhere never nests the other way) avoids deadlock.
+        lock (_metricsLock)
+        {
+            _smc?.Dispose();
+            _smc = null;
+        }
+    }
+
+    // ── Temperature reads (SMC primary → efficiency-core fallback → IOHID SoC fallback) ────────
+
+    /// <summary>Opens the AppleSMC connection once and reuses it; a failed open is remembered so
+    /// we don't retry (and pay the IOKit lookup) every tick — the CPU path then uses IOHID.</summary>
+    private AppleSmc? EnsureSmc()
+    {
+        if (_smcOpenAttempted) return _smc;
+        _smcOpenAttempted = true;
+        _smc = AppleSmc.Open();
+        return _smc;
+    }
+
+    private static IEnumerable<double> ReadKeys(AppleSmc smc, string[] keys)
+    {
+        foreach (var key in keys)
+        {
+            var v = smc.ReadTemperature(key);
+            if (v.HasValue) yield return v.Value;
+        }
+    }
+
+    /// <summary>
+    /// CPU package temperature (°C). Primary: mean of the generation's performance-core SMC keys
+    /// that pass the 10–120 °C plausibility filter; fallback: efficiency-core mean; last resort:
+    /// IOHID PMU die-sensor mean. Honest 0 if nothing plausible is available.
+    /// </summary>
+    private double ReadCpuTemperature()
+    {
+        var smc = EnsureSmc();
+        if (smc is not null)
+        {
+            var perf = SmcTemperature.MeanOfPlausible(ReadKeys(smc, _tempKeySet.CpuPerformance));
+            if (perf > 0) return perf;
+
+            var eff = SmcTemperature.MeanOfPlausible(ReadKeys(smc, _tempKeySet.CpuEfficiency));
+            if (eff > 0) return eff;
+        }
+        // SMC gave nothing plausible → IOHID SoC/die temperature fallback (honest 0 if that too
+        // finds nothing). On this base-M4 the SMC perf keys pass, so this line isn't reached.
+        return IOHidSensors.ReadSocTemperature();
+    }
+
+    /// <summary>
+    /// GPU temperature (°C): mean of the generation's Tg* SMC keys that pass the plausibility
+    /// filter. On the base-M4 Mac mini every Tg* key returns -4.5/0.8 °C (probe-verified garbage),
+    /// so all are filtered out and this honestly returns 0 (unavailable). Kept generic so future
+    /// chips/OS that restore real Tg* values light up automatically.
+    /// </summary>
+    private double ReadGpuTemperature()
+    {
+        var smc = EnsureSmc();
+        return smc is null ? 0.0 : SmcTemperature.MeanOfPlausible(ReadKeys(smc, _tempKeySet.Gpu));
+    }
+
+    /// <summary>Static GPU identity (name/VRAM, read once) with a freshly-read temperature per
+    /// tick. Utilization/memory remain 0 here — those are separate (Task 6) work.</summary>
+    private IReadOnlyList<GpuMetrics> ReadGpusWithTemperature()
+    {
+        if (_staticGpuInfo.Count == 0) return _staticGpuInfo;
+        var gpuTemp = ReadGpuTemperature();
+        var list = new List<GpuMetrics>(_staticGpuInfo.Count);
+        foreach (var g in _staticGpuInfo)
+            list.Add(g with { TemperatureCelsius = gpuTemp });
+        return list;
     }
 
     // ── Snapshot ───────────────────────────────────────────────────────────────
@@ -307,6 +391,7 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
             var cpu     = ReadCpu();
             var disks   = ReadDisks();
             var nets    = ReadNetwork();
+            var gpus    = ReadGpusWithTemperature();
 
             return new SystemMetrics
             {
@@ -314,7 +399,7 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
                 Memory          = memory,
                 Disks           = disks,
                 NetworkAdapters = nets,
-                Gpus            = _staticGpuInfo,
+                Gpus            = gpus,
                 Timestamp       = DateTime.UtcNow,
             };
         }
@@ -466,7 +551,7 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
             TotalPercent       = totalPercent,
             CorePercents       = corePercents,
             FrequencyMhz       = freqMhz,
-            TemperatureCelsius = 0,   // no public macOS API
+            TemperatureCelsius = ReadCpuTemperature(),   // AppleSMC perf-core mean (IOHID fallback)
             LogicalCores       = _logicalCores,
             PhysicalCores      = _physicalCores,
             ModelName          = _cpuModel,
