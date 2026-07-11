@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Threading.Tasks;
 using NexusMonitor.Core.Abstractions;
 
 namespace NexusMonitor.Platform.MacOS;
@@ -48,13 +49,26 @@ public sealed class MacOSAccessibilitySignals : IAccessibilitySignals
     /// Runs <c>defaults read com.apple.universalaccess &lt;key&gt;</c> and parses the boolean
     /// result via <see cref="ParseBoolPreferenceOutput"/>. Guarded: any failure (command not
     /// found, non-zero exit — including "key not set", which is the common case on a machine
-    /// that has never touched the toggle — unparsable output) degrades to <see langword="false"/>.
-    /// Reads degrade, never throw — internal (not private) so
+    /// that has never touched the toggle — unparsable output, or a hung child process) degrades
+    /// to <see langword="false"/>. Reads degrade, never throw — internal (not private) so
     /// <c>MacOSAccessibilitySignalsIntegrationTests</c> (gated to real macOS hosts via
     /// <c>InternalsVisibleTo</c>) can exercise the real subprocess path directly.
+    ///
+    /// <para><b>Gate-review fix (2026-07-11):</b> the original version called
+    /// <c>proc.StandardOutput.ReadToEnd()</c> (blocking) before <c>WaitForExit</c>, with stderr
+    /// redirected but never drained — the classic .NET <see cref="Process"/>-redirect deadlock
+    /// precondition: if the child ever writes enough to stderr to fill its OS pipe buffer while
+    /// this method blocks reading stdout, both sides stall forever. This runs at DI-singleton
+    /// construction time (effectively app startup), so a hang here would hang the whole app.
+    /// Fixed with the standard non-deadlocking pattern: start async reads on BOTH redirected
+    /// streams before synchronously waiting for exit (so neither pipe can back up and block the
+    /// child while we wait), bound that wait with a hard timeout, and kill-on-timeout so a wedged
+    /// <c>defaults</c> process can never hang the caller.</para>
     /// </summary>
     internal static bool ReadBoolPreference(string key)
     {
+        const int timeoutMs = 3000;
+        Process? proc = null;
         try
         {
             var psi = new ProcessStartInfo("defaults", $"read com.apple.universalaccess {key}")
@@ -64,18 +78,39 @@ public sealed class MacOSAccessibilitySignals : IAccessibilitySignals
                 RedirectStandardError  = true,
                 CreateNoWindow         = true,
             };
-            using var proc = Process.Start(psi);
+            proc = Process.Start(psi);
             if (proc is null) return false;
 
-            var output = proc.StandardOutput.ReadToEnd();
-            proc.WaitForExit(2000);
+            // Drain BOTH redirected streams concurrently via async reads BEFORE the blocking
+            // WaitForExit below — this is what actually prevents the deadlock (whichever stream
+            // isn't being read is what can fill its pipe buffer and stall the child); the
+            // WaitForExit timeout + kill-on-timeout below is a second, independent safety net
+            // against a child that simply never exits.
+            var stdoutTask = proc.StandardOutput.ReadToEndAsync();
+            var stderrTask = proc.StandardError.ReadToEndAsync();
+
+            if (!proc.WaitForExit(timeoutMs))
+            {
+                try { proc.Kill(entireProcessTree: true); } catch { /* best effort */ }
+                return false;
+            }
+
+            // The process has exited, so both pipes are at EOF and these tasks should complete
+            // almost immediately — still bounded defensively rather than awaited unconditionally.
+            if (!Task.WaitAll(new Task[] { stdoutTask, stderrTask }, timeoutMs))
+                return false;
+
             if (proc.ExitCode != 0) return false;
 
-            return ParseBoolPreferenceOutput(output);
+            return ParseBoolPreferenceOutput(stdoutTask.Result);
         }
         catch
         {
             return false;
+        }
+        finally
+        {
+            proc?.Dispose();
         }
     }
 
