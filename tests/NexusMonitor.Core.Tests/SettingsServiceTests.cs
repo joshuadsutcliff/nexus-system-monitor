@@ -10,63 +10,69 @@ namespace NexusMonitor.Core.Tests;
 /// <summary>
 /// Tests for <see cref="SettingsService"/>: loading, saving, persistence, migration, and disposal.
 ///
-/// Because <c>_path</c> is static readonly (bound to %AppData%/NexusMonitor/settings.json),
-/// every test uses <see cref="WithSettings"/> to back up and restore any pre-existing file.
+/// INVARIANT — never touch the real per-user settings file. This class used to construct
+/// <see cref="SettingsService"/> against the actual %AppData%/NexusMonitor/settings.json (Windows)
+/// / ~/Library/Application Support/NexusMonitor/settings.json (macOS) path, backing up and
+/// restoring it around every test. That is exactly what caused a confirmed real-data-loss
+/// incident: a full-suite run on a dev machine overwrote the live settings.json with test
+/// fixture values (e.g. UpdateIntervalMs 9999) — twice, across two separate sessions.
+///
+/// Every test in this class now uses <see cref="_settingsPath"/>, a unique
+/// Path.Combine(Path.GetTempPath(), "NexusMonitorTests", &lt;guid&gt;) directory created fresh
+/// per test instance (xUnit constructs a new <see cref="SettingsServiceTests"/> per [Fact]) and
+/// deleted in <see cref="Dispose"/>. <see cref="CreateService"/> is the only place a
+/// <see cref="SettingsService"/> is constructed in this file — it always passes
+/// <see cref="_settingsPath"/> explicitly, so no test can ever resolve to the real path via the
+/// constructor's default-path fallback.
 /// </summary>
 public class SettingsServiceTests : IDisposable
 {
-    // The same path SettingsService uses internally.
-    private static readonly string SettingsPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "NexusMonitor", "settings.json");
-
-    // Backup taken once at construction so the class-level Dispose can restore it.
-    private readonly string? _classBackup;
+    // Unique per test instance — never the real per-user settings directory.
+    private readonly string _testDir;
+    private readonly string _settingsPath;
 
     public SettingsServiceTests()
     {
-        _classBackup = File.Exists(SettingsPath) ? File.ReadAllText(SettingsPath) : null;
+        _testDir = Path.Combine(Path.GetTempPath(), "NexusMonitorTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(_testDir);
+        _settingsPath = Path.Combine(_testDir, "settings.json");
     }
 
     public void Dispose()
     {
-        RestoreBackup(_classBackup);
+        try
+        {
+            if (Directory.Exists(_testDir))
+                Directory.Delete(_testDir, recursive: true);
+        }
+        catch
+        {
+            // Best-effort cleanup — a leftover temp dir under Path.GetTempPath() is harmless
+            // and must never fail a test.
+        }
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    private static void RestoreBackup(string? backup)
-    {
-        if (backup != null)
-            File.WriteAllText(SettingsPath, backup);
-        else if (File.Exists(SettingsPath))
-            File.Delete(SettingsPath);
-    }
+    /// <summary>The only place a <see cref="SettingsService"/> is constructed in this file —
+    /// always bound to this test instance's throwaway <see cref="_settingsPath"/>, never the
+    /// real per-user path.</summary>
+    private SettingsService CreateService() =>
+        new(MockFactory.CreateLogger<SettingsService>().Object, _settingsPath);
 
     /// <summary>
-    /// Writes (or deletes) the settings file, creates a <see cref="SettingsService"/>,
-    /// runs the test body, then restores the file regardless of outcome.
+    /// Writes (or deletes) the settings file at <see cref="_settingsPath"/>, creates a
+    /// <see cref="SettingsService"/> bound to it, and runs the test body.
     /// </summary>
-    private static void WithSettings(string? json, Action<SettingsService> test)
+    private void WithSettings(string? json, Action<SettingsService> test)
     {
-        var backup = File.Exists(SettingsPath) ? File.ReadAllText(SettingsPath) : null;
-        try
-        {
-            if (json != null)
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
-                File.WriteAllText(SettingsPath, json);
-            }
-            else if (File.Exists(SettingsPath))
-                File.Delete(SettingsPath);
+        if (json != null)
+            File.WriteAllText(_settingsPath, json);
+        else if (File.Exists(_settingsPath))
+            File.Delete(_settingsPath);
 
-            using var svc = new SettingsService(MockFactory.CreateLogger<SettingsService>().Object);
-            test(svc);
-        }
-        finally
-        {
-            RestoreBackup(backup);
-        }
+        using var svc = CreateService();
+        test(svc);
     }
 
     // ── Loading ───────────────────────────────────────────────────────────────
@@ -162,49 +168,29 @@ public class SettingsServiceTests : IDisposable
     [Fact]
     public void Dispose_WritesSettingsToDisk()
     {
-        var backup = File.Exists(SettingsPath) ? File.ReadAllText(SettingsPath) : null;
-        try
-        {
-            if (File.Exists(SettingsPath)) File.Delete(SettingsPath);
+        // First instance: mutate and dispose (writes immediately).
+        var svc1 = CreateService();
+        svc1.Current.ThemeMode = "Light";
+        svc1.Current.UpdateIntervalMs = 500;
+        svc1.Dispose();
 
-            // First instance: mutate and dispose (writes immediately).
-            var svc1 = new SettingsService(MockFactory.CreateLogger<SettingsService>().Object);
-            svc1.Current.ThemeMode = "Light";
-            svc1.Current.UpdateIntervalMs = 500;
-            svc1.Dispose();
-
-            // Second instance: must load what first instance wrote.
-            using var svc2 = new SettingsService(MockFactory.CreateLogger<SettingsService>().Object);
-            svc2.Current.ThemeMode.Should().Be("Light");
-            svc2.Current.UpdateIntervalMs.Should().Be(500);
-        }
-        finally
-        {
-            RestoreBackup(backup);
-        }
+        // Second instance: must load what first instance wrote.
+        using var svc2 = CreateService();
+        svc2.Current.ThemeMode.Should().Be("Light");
+        svc2.Current.UpdateIntervalMs.Should().Be(500);
     }
 
     [Fact]
     public void Save_ThenDispose_PersistsLatestState()
     {
-        var backup = File.Exists(SettingsPath) ? File.ReadAllText(SettingsPath) : null;
-        try
-        {
-            if (File.Exists(SettingsPath)) File.Delete(SettingsPath);
+        var svc = CreateService();
+        svc.Current.UpdateIntervalMs = 5000;
+        svc.Save();   // Schedules a write 250 ms from now …
+        svc.Current.UpdateIntervalMs = 999;
+        svc.Dispose(); // … but Dispose writes immediately with the LATEST value.
 
-            var svc = new SettingsService(MockFactory.CreateLogger<SettingsService>().Object);
-            svc.Current.UpdateIntervalMs = 5000;
-            svc.Save();   // Schedules a write 250 ms from now …
-            svc.Current.UpdateIntervalMs = 999;
-            svc.Dispose(); // … but Dispose writes immediately with the LATEST value.
-
-            using var svc2 = new SettingsService(MockFactory.CreateLogger<SettingsService>().Object);
-            svc2.Current.UpdateIntervalMs.Should().Be(999);
-        }
-        finally
-        {
-            RestoreBackup(backup);
-        }
+        using var svc2 = CreateService();
+        svc2.Current.UpdateIntervalMs.Should().Be(999);
     }
 
     // ── Atomic write ──────────────────────────────────────────────────────────
@@ -212,22 +198,12 @@ public class SettingsServiceTests : IDisposable
     [Fact]
     public void Dispose_WritesAtomically_NoTmpFileLeftBehind()
     {
-        var backup = File.Exists(SettingsPath) ? File.ReadAllText(SettingsPath) : null;
-        try
-        {
-            if (File.Exists(SettingsPath)) File.Delete(SettingsPath);
+        var svc = CreateService();
+        svc.Dispose();
 
-            var svc = new SettingsService(MockFactory.CreateLogger<SettingsService>().Object);
-            svc.Dispose();
-
-            var tmpPath = SettingsPath + ".tmp";
-            File.Exists(tmpPath).Should().BeFalse(
-                "WriteToDisk() must rename the .tmp file to the final path before returning");
-        }
-        finally
-        {
-            RestoreBackup(backup);
-        }
+        var tmpPath = _settingsPath + ".tmp";
+        File.Exists(tmpPath).Should().BeFalse(
+            "WriteToDisk() must rename the .tmp file to the final path before returning");
     }
 
     // ── Round-trip for complex types ──────────────────────────────────────────
@@ -235,31 +211,21 @@ public class SettingsServiceTests : IDisposable
     [Fact]
     public void Dispose_WithRules_RulesPersistedAndLoadedBack()
     {
-        var backup = File.Exists(SettingsPath) ? File.ReadAllText(SettingsPath) : null;
-        try
+        var rule = new ProcessRule
         {
-            if (File.Exists(SettingsPath)) File.Delete(SettingsPath);
+            Name = "TestRule",
+            ProcessNamePattern = "chrome",
+            IsEnabled = true
+        };
 
-            var rule = new ProcessRule
-            {
-                Name = "TestRule",
-                ProcessNamePattern = "chrome",
-                IsEnabled = true
-            };
+        var svc1 = CreateService();
+        svc1.Current.Rules.Add(rule);
+        svc1.Dispose();
 
-            var svc1 = new SettingsService(MockFactory.CreateLogger<SettingsService>().Object);
-            svc1.Current.Rules.Add(rule);
-            svc1.Dispose();
-
-            using var svc2 = new SettingsService(MockFactory.CreateLogger<SettingsService>().Object);
-            svc2.Current.Rules.Should().HaveCount(1);
-            svc2.Current.Rules[0].Name.Should().Be("TestRule");
-            svc2.Current.Rules[0].ProcessNamePattern.Should().Be("chrome");
-        }
-        finally
-        {
-            RestoreBackup(backup);
-        }
+        using var svc2 = CreateService();
+        svc2.Current.Rules.Should().HaveCount(1);
+        svc2.Current.Rules[0].Name.Should().Be("TestRule");
+        svc2.Current.Rules[0].ProcessNamePattern.Should().Be("chrome");
     }
 
     // ── Dispose / IDisposable ─────────────────────────────────────────────────
@@ -279,24 +245,14 @@ public class SettingsServiceTests : IDisposable
     [Fact]
     public void Dispose_AfterSave_WritesLatestDebouncedState()
     {
-        var backup = File.Exists(SettingsPath) ? File.ReadAllText(SettingsPath) : null;
-        try
-        {
-            if (File.Exists(SettingsPath)) File.Delete(SettingsPath);
+        var svc = CreateService();
+        svc.Current.UpdateIntervalMs = 1234;
+        svc.Save();
+        svc.Dispose(); // cancels debounce timer and writes synchronously
 
-            var svc = new SettingsService(MockFactory.CreateLogger<SettingsService>().Object);
-            svc.Current.UpdateIntervalMs = 1234;
-            svc.Save();
-            svc.Dispose(); // cancels debounce timer and writes synchronously
-
-            File.Exists(SettingsPath).Should().BeTrue("Dispose must write the file");
-            var contents = File.ReadAllText(SettingsPath);
-            contents.Should().Contain("1234");
-        }
-        finally
-        {
-            RestoreBackup(backup);
-        }
+        File.Exists(_settingsPath).Should().BeTrue("Dispose must write the file");
+        var contents = File.ReadAllText(_settingsPath);
+        contents.Should().Contain("1234");
     }
 
     // ── Multiple instances ────────────────────────────────────────────────────
@@ -304,26 +260,16 @@ public class SettingsServiceTests : IDisposable
     [Fact]
     public void TwoInstances_LoadSameFile_SeesSameData()
     {
-        var backup = File.Exists(SettingsPath) ? File.ReadAllText(SettingsPath) : null;
-        try
-        {
-            if (File.Exists(SettingsPath)) File.Delete(SettingsPath);
+        // Write via first instance.
+        var svc1 = CreateService();
+        svc1.Current.ThemeMode = "Light";
+        svc1.Current.PrometheusPort = 7777;
+        svc1.Dispose();
 
-            // Write via first instance.
-            var svc1 = new SettingsService(MockFactory.CreateLogger<SettingsService>().Object);
-            svc1.Current.ThemeMode = "Light";
-            svc1.Current.PrometheusPort = 7777;
-            svc1.Dispose();
-
-            // Read via second instance.
-            using var svc2 = new SettingsService(MockFactory.CreateLogger<SettingsService>().Object);
-            svc2.Current.ThemeMode.Should().Be("Light");
-            svc2.Current.PrometheusPort.Should().Be(7777);
-        }
-        finally
-        {
-            RestoreBackup(backup);
-        }
+        // Read via second instance.
+        using var svc2 = CreateService();
+        svc2.Current.ThemeMode.Should().Be("Light");
+        svc2.Current.PrometheusPort.Should().Be(7777);
     }
 
     // ── Session persistence ───────────────────────────────────────────────────
@@ -345,32 +291,22 @@ public class SettingsServiceTests : IDisposable
     [Fact]
     public void SessionFields_PersistAcrossSaveAndReload()
     {
-        var backup = File.Exists(SettingsPath) ? File.ReadAllText(SettingsPath) : null;
-        try
-        {
-            if (File.Exists(SettingsPath)) File.Delete(SettingsPath);
+        var svc1 = CreateService();
+        svc1.Current.LastActiveTab    = "Processes";
+        svc1.Current.LastWindowWidth  = 1280;
+        svc1.Current.LastWindowHeight = 720;
+        svc1.Current.LastWindowX      = 100;
+        svc1.Current.LastWindowY      = 200;
+        svc1.Current.LastWindowState  = "Maximized";
+        svc1.Dispose();   // flushes synchronously
 
-            var svc1 = new SettingsService(MockFactory.CreateLogger<SettingsService>().Object);
-            svc1.Current.LastActiveTab    = "Processes";
-            svc1.Current.LastWindowWidth  = 1280;
-            svc1.Current.LastWindowHeight = 720;
-            svc1.Current.LastWindowX      = 100;
-            svc1.Current.LastWindowY      = 200;
-            svc1.Current.LastWindowState  = "Maximized";
-            svc1.Dispose();   // flushes synchronously
-
-            using var svc2 = new SettingsService(MockFactory.CreateLogger<SettingsService>().Object);
-            svc2.Current.LastActiveTab.Should().Be("Processes");
-            svc2.Current.LastWindowWidth.Should().Be(1280);
-            svc2.Current.LastWindowHeight.Should().Be(720);
-            svc2.Current.LastWindowX.Should().Be(100);
-            svc2.Current.LastWindowY.Should().Be(200);
-            svc2.Current.LastWindowState.Should().Be("Maximized");
-        }
-        finally
-        {
-            RestoreBackup(backup);
-        }
+        using var svc2 = CreateService();
+        svc2.Current.LastActiveTab.Should().Be("Processes");
+        svc2.Current.LastWindowWidth.Should().Be(1280);
+        svc2.Current.LastWindowHeight.Should().Be(720);
+        svc2.Current.LastWindowX.Should().Be(100);
+        svc2.Current.LastWindowY.Should().Be(200);
+        svc2.Current.LastWindowState.Should().Be("Maximized");
     }
 
     // ── Motion & Depth (Phase 8 — UI design polish) ───────────────────────────
@@ -395,38 +331,28 @@ public class SettingsServiceTests : IDisposable
     [Fact]
     public void MotionDepthFields_PersistAcrossSaveAndReload()
     {
-        var backup = File.Exists(SettingsPath) ? File.ReadAllText(SettingsPath) : null;
-        try
-        {
-            if (File.Exists(SettingsPath)) File.Delete(SettingsPath);
+        var svc1 = CreateService();
+        svc1.Current.AnimationSpeed          = 1.5;
+        svc1.Current.AnimatePageTransitions  = false;
+        svc1.Current.AnimateHoverEffects     = false;
+        svc1.Current.AnimatePopOutMotion     = false;
+        svc1.Current.AnimateEditChrome       = false;
+        svc1.Current.AnimateValueChanges     = false;
+        svc1.Current.AnimateSpecularShimmer  = false;
+        svc1.Current.DepthIntensity          = 0.9;
+        svc1.Current.ScaleTextWithWidgetSize = false;
+        svc1.Dispose();   // flushes synchronously
 
-            var svc1 = new SettingsService(MockFactory.CreateLogger<SettingsService>().Object);
-            svc1.Current.AnimationSpeed          = 1.5;
-            svc1.Current.AnimatePageTransitions  = false;
-            svc1.Current.AnimateHoverEffects     = false;
-            svc1.Current.AnimatePopOutMotion     = false;
-            svc1.Current.AnimateEditChrome       = false;
-            svc1.Current.AnimateValueChanges     = false;
-            svc1.Current.AnimateSpecularShimmer  = false;
-            svc1.Current.DepthIntensity          = 0.9;
-            svc1.Current.ScaleTextWithWidgetSize = false;
-            svc1.Dispose();   // flushes synchronously
-
-            using var svc2 = new SettingsService(MockFactory.CreateLogger<SettingsService>().Object);
-            svc2.Current.AnimationSpeed.Should().Be(1.5);
-            svc2.Current.AnimatePageTransitions.Should().BeFalse();
-            svc2.Current.AnimateHoverEffects.Should().BeFalse();
-            svc2.Current.AnimatePopOutMotion.Should().BeFalse();
-            svc2.Current.AnimateEditChrome.Should().BeFalse();
-            svc2.Current.AnimateValueChanges.Should().BeFalse();
-            svc2.Current.AnimateSpecularShimmer.Should().BeFalse();
-            svc2.Current.DepthIntensity.Should().Be(0.9);
-            svc2.Current.ScaleTextWithWidgetSize.Should().BeFalse();
-        }
-        finally
-        {
-            RestoreBackup(backup);
-        }
+        using var svc2 = CreateService();
+        svc2.Current.AnimationSpeed.Should().Be(1.5);
+        svc2.Current.AnimatePageTransitions.Should().BeFalse();
+        svc2.Current.AnimateHoverEffects.Should().BeFalse();
+        svc2.Current.AnimatePopOutMotion.Should().BeFalse();
+        svc2.Current.AnimateEditChrome.Should().BeFalse();
+        svc2.Current.AnimateValueChanges.Should().BeFalse();
+        svc2.Current.AnimateSpecularShimmer.Should().BeFalse();
+        svc2.Current.DepthIntensity.Should().Be(0.9);
+        svc2.Current.ScaleTextWithWidgetSize.Should().BeFalse();
     }
 
     // ── Timer cleanup ─────────────────────────────────────────────────────────
@@ -434,28 +360,18 @@ public class SettingsServiceTests : IDisposable
     [Fact]
     public void Dispose_DisposesDebounceTimer_NoTimerFireAfterDisposal()
     {
-        var backup = File.Exists(SettingsPath) ? File.ReadAllText(SettingsPath) : null;
-        try
-        {
-            if (File.Exists(SettingsPath)) File.Delete(SettingsPath);
+        var svc = CreateService();
+        svc.Current.UpdateIntervalMs = 9999;
+        svc.Save();    // arms debounce timer (fires at T+250 ms)
+        svc.Dispose(); // must cancel that timer before it fires
 
-            var svc = new SettingsService(MockFactory.CreateLogger<SettingsService>().Object);
-            svc.Current.UpdateIntervalMs = 9999;
-            svc.Save();    // arms debounce timer (fires at T+250 ms)
-            svc.Dispose(); // must cancel that timer before it fires
+        // Wait beyond the debounce window; if the timer still fired we would get
+        // a write from a disposed object — no exception should surface.
+        Thread.Sleep(400);
 
-            // Wait beyond the debounce window; if the timer still fired we would get
-            // a write from a disposed object — no exception should surface.
-            Thread.Sleep(400);
-
-            // The file should exist (Dispose wrote it) and must not be corrupted.
-            File.Exists(SettingsPath).Should().BeTrue();
-            var act = () => File.ReadAllText(SettingsPath);
-            act.Should().NotThrow();
-        }
-        finally
-        {
-            RestoreBackup(backup);
-        }
+        // The file should exist (Dispose wrote it) and must not be corrupted.
+        File.Exists(_settingsPath).Should().BeTrue();
+        var act = () => File.ReadAllText(_settingsPath);
+        act.Should().NotThrow();
     }
 }

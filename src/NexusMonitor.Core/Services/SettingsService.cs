@@ -6,21 +6,32 @@ namespace NexusMonitor.Core.Services;
 
 public class SettingsService : IDisposable
 {
-    private static readonly string _path = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "NexusMonitor", "settings.json");
-
     private static readonly JsonSerializerOptions _opts = new() { WriteIndented = true };
 
     private readonly object _saveLock = new();
     private readonly ILogger<SettingsService> _logger;
+    private readonly string _path;
     private Timer? _debounceTimer;
 
     public AppSettings Current { get; private set; } = new();
 
-    public SettingsService(ILogger<SettingsService> logger)
+    /// <param name="logger">Standard DI-resolved logger.</param>
+    /// <param name="settingsPath">
+    /// Overrides the settings file path. Defaults to the real per-user path
+    /// (%AppData%/NexusMonitor/settings.json on Windows, ~/Library/Application
+    /// Support/NexusMonitor/settings.json on macOS) when omitted — production callers (DI via
+    /// <c>services.AddSingleton&lt;SettingsService&gt;()</c>) get exactly the prior behavior
+    /// with zero change. Exists so tests can redirect every read/write to a throwaway temp
+    /// directory instead of clobbering the developer's live settings file (see
+    /// SettingsServiceTests.cs — this was a confirmed, repeated real-data-loss incident before
+    /// this parameter existed).
+    /// </param>
+    public SettingsService(ILogger<SettingsService> logger, string? settingsPath = null)
     {
         _logger = logger;
+        _path = settingsPath ?? Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "NexusMonitor", "settings.json");
         Load();
     }
 
