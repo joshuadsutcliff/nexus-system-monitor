@@ -549,7 +549,14 @@ public sealed partial class GpuDeviceViewModel : PerfDeviceViewModel
         PhysicalLocation = g.PhysicalLocation;
 
         ValueDisplay    = $"{UsagePercent:F1}%";
-        SubValueDisplay = $"{DedicatedUsedGb:F1} / {DedicatedTotalGb:F0} GB VRAM";
+        // DedicatedTotalGb is honestly 0 on Apple Silicon (unified memory has no dedicated VRAM
+        // pool to report a total for — see GpuMetrics.DedicatedMemoryTotalBytes). Showing
+        // "X.X / 0 GB VRAM" there would read as a fabricated zero-capacity pool, so an unknown
+        // total gets a used-only, VRAM-free label instead; platforms with a real dedicated pool
+        // keep the original "used / total GB VRAM" format unchanged.
+        SubValueDisplay = DedicatedTotalGb > 0
+            ? $"{DedicatedUsedGb:F1} / {DedicatedTotalGb:F0} GB VRAM"
+            : $"{DedicatedUsedGb:F1} GB GPU memory";
         Push(History,     _ringIdx, g.UsagePercent);
         Push(MiniHistory, _ringIdx, g.UsagePercent);
         _ringIdx++;

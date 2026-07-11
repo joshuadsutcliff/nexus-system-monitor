@@ -1237,7 +1237,9 @@
                         BorderBrush="{DynamicResource GlassBorderBrush}" BorderThickness="1"
                         CornerRadius="{StaticResource CornerMD}">
                   <StackPanel HorizontalAlignment="Center">
-                    <TextBlock Text="{Binding UsagePercent, Converter={StaticResource MacOsNa}, ConverterParameter='{}{0:F1}%'}" FontSize="22" FontWeight="Bold"
+                    <!-- GPU utilization is now read live on macOS too (IOAccelerator
+                         PerformanceStatistics, Sym-2 Task 6) — no longer forced to "N/A" there. -->
+                    <TextBlock Text="{Binding UsagePercent, StringFormat={}{0:F1}%}" FontSize="22" FontWeight="Bold"
                                Foreground="{StaticResource ColorWarningBrush}" HorizontalAlignment="Center"/>
                     <TextBlock Text="GPU" FontSize="{DynamicResource NxFont10}"
                                Foreground="{DynamicResource TextTertiaryBrush}" HorizontalAlignment="Center"/>
@@ -1250,7 +1252,11 @@
                   <StackPanel HorizontalAlignment="Center">
                     <TextBlock FontSize="{DynamicResource NxFont13}" FontWeight="SemiBold"
                                Foreground="{DynamicResource TextPrimaryBrush}" HorizontalAlignment="Center">
-                      <Run Text="{Binding DedicatedUsedGb, Converter={StaticResource MacOsNa}, ConverterParameter='{}{0:F1}'}"/>
+                      <!-- GPU-allocated memory ("In use system memory") is now read live on
+                           macOS too (IOAccelerator PerformanceStatistics, Sym-2 Task 6) — no
+                           longer forced to "N/A" there. DedicatedTotalGb stays honestly 0 on
+                           Apple Silicon (no dedicated VRAM pool exists to report a total for). -->
+                      <Run Text="{Binding DedicatedUsedGb, StringFormat={}{0:F1}}"/>
                       <Run Text="/" FontSize="{DynamicResource NxFont10}"/>
                       <Run Text="{Binding DedicatedTotalGb, StringFormat='{}{0:F0}'}"/>
                       <Run Text=" GB" FontSize="{DynamicResource NxFont10}"/>

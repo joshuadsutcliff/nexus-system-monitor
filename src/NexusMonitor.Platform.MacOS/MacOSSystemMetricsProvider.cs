@@ -174,6 +174,12 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
     private AppleSmc? _smc;
     private bool      _smcOpenAttempted;
 
+    // ── GPU utilization/memory (IOAccelerator PerformanceStatistics, public IOKit registry) ──
+    // Opened lazily on the first tick, its io_object_t entry handles reused every tick, closed on
+    // Dispose — same lifecycle discipline as _smc above.
+    private IOAccelerator? _ioAccelerator;
+    private bool           _ioAcceleratorOpenAttempted;
+
     // ── Delta tracking for CPU, disk, and network rates ───────────────────────
     private long[]   _prevCpuTimes = [];
     private uint[][] _prevPerCoreTicks = [];   // [coreIndex][CpuStateMax]
@@ -213,8 +219,14 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
     }
 
     /// <summary>
-    /// Reads GPU name and VRAM from system_profiler at startup.
-    /// Utilization is not available via any public macOS API.
+    /// Reads GPU name and VRAM (if any) from system_profiler at startup — identity only.
+    /// On Apple Silicon <c>sppci_vram</c> is absent (confirmed live on this M4: system_profiler
+    /// reports no VRAM key at all — unified memory has no dedicated pool), so
+    /// <c>DedicatedMemoryTotalBytes</c> is honestly 0 there; on Intel Macs with a discrete GPU it
+    /// carries the real VRAM size. <c>UsagePercent</c>/<c>DedicatedMemoryUsedBytes</c> start at 0
+    /// here and are overwritten every tick from IOAccelerator's public PerformanceStatistics
+    /// registry (see <see cref="ReadGpuPerformance"/>) — utilization IS available via a public
+    /// macOS API (IOKit's IOAccelerator node), contrary to this method's previous claim.
     /// </summary>
     private static IReadOnlyList<GpuMetrics> ReadGpuIdentityFromSystemProfiler()
     {
@@ -237,8 +249,8 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
                 result.Add(new GpuMetrics
                 {
                     Name                      = name,
-                    UsagePercent              = 0,   // no public API on macOS
-                    DedicatedMemoryUsedBytes  = 0,
+                    UsagePercent              = 0,   // overwritten per-tick from IOAccelerator
+                    DedicatedMemoryUsedBytes  = 0,   // overwritten per-tick from IOAccelerator
                     DedicatedMemoryTotalBytes = vramBytes,
                     TemperatureCelsius        = 0,
                 });
@@ -307,12 +319,15 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
             _disposed = true;
             _shared?.Dispose();
         }
-        // Close the SMC connection under _metricsLock so no in-flight tick is mid-read. Lock
-        // order (sharedLock → metricsLock elsewhere never nests the other way) avoids deadlock.
+        // Close the SMC connection and the IOAccelerator entries under _metricsLock so no
+        // in-flight tick is mid-read. Lock order (sharedLock → metricsLock elsewhere never nests
+        // the other way) avoids deadlock.
         lock (_metricsLock)
         {
             _smc?.Dispose();
             _smc = null;
+            _ioAccelerator?.Dispose();
+            _ioAccelerator = null;
         }
     }
 
@@ -370,15 +385,50 @@ public sealed class MacOSSystemMetricsProvider : ISystemMetricsProvider, IDispos
         return smc is null ? 0.0 : SmcTemperature.MeanOfPlausible(ReadKeys(smc, _tempKeySet.Gpu));
     }
 
-    /// <summary>Static GPU identity (name/VRAM, read once) with a freshly-read temperature per
-    /// tick. Utilization/memory remain 0 here — those are separate (Task 6) work.</summary>
+    // ── GPU utilization/memory (IOAccelerator PerformanceStatistics) ───────────────────────────
+
+    /// <summary>Opens the IOAccelerator entries once and reuses them; a failed open is remembered
+    /// so we don't retry the IOKit lookup every tick — the GPU dynamics then stay honestly 0.</summary>
+    private IOAccelerator? EnsureIoAccelerator()
+    {
+        if (_ioAcceleratorOpenAttempted) return _ioAccelerator;
+        _ioAcceleratorOpenAttempted = true;
+        _ioAccelerator = IOAccelerator.Open();
+        return _ioAccelerator;
+    }
+
+    /// <summary>
+    /// GPU utilization (%) and GPU-allocated unified memory (bytes), read per-tick from the
+    /// public IOAccelerator PerformanceStatistics registry (see
+    /// .superpowers/sdd/sym2-ground-truth.md). Returns <c>null</c> if no IOAccelerator entry is
+    /// present or none exposes a usable utilization key — the caller then reports honest 0s.
+    /// </summary>
+    private GpuPerformanceSample? ReadGpuPerformance() =>
+        EnsureIoAccelerator()?.ReadPerformanceStatistics();
+
+    /// <summary>Static GPU identity (name/VRAM, read once) merged with a freshly-read temperature,
+    /// utilization, and GPU-allocated unified memory every tick. <c>DedicatedMemoryUsedBytes</c>
+    /// carries "In use system memory" (the binding honest-memory mapping for this arc — Apple
+    /// Silicon has no separate VRAM pool, so this is reported against whatever
+    /// <c>DedicatedMemoryTotalBytes</c> already is: a real VRAM size on Intel Macs, honestly 0 on
+    /// Apple Silicon). <c>SharedMemoryUsedBytes</c> carries "Alloc system memory" — the driver's
+    /// broader unified-memory footprint — into the existing "Shared" GPU-memory display slot;
+    /// <c>SharedMemoryTotalBytes</c> is left at 0 (no total-capacity figure exists to report
+    /// honestly). If IOAccelerator yields nothing, all three stay 0 (unavailable).</summary>
     private IReadOnlyList<GpuMetrics> ReadGpusWithTemperature()
     {
         if (_staticGpuInfo.Count == 0) return _staticGpuInfo;
         var gpuTemp = ReadGpuTemperature();
+        var perf    = ReadGpuPerformance();
         var list = new List<GpuMetrics>(_staticGpuInfo.Count);
         foreach (var g in _staticGpuInfo)
-            list.Add(g with { TemperatureCelsius = gpuTemp });
+            list.Add(g with
+            {
+                TemperatureCelsius       = gpuTemp,
+                UsagePercent             = perf?.UtilizationPercent ?? 0.0,
+                DedicatedMemoryUsedBytes = perf?.InUseSystemMemoryBytes ?? 0,
+                SharedMemoryUsedBytes    = perf?.AllocSystemMemoryBytes ?? 0,
+            });
         return list;
     }
 
