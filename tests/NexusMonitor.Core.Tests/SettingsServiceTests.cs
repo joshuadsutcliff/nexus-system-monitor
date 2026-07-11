@@ -321,8 +321,12 @@ public class SettingsServiceTests : IDisposable
             svc.Current.AnimateHoverEffects.Should().BeTrue();
             svc.Current.AnimatePopOutMotion.Should().BeTrue();
             svc.Current.AnimateEditChrome.Should().BeTrue();
-            svc.Current.AnimateValueChanges.Should().BeTrue();
-            svc.Current.AnimateSpecularShimmer.Should().BeTrue();
+            // Quiet-defaults ruling (2026-07-11): AnimateValueChanges/AnimateSpecularShimmer now
+            // default to false on a fresh install — see AppSettings' doc comment and the
+            // QuietDefaults_* tests below for the existing-user migration guard that protects
+            // anyone who already had a settings.json before this change.
+            svc.Current.AnimateValueChanges.Should().BeFalse();
+            svc.Current.AnimateSpecularShimmer.Should().BeFalse();
             svc.Current.DepthIntensity.Should().Be(0.5);
             svc.Current.ScaleTextWithWidgetSize.Should().BeTrue();
         });
@@ -373,5 +377,105 @@ public class SettingsServiceTests : IDisposable
         File.Exists(_settingsPath).Should().BeTrue();
         var act = () => File.ReadAllText(_settingsPath);
         act.Should().NotThrow();
+    }
+
+    // ── Quiet-defaults migration guard (first-launch redesign, 2026-07-11) ────────────────────
+    //
+    // Three scenarios per the task brief:
+    //  1. No settings.json at all -> genuinely fresh install -> NEW quiet defaults apply.
+    //  2. A settings.json a real prior version wrote (Save() always serializes every key) ->
+    //     the OLD values are already explicit in the file -> preserved with ZERO migration code
+    //     (this is the "full-object Save() already protects existing users" claim — the fixture
+    //     below deliberately does NOT rely on MigrateQuietDefaultsGap to prove that).
+    //  3. A hand-made older file that PREDATES one of the affected keys (never serialized it at
+    //     all) -> MigrateQuietDefaultsGap pins the OLD default for exactly the missing key(s).
+
+    [Fact]
+    public void QuietDefaults_NoFile_NewQuietDefaultsApply()
+    {
+        WithSettings(null, svc =>
+        {
+            svc.Current.IsGlassEnabled.Should().BeFalse();
+            svc.Current.BackdropBlurMode.Should().Be("None");
+            svc.Current.IsSpecularEnabled.Should().BeFalse();
+            svc.Current.AnimateSpecularShimmer.Should().BeFalse();
+            svc.Current.AnimateValueChanges.Should().BeFalse();
+            svc.Current.ActiveThemePresetId.Should().Be("nexus-default");
+        });
+    }
+
+    [Fact]
+    public void QuietDefaults_FullObjectFileFromPriorVersion_OldValuesPreservedWithoutMigrationCode()
+    {
+        // Simulates exactly what a real prior version (e.g. v0.6.0, before this change) would
+        // have written to settings.json: a FULL serialization (every public property, via the
+        // same JsonSerializerOptions shape SettingsService.WriteToDisk uses) of an AppSettings
+        // instance carrying the OLD "loud" defaults for the 6 affected keys. Because every key is
+        // explicitly present, Deserialize reproduces these values untouched — this must hold even
+        // if MigrateQuietDefaultsGap were deleted entirely, since every key it looks for is
+        // present here (the guard's own foreach short-circuits via `TryGetProperty` finding each
+        // key and doing nothing).
+        var priorVersionSettings = new AppSettings
+        {
+            IsGlassEnabled         = true,
+            BackdropBlurMode       = "Acrylic",
+            IsSpecularEnabled      = true,
+            AnimateSpecularShimmer = true,
+            AnimateValueChanges    = true,
+            ActiveThemePresetId    = "",
+        };
+        var json = System.Text.Json.JsonSerializer.Serialize(
+            priorVersionSettings, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+
+        WithSettings(json, svc =>
+        {
+            svc.Current.IsGlassEnabled.Should().BeTrue();
+            svc.Current.BackdropBlurMode.Should().Be("Acrylic");
+            svc.Current.IsSpecularEnabled.Should().BeTrue();
+            svc.Current.AnimateSpecularShimmer.Should().BeTrue();
+            svc.Current.AnimateValueChanges.Should().BeTrue();
+            svc.Current.ActiveThemePresetId.Should().Be("");
+        });
+    }
+
+    [Fact]
+    public void QuietDefaults_PartialFileMissingAllAffectedKeys_MigrationGuardPinsOldDefaults()
+    {
+        // A hand-made file mimicking a genuinely ancient settings.json that predates every one of
+        // the 6 affected properties — none of them were ever serialized, so without
+        // MigrateQuietDefaultsGap, Deserialize would silently apply the NEW initializer defaults
+        // (false/"None"/false/false/false/"nexus-default") to an existing user who never asked
+        // for a re-skin. This is the case the migration guard exists for.
+        var json = """{"ThemeMode":"Dark","UpdateIntervalMs":2000}""";
+
+        WithSettings(json, svc =>
+        {
+            svc.Current.IsGlassEnabled.Should().BeTrue();
+            svc.Current.BackdropBlurMode.Should().Be("Acrylic");
+            svc.Current.IsSpecularEnabled.Should().BeTrue();
+            svc.Current.AnimateSpecularShimmer.Should().BeTrue();
+            svc.Current.AnimateValueChanges.Should().BeTrue();
+            svc.Current.ActiveThemePresetId.Should().Be("");
+        });
+    }
+
+    [Fact]
+    public void QuietDefaults_PartialFileWithSomeKeysPresent_OnlyMissingKeysAreMigrated()
+    {
+        // Per-key granularity: a file that already carries an explicit (new-style) value for
+        // IsGlassEnabled but predates the other 5 keys. The present key must be left exactly as
+        // written (even though it happens to equal the new default here — the point is it's not
+        // re-derived), while the missing keys still get the OLD default each.
+        var json = """{"ThemeMode":"Dark","IsGlassEnabled":false}""";
+
+        WithSettings(json, svc =>
+        {
+            svc.Current.IsGlassEnabled.Should().BeFalse("the file already pinned this key explicitly");
+            svc.Current.BackdropBlurMode.Should().Be("Acrylic", "this key was absent from the file");
+            svc.Current.IsSpecularEnabled.Should().BeTrue("this key was absent from the file");
+            svc.Current.AnimateSpecularShimmer.Should().BeTrue("this key was absent from the file");
+            svc.Current.AnimateValueChanges.Should().BeTrue("this key was absent from the file");
+            svc.Current.ActiveThemePresetId.Should().Be("", "this key was absent from the file");
+        });
     }
 }

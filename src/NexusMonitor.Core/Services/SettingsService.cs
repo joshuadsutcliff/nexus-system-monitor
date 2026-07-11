@@ -49,6 +49,7 @@ public class SettingsService : IDisposable
                 Current.ThemeMode = Current.IsDarkTheme ? "Dark" : "Light";
 
             MigrateLegacyBrandedKeys(doc.RootElement);
+            MigrateQuietDefaultsGap(doc.RootElement);
         }
         catch (Exception ex)
         {
@@ -109,6 +110,43 @@ public class SettingsService : IDisposable
         for (int i = 0; i < Current.NavOrder.Count; i++)
             if (Current.NavOrder[i] == "ProBalance") Current.NavOrder[i] = "Auto-Balance";
         if (Current.DefaultTab == "ProBalance") Current.DefaultTab = "Auto-Balance";
+    }
+
+    // ── First-launch quiet-defaults migration guard (added 2026-07-11) ─────────────────────
+    // AppSettings' property initializers changed 6 fields' defaults from "loud" to "quiet"
+    // (IsGlassEnabled, BackdropBlurMode, IsSpecularEnabled, AnimateSpecularShimmer,
+    // AnimateValueChanges, ActiveThemePresetId) so a FRESH install gets a restrained first
+    // impression. WriteToDisk() always serializes the FULL AppSettings object (every public
+    // settable property, not a diff), so any settings.json written by a version that already
+    // had these keys already carries the user's actual (old-default) value explicitly —
+    // Deserialize reproduces it untouched and there is nothing to migrate for those users.
+    //
+    // The only gap is a settings.json that PREDATES one of these keys entirely (the property
+    // didn't exist yet when that file was last written, so it was never serialized) — for those
+    // keys only, Deserialize silently falls back to the NEW initializer default instead of the
+    // OLD one the user has been living with. This table detects exactly that gap (key absent
+    // from the raw JSON) and pins the OLD default so upgrading an existing install never
+    // silently reskins it. A settings.json that doesn't exist AT ALL is a genuinely fresh
+    // install (see the `if (!File.Exists(_path)) return;` guard above this method's only
+    // caller) and is deliberately NOT migrated — those users get the new quiet defaults, which
+    // is the entire point of this change.
+    private static readonly (string Key, Action<AppSettings> ApplyOldDefault)[] _quietDefaultsMigrations =
+    {
+        ("IsGlassEnabled",         s => s.IsGlassEnabled         = true),
+        ("BackdropBlurMode",       s => s.BackdropBlurMode       = "Acrylic"),
+        ("IsSpecularEnabled",      s => s.IsSpecularEnabled      = true),
+        ("AnimateSpecularShimmer", s => s.AnimateSpecularShimmer = true),
+        ("AnimateValueChanges",    s => s.AnimateValueChanges    = true),
+        ("ActiveThemePresetId",    s => s.ActiveThemePresetId    = ""),
+    };
+
+    private void MigrateQuietDefaultsGap(JsonElement root)
+    {
+        foreach (var (key, applyOldDefault) in _quietDefaultsMigrations)
+        {
+            if (root.TryGetProperty(key, out _)) continue; // key present — file already pins a real value, nothing to do
+            applyOldDefault(Current);
+        }
     }
 
     /// <summary>
