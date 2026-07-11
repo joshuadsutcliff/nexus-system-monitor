@@ -58,10 +58,16 @@ public class IOAcceleratorIntegrationTests
         gpu.UsagePercent.Should().BeInRange(0.0, 100.0);
         gpu.DedicatedMemoryUsedBytes.Should().BeGreaterThan(0,
             "\"In use system memory\" (the binding honest-memory mapping) is always non-zero on a running desktop session");
-        // GPU temperature must still be honestly unavailable on this base-M4 hardware — Task 6
-        // must not regress or bypass Task 5's plausibility filter.
-        gpu.TemperatureCelsius.Should().Be(0.0,
-            "GPU temp stays honestly unavailable on base M4 (Task 5's plausibility filter, unchanged by Task 6)");
+        // GPU temperature must still go through Task 5's plausibility filter, unchanged by Task 6
+        // (Task 6 must not regress or bypass it). DRIFT ADDENDUM
+        // (.superpowers/sdd/sym2-ground-truth.md, bottom): base-M4 Tg* keys read garbage at idle
+        // GPU utilization but real plausible values under sustained GPU load, so this is NOT a
+        // fixed 0 on this machine — the invariant is honest-unavailable (0) OR plausible
+        // (10-120); a filtered-out garbage value must never appear either way. Do not re-pin this
+        // to either snapshot.
+        (gpu.TemperatureCelsius == 0.0 || (gpu.TemperatureCelsius >= 10.0 && gpu.TemperatureCelsius <= 120.0))
+            .Should().BeTrue(
+                "GPU temp must be either honestly unavailable (0) or plausible (10-120 °C, real value seen under sustained GPU load per the drift addendum) — Task 5's plausibility filter must still reject any garbage value");
     }
 
     [Fact]

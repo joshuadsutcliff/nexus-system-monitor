@@ -15,9 +15,14 @@ namespace NexusMonitor.Core.Tests;
 /// Machine-specific expectations documented per the ground-truth probe
 /// (.superpowers/sdd/sym2-ground-truth.md, base M4 Mac mini):
 ///  • CPU temp comes from the SMC perf-core keys and reads within 10–120 °C.
-///  • GPU temp reads 0 (unavailable): every base-M4 Tg* key returns -4.5/0.8 °C — physically
-///    impossible — so the plausibility filter rejects them all. This is the correct honest
-///    result, NOT a bug; a non-zero GPU temp here would mean the filter had been bypassed.
+///  • GPU temp: DRIFT ADDENDUM (2026-07-11, T6 gate discovery, ground-truth file bottom) — the
+///    base-M4 Tg* keys returned -4.5/0.8 °C garbage at ~7% idle GPU utilization when originally
+///    probed, but return real plausible values (~48–49 °C) under sustained GPU load. GPU temp on
+///    THIS machine is therefore load-dependent, not a fixed constant, and the invariant every
+///    assertion below must encode is: <c>gpuTemp == 0.0 (honest-unavailable) OR gpuTemp is
+///    within [10, 120] (plausible)</c> — never a filtered-out garbage value (negative, sub-10, or
+///    121+). Do NOT re-pin either snapshot (idle-0 or loaded-nonzero) as the sole expected value;
+///    the plausibility filter is already designed to handle both honestly.
 /// </summary>
 public class MacOSTemperatureIntegrationTests
 {
@@ -26,7 +31,7 @@ public class MacOSTemperatureIntegrationTests
     public MacOSTemperatureIntegrationTests(ITestOutputHelper output) => _output = output;
 
     [Fact]
-    public async Task Provider_OnRealHost_ReportsPlausibleCpuTempAndUnavailableGpuTemp()
+    public async Task Provider_OnRealHost_ReportsPlausibleCpuTempAndHonestOrPlausibleGpuTemp()
     {
         if (!OperatingSystem.IsMacOS()) return;
 
@@ -40,14 +45,17 @@ public class MacOSTemperatureIntegrationTests
         cpuTemp.Should().BeInRange(10.0, 120.0,
             "the SMC perf-core keys (or the IOHID die fallback) must yield a plausible CPU temperature on this host");
 
-        // GPU temp: honest 0 on the base M4 (all Tg* keys garbage → filtered). If a GPU row
-        // exists, its temperature must be exactly 0 here.
+        // GPU temp: DRIFT ADDENDUM (.superpowers/sdd/sym2-ground-truth.md, bottom) — the base-M4
+        // Tg* keys read garbage at idle GPU utilization but real plausible values under
+        // sustained GPU load, so this is NOT a fixed 0 on this machine. The invariant is
+        // honest-unavailable (0) OR plausible (10–120); a filtered-out garbage value (negative,
+        // sub-10, 121+) must never appear either way. Do not re-pin this to either snapshot.
         if (metrics.Gpus.Count > 0)
         {
             var gpuTemp = metrics.Gpus[0].TemperatureCelsius;
-            _output.WriteLine($"GPU temperature: {gpuTemp:F2} °C (expected 0 = unavailable on base M4)");
-            gpuTemp.Should().Be(0.0,
-                "every base-M4 Tg* SMC key returns physically-impossible -4.5/0.8 °C (probe-verified), so the plausibility filter must reject them all and report unavailable");
+            _output.WriteLine($"GPU temperature: {gpuTemp:F2} °C (expected 0 = unavailable, or 10-120 = plausible under load)");
+            (gpuTemp == 0.0 || (gpuTemp >= 10.0 && gpuTemp <= 120.0)).Should().BeTrue(
+                "GPU temp must be either honestly unavailable (0, idle-GPU base-M4 Tg* garbage filtered out) or a plausible reading (10-120 °C, real value seen under sustained GPU load per the drift addendum) — never a filtered-out garbage value");
         }
         else
         {
@@ -69,7 +77,15 @@ public class MacOSTemperatureIntegrationTests
             m.Cpu.TemperatureCelsius.Should().BeInRange(10.0, 120.0,
                 $"tick {i}: CPU temperature must stay plausible across consecutive ticks");
             if (m.Gpus.Count > 0)
-                m.Gpus[0].TemperatureCelsius.Should().Be(0.0, $"tick {i}: GPU temp stays honestly unavailable on base M4");
+            {
+                // DRIFT ADDENDUM (.superpowers/sdd/sym2-ground-truth.md, bottom): base-M4 Tg* keys
+                // are load-dependent (garbage at idle, plausible under sustained GPU load) — the
+                // invariant across every tick is honest-unavailable (0) OR plausible (10-120), not
+                // a pinned 0. See Provider_OnRealHost_ReportsPlausibleCpuTempAndHonestOrPlausibleGpuTemp.
+                var gpuTemp = m.Gpus[0].TemperatureCelsius;
+                (gpuTemp == 0.0 || (gpuTemp >= 10.0 && gpuTemp <= 120.0)).Should().BeTrue(
+                    $"tick {i}: GPU temp must stay either honestly unavailable (0) or plausible (10-120 °C) across consecutive ticks");
+            }
         }
         sw.Stop();
         _output.WriteLine($"50 full BuildMetrics ticks: {sw.ElapsedMilliseconds} ms total (includes disk/net/cached subprocesses)");
