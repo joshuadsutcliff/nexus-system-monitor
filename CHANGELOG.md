@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-07-11
+
+### Added
+- **macOS: real CPU temperature.** The CPU card now reports actual temperature readings on
+  Apple Silicon and Intel Macs, read directly from the hardware sensor and filtered against
+  implausible values, instead of showing nothing.
+- **macOS: real GPU utilization and memory.** The GPU card now shows live utilization and
+  memory usage on macOS instead of a flat 0%. Memory is shown as used-only on Apple Silicon,
+  where the OS has no separate dedicated-VRAM total to report — no invented capacity number.
+- **macOS: honest GPU temperature.** GPU temperature is now shown when the hardware reports a
+  plausible reading, and clearly marked unavailable rather than showing a misleading number
+  when it doesn't (common at idle on some Apple Silicon models).
+
+### Fixed
+- **macOS: corrupted process names.** Some process names in the Processes tab could render
+  with garbled trailing characters (e.g. stray letters appended to the real name); names now
+  display correctly.
+- **App no longer lingers after closing (all platforms).** Closing the main window, choosing "Close
+  Application," or using Exit from the tray icon now reliably ends the process every time,
+  including when the overlay widget or a pop-out window was open. The tray's Exit command now
+  also runs the same full shutdown cleanup as every other way of quitting, and window position
+  is no longer lost if you quit during a shutdown race.
+
 ## [0.6.0] - 2026-07-09
 
 ### Added
@@ -612,7 +635,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **macOS 12+ (Intel + Apple Silicon):** Full support. Unsigned — see README for Gatekeeper bypass.
 - **Linux (x64, ARM64):** Full support. Best tested on Ubuntu 22.04+.
 
-[Unreleased]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.5.0...v0.5.1
