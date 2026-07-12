@@ -282,11 +282,14 @@ public sealed class MacOSProcessProvider : IProcessProvider, IDisposable
 
             try
             {
-                // Get process name — reuse shared buffer (zero-fill first to clear previous result)
+                // Get process name — reuse shared buffer. proc_name(3)'s int return is the ACTUAL
+                // name byte-length; the kernel does not zero-pad past it, so stale bytes from a
+                // previous call can linger past the NUL. Decode only the reported length (see
+                // MacOSProcName's doc comment for the live-verified "contactsd\0k" -> "contactsdk"
+                // corruption this fixes) rather than the whole fixed buffer.
                 Array.Clear(_nameBuffer, 0, _nameBuffer.Length);
-                proc_name(pid, _nameBuffer, (uint)_nameBuffer.Length);
-                var name = System.Text.Encoding.UTF8.GetString(_nameBuffer)
-                                  .TrimEnd('\0').Trim();
+                int nameLen = proc_name(pid, _nameBuffer, (uint)_nameBuffer.Length);
+                var name = MacOSProcName.DecodeProcName(_nameBuffer, nameLen).Trim();
                 if (string.IsNullOrEmpty(name))
                     name = $"pid{pid}";
 
