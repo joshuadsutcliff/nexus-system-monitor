@@ -488,34 +488,30 @@ public class SettingsServiceTests : IDisposable
         // back-to-back against the SAME unchanged file (never re-Save()'d in between) must
         // migrate to identical Current state both times. This is cheap insurance against a
         // future edit that makes the migration stateful/order-dependent.
+        //
+        // Uses this class's own throwaway _settingsPath/CreateService() (never the real per-user
+        // path) — rebased onto main's temp-dir redirect (see class doc): the original version of
+        // this test predated that redirect and would otherwise resolve to the real settings path
+        // via the constructor's default-path fallback, exactly the incident that redirect exists
+        // to prevent.
         var json = """{"ThemeMode":"Dark","IsGlassEnabled":false}""";
+        File.WriteAllText(_settingsPath, json);
 
-        var backup = File.Exists(SettingsPath) ? File.ReadAllText(SettingsPath) : null;
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
-            File.WriteAllText(SettingsPath, json);
+        using var svc1 = CreateService();
+        using var svc2 = CreateService();
 
-            using var svc1 = new SettingsService(MockFactory.CreateLogger<SettingsService>().Object);
-            using var svc2 = new SettingsService(MockFactory.CreateLogger<SettingsService>().Object);
+        svc2.Current.IsGlassEnabled.Should().Be(svc1.Current.IsGlassEnabled);
+        svc2.Current.BackdropBlurMode.Should().Be(svc1.Current.BackdropBlurMode);
+        svc2.Current.IsSpecularEnabled.Should().Be(svc1.Current.IsSpecularEnabled);
+        svc2.Current.AnimateSpecularShimmer.Should().Be(svc1.Current.AnimateSpecularShimmer);
+        svc2.Current.AnimateValueChanges.Should().Be(svc1.Current.AnimateValueChanges);
+        svc2.Current.ActiveThemePresetId.Should().Be(svc1.Current.ActiveThemePresetId);
 
-            svc2.Current.IsGlassEnabled.Should().Be(svc1.Current.IsGlassEnabled);
-            svc2.Current.BackdropBlurMode.Should().Be(svc1.Current.BackdropBlurMode);
-            svc2.Current.IsSpecularEnabled.Should().Be(svc1.Current.IsSpecularEnabled);
-            svc2.Current.AnimateSpecularShimmer.Should().Be(svc1.Current.AnimateSpecularShimmer);
-            svc2.Current.AnimateValueChanges.Should().Be(svc1.Current.AnimateValueChanges);
-            svc2.Current.ActiveThemePresetId.Should().Be(svc1.Current.ActiveThemePresetId);
-
-            // Pin the actual values too, not just cross-instance equality — both instances must
-            // land on the same (correct) migrated state, not merely agree with each other on some
-            // wrong-but-consistent value.
-            svc2.Current.IsGlassEnabled.Should().BeFalse("the file already pinned this key explicitly");
-            svc2.Current.BackdropBlurMode.Should().Be("Acrylic", "this key was absent from the file, both times");
-            svc2.Current.IsSpecularEnabled.Should().BeTrue("this key was absent from the file, both times");
-        }
-        finally
-        {
-            RestoreBackup(backup);
-        }
+        // Pin the actual values too, not just cross-instance equality — both instances must
+        // land on the same (correct) migrated state, not merely agree with each other on some
+        // wrong-but-consistent value.
+        svc2.Current.IsGlassEnabled.Should().BeFalse("the file already pinned this key explicitly");
+        svc2.Current.BackdropBlurMode.Should().Be("Acrylic", "this key was absent from the file, both times");
+        svc2.Current.IsSpecularEnabled.Should().BeTrue("this key was absent from the file, both times");
     }
 }
