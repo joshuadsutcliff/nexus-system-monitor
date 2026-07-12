@@ -4,6 +4,7 @@ using LiveChartsCore;
 using LiveChartsCore.Defaults;
 using LiveChartsCore.SkiaSharpView;
 using LiveChartsCore.SkiaSharpView.Painting;
+using NexusMonitor.Core.Formatting;
 using NexusMonitor.Core.Models;
 using SkiaSharp;
 
@@ -497,6 +498,7 @@ public sealed partial class GpuDeviceViewModel : PerfDeviceViewModel
     [ObservableProperty] private double _engineEncodePercent;
     [ObservableProperty] private double _dedicatedUsedGb;
     [ObservableProperty] private double _dedicatedTotalGb;
+    [ObservableProperty] private string _dedicatedDisplay = string.Empty;
     [ObservableProperty] private double _sharedUsedGb;
     [ObservableProperty] private double _tempC;
 
@@ -539,6 +541,13 @@ public sealed partial class GpuDeviceViewModel : PerfDeviceViewModel
         EngineEncodePercent = Math.Round(g.EngineVideoEncodePercent, 1);
         DedicatedUsedGb     = Math.Round(g.DedicatedMemoryUsedBytes  / 1e9, 1);
         DedicatedTotalGb    = Math.Round(g.DedicatedMemoryTotalBytes / 1e9, 1);
+        // Same honest-unknown-total handling as SubValueDisplay below: an unknown total (0, e.g.
+        // Apple Silicon unified memory) must not render "used / 0 GB" (reads as a fabricated
+        // zero-capacity pool) — fall back to a used-only figure. Platforms with a real dedicated
+        // pool keep the original "used / total GB" format unchanged. Pure logic lives in
+        // GpuMemoryDisplayMath (NexusMonitor.Core.Formatting) so it's unit-testable — see
+        // GpuMemoryDisplayMathTests.
+        DedicatedDisplay    = GpuMemoryDisplayMath.FormatUsedTotal(DedicatedUsedGb, DedicatedTotalGb);
         SharedUsedGb        = Math.Round(g.SharedMemoryUsedBytes / 1e9, 1);
         TempC               = Math.Round(g.TemperatureCelsius, 0);
 
@@ -549,7 +558,15 @@ public sealed partial class GpuDeviceViewModel : PerfDeviceViewModel
         PhysicalLocation = g.PhysicalLocation;
 
         ValueDisplay    = $"{UsagePercent:F1}%";
-        SubValueDisplay = $"{DedicatedUsedGb:F1} / {DedicatedTotalGb:F0} GB VRAM";
+        // DedicatedTotalGb is honestly 0 on Apple Silicon (unified memory has no dedicated VRAM
+        // pool to report a total for — see GpuMetrics.DedicatedMemoryTotalBytes). Showing
+        // "X.X / 0 GB VRAM" there would read as a fabricated zero-capacity pool, so an unknown
+        // total gets a used-only, VRAM-free label instead; platforms with a real dedicated pool
+        // keep the original "used / total GB VRAM" format unchanged. Pure logic lives in
+        // GpuMemoryDisplayMath (NexusMonitor.Core.Formatting) so it's unit-testable — see
+        // GpuMemoryDisplayMathTests.
+        SubValueDisplay = GpuMemoryDisplayMath.FormatUsedTotal(
+            DedicatedUsedGb, DedicatedTotalGb, totalSuffix: " VRAM", zeroTotalSuffix: " GPU memory");
         Push(History,     _ringIdx, g.UsagePercent);
         Push(MiniHistory, _ringIdx, g.UsagePercent);
         _ringIdx++;

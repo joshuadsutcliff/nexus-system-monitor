@@ -8,6 +8,7 @@ using LiveChartsCore.SkiaSharpView;
 using LiveChartsCore.SkiaSharpView.Painting;
 using SkiaSharp;
 using NexusMonitor.Core.Abstractions;
+using NexusMonitor.Core.Formatting;
 using NexusMonitor.Core.Models;
 using NexusMonitor.Core.Services;
 using NexusMonitor.UI.Messages;
@@ -82,6 +83,7 @@ public partial class PerformanceViewModel : ViewModelBase, IActivatable, IDispos
     [ObservableProperty] private double _gpuPercent;
     [ObservableProperty] private double _gpuMemGb;
     [ObservableProperty] private double _gpuMemTotalGb;
+    [ObservableProperty] private string _gpuMemDisplay = string.Empty;
     [ObservableProperty] private string _gpuName = string.Empty;
     [ObservableProperty] private bool   _hasGpuData;
 
@@ -303,6 +305,13 @@ public partial class PerformanceViewModel : ViewModelBase, IActivatable, IDispos
             GpuPercent    = Math.Round(m.Gpus[0].UsagePercent, 1);
             GpuMemGb      = Math.Round(m.Gpus[0].DedicatedMemoryUsedBytes   / 1e9, 1);
             GpuMemTotalGb = Math.Round(m.Gpus[0].DedicatedMemoryTotalBytes  / 1e9, 1);
+            // Same honest-unknown-total handling as GpuDeviceViewModel.DedicatedDisplay /
+            // SubValueDisplay (Sym-2 Task 6): an unknown total (0, e.g. Apple Silicon unified
+            // memory) must not render "used / 0 GB" — fall back to a used-only figure. Platforms
+            // with a real dedicated pool keep the original "used / total GB" format unchanged.
+            // Pure logic lives in GpuMemoryDisplayMath (NexusMonitor.Core.Formatting) so it's
+            // unit-testable — see GpuMemoryDisplayMathTests.
+            GpuMemDisplay = GpuMemoryDisplayMath.FormatUsedTotal(GpuMemGb, GpuMemTotalGb);
             GpuName       = m.Gpus[0].Name;
         }
 
