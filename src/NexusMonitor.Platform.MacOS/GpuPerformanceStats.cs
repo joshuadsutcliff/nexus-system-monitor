@@ -55,6 +55,20 @@ internal static class GpuPerformanceStats
     /// propagating a negative number into the UI.</summary>
     public static long ClampMemoryBytes(long value) => value < 0 ? 0 : value;
 
+    /// <summary>
+    /// Reads a memory-byte key (<see cref="InUseSystemMemoryKey"/> / <see cref="AllocSystemMemoryKey"/>)
+    /// from a per-tick PerformanceStatistics dict, distinguishing "key absent" (this
+    /// hardware/driver never reported the figure) from "key present with value 0" (a genuinely
+    /// reported zero) — plain <c>TryGetValue</c> leaves its out-parameter at the C# default (0) on
+    /// a miss, which is indistinguishable from a real zero reading unless the caller checks the
+    /// bool return too. Returns <c>null</c> only when <paramref name="key"/> is absent from
+    /// <paramref name="stats"/>; a present value always goes through
+    /// <see cref="ClampMemoryBytes(long)"/> first, so a present-but-negative reading still
+    /// degrades to a real (non-null) 0, never to "unavailable".
+    /// </summary>
+    public static long? ReadMemoryBytes(IReadOnlyDictionary<string, long> stats, string key) =>
+        stats.TryGetValue(key, out var raw) ? ClampMemoryBytes(raw) : null;
+
     /// <summary>True when <paramref name="stats"/> contains a usable utilization key — used to
     /// select the "real" IOAccelerator entry when a machine reports more than one (see
     /// <see cref="IOAccelerator"/>; exactly one is expected on this M4, but the design must not
@@ -64,8 +78,12 @@ internal static class GpuPerformanceStats
 }
 
 /// <summary>One tick's decoded GPU performance-statistics reading: utilization already clamped to
-/// [0, 100], memory figures already sanitized to non-negative bytes.</summary>
+/// [0, 100]; memory figures already sanitized to non-negative bytes where present. C4:
+/// <see cref="InUseSystemMemoryBytes"/>/<see cref="AllocSystemMemoryBytes"/> are <c>long?</c>, not
+/// <c>long</c> — <c>null</c> means the corresponding key was absent from the
+/// PerformanceStatistics dict (honest "unavailable"), distinct from a present, genuinely-reported
+/// 0.</summary>
 internal sealed record GpuPerformanceSample(
     double UtilizationPercent,
-    long   InUseSystemMemoryBytes,
-    long   AllocSystemMemoryBytes);
+    long?  InUseSystemMemoryBytes,
+    long?  AllocSystemMemoryBytes);

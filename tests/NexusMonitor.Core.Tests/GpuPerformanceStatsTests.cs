@@ -79,6 +79,50 @@ public class GpuPerformanceStatsTests
         GpuPerformanceStats.ClampMemoryBytes(raw).Should().Be(expected);
     }
 
+    // ── Memory-key presence (C4: honest-unavailable vs. genuinely-reported zero) ──
+
+    [Fact]
+    public void ReadMemoryBytes_KeyAbsent_ReturnsNull()
+    {
+        // Utilization key present, memory keys absent — must degrade to unavailable (null),
+        // never render as a fabricated measured 0.
+        var stats = new Dictionary<string, long> { [GpuPerformanceStats.DeviceUtilizationKey] = 42 };
+        GpuPerformanceStats.ReadMemoryBytes(stats, GpuPerformanceStats.InUseSystemMemoryKey).Should().BeNull(
+            "the hardware/driver didn't report this key — must surface as unavailable, never a fabricated 0");
+    }
+
+    [Fact]
+    public void ReadMemoryBytes_KeyPresentWithZero_ReturnsZero()
+    {
+        var stats = new Dictionary<string, long> { [GpuPerformanceStats.InUseSystemMemoryKey] = 0 };
+        GpuPerformanceStats.ReadMemoryBytes(stats, GpuPerformanceStats.InUseSystemMemoryKey).Should().Be(0L,
+            "a genuinely reported 0 must stay 0, not collapse into the same representation as unavailable");
+    }
+
+    [Fact]
+    public void ReadMemoryBytes_KeyPresentWithRealValue_ReturnsThatValue()
+    {
+        var stats = new Dictionary<string, long> { [GpuPerformanceStats.AllocSystemMemoryKey] = 1_332_559_872L };
+        GpuPerformanceStats.ReadMemoryBytes(stats, GpuPerformanceStats.AllocSystemMemoryKey)
+            .Should().Be(1_332_559_872L);
+    }
+
+    [Fact]
+    public void ReadMemoryBytes_KeyPresentNegative_ClampsToZero_NotNull()
+    {
+        // Present-but-invalid (negative) is still a *present* reading — sanitize to 0, don't
+        // conflate it with the absent-key case.
+        var stats = new Dictionary<string, long> { [GpuPerformanceStats.AllocSystemMemoryKey] = -1L };
+        GpuPerformanceStats.ReadMemoryBytes(stats, GpuPerformanceStats.AllocSystemMemoryKey).Should().Be(0L);
+    }
+
+    [Fact]
+    public void ReadMemoryBytes_EmptyDictionary_ReturnsNull()
+    {
+        GpuPerformanceStats.ReadMemoryBytes(new Dictionary<string, long>(), GpuPerformanceStats.InUseSystemMemoryKey)
+            .Should().BeNull();
+    }
+
     // ── Utilization-key presence (multi-accelerator entry selection) ───────────
 
     [Fact]
