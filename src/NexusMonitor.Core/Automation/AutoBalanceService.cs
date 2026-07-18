@@ -25,6 +25,7 @@ public sealed class AutoBalanceService : IDisposable
     private IDisposable? _subscription;
     private bool _running;
     private readonly SemaphoreSlim _tickLock = new(1, 1);
+    private Task? _restoreTask;
 
     public IObservable<AutoBalanceEvent> Events => _events.AsObservable();
     public bool IsRunning => _running;
@@ -70,7 +71,10 @@ public sealed class AutoBalanceService : IDisposable
         _running = false;
         _subscription?.Dispose();
         _subscription = null;
-        _ = RestoreAllAsync(); // best-effort restore on shutdown — non-critical if processes exit shortly after
+        // Task.Run (rather than a bare fire-and-forget `_ = RestoreAllAsync()`) both avoids any
+        // captured-context deadlock and gives Dispose() a task it can bound-wait on so an
+        // in-flight restore isn't abandoned at shutdown (see Dispose below).
+        _restoreTask = Task.Run(() => RestoreAllAsync());
         _events.OnNext(new AutoBalanceEvent(
             AutoBalanceEventType.Stopped, 0, string.Empty,
             ProcessPriority.Normal, ProcessPriority.Normal, DateTime.UtcNow));
@@ -104,16 +108,19 @@ public sealed class AutoBalanceService : IDisposable
 
             foreach (var proc in candidates)
             {
-                // Infer original priority from what the OS is running it at
-                var original = InferPriority(proc);
+                // Read the process's REAL current priority before throttling it — never assume
+                // Normal. Skip entirely when it can't be determined (process gone, access
+                // denied, platform error) so we never fabricate a restore value.
+                var original = await _processProvider.GetPriorityAsync(proc.Pid);
+                if (original is null) continue;
                 if (original <= ProcessPriority.BelowNormal) continue; // already low
                 try
                 {
                     await _processProvider.SetPriorityAsync(proc.Pid, ProcessPriority.BelowNormal);
-                    _throttled[proc.Pid] = original;
+                    _throttled[proc.Pid] = original.Value;
                     _events.OnNext(new AutoBalanceEvent(
                         AutoBalanceEventType.Throttled, proc.Pid, proc.Name,
-                        original, ProcessPriority.BelowNormal, DateTime.UtcNow));
+                        original.Value, ProcessPriority.BelowNormal, DateTime.UtcNow));
                 }
                 catch (Exception ex) { _logger.LogDebug(ex, "AutoBalance: throttle {Name} (PID {Pid}) failed", proc.Name, proc.Pid); }
             }
@@ -164,15 +171,6 @@ public sealed class AutoBalanceService : IDisposable
         finally { _tickLock.Release(); }
     }
 
-    private static ProcessPriority InferPriority(ProcessInfo p)
-    {
-        // NOTE: ProcessInfo.BasePriority is an int (Windows base priority class), not a ProcessPriority
-        // enum. We can't map it reliably without a P/Invoke call, so we restore to Normal.
-        // Processes intentionally set to High/AboveNormal will be downgraded on restore.
-        // TODO: read actual priority class (OpenProcess + GetPriorityClass) before throttling.
-        return ProcessPriority.Normal; // TODO: read actual priority
-    }
-
     private async Task RestoreAllAsync()
     {
         foreach (var (pid, original) in _throttled.ToList())
@@ -186,6 +184,10 @@ public sealed class AutoBalanceService : IDisposable
     public void Dispose()
     {
         Stop();
+        // Bound-wait for the restore Stop() kicked off so we don't dispose _events (or let
+        // teardown proceed) while a restore is still in flight — an abandoned restore would
+        // permanently strand a throttled process at BelowNormal.
+        try { _restoreTask?.Wait(TimeSpan.FromSeconds(3)); } catch (AggregateException) { }
         _events.Dispose();
     }
 }

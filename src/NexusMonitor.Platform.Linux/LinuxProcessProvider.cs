@@ -16,6 +16,9 @@ public sealed class LinuxProcessProvider : IProcessProvider, IDisposable
     private static extern int setpriority(int which, uint who, int prio);
 
     [DllImport("libc", SetLastError = true)]
+    private static extern int getpriority(int which, uint who);
+
+    [DllImport("libc", SetLastError = true)]
     private static extern int sched_setaffinity(int pid, IntPtr cpusetsize, ref ulong mask);
 
     [DllImport("libc", SetLastError = true)]
@@ -449,6 +452,31 @@ public sealed class LinuxProcessProvider : IProcessProvider, IDisposable
             };
             setpriority(PRIO_PROCESS, (uint)pid, nice);
         }, ct);
+
+    // getpriority(2) legitimately returns negative values on success, so -1 alone doesn't mean
+    // failure — we also need errno. DllImport(SetLastError = true) captures errno right after
+    // the native call returns (before any managed code can perturb it), which is the standard
+    // portable way to disambiguate a genuine nice value of -1 from a real ESRCH/EPERM failure.
+    public Task<ProcessPriority?> GetPriorityAsync(int pid, CancellationToken cancellationToken = default) =>
+        Task.Run(() =>
+        {
+            int nice = getpriority(PRIO_PROCESS, (uint)pid);
+            if (nice == -1)
+            {
+                var errno = Marshal.GetLastWin32Error();
+                if (errno != 0) return (ProcessPriority?)null;
+            }
+
+            return nice switch
+            {
+                <= -15          => ProcessPriority.RealTime,
+                >= -14 and <= -8 => ProcessPriority.High,
+                >= -7 and <= -1  => ProcessPriority.AboveNormal,
+                0                => ProcessPriority.Normal,
+                >= 1 and <= 14   => ProcessPriority.BelowNormal,
+                _                => ProcessPriority.Idle, // >= 15
+            };
+        }, cancellationToken);
 
     public Task SetAffinityAsync(int pid, long affinityMask, CancellationToken ct = default) =>
         Task.Run(() =>

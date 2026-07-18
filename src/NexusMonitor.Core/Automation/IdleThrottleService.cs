@@ -29,6 +29,7 @@ public sealed class IdleThrottleService : IDisposable
 
     private IDisposable? _subscription;
     private bool _running;
+    private Task? _restoreTask;
 
     private readonly SemaphoreSlim _tickLock = new(1, 1);
 
@@ -71,7 +72,9 @@ public sealed class IdleThrottleService : IDisposable
         _running = false;
         _subscription?.Dispose();
         _subscription = null;
-        _ = Task.Run(async () =>
+        // Captured (not discarded) so Dispose() can bound-wait on it — an abandoned restore
+        // here would permanently strand a throttled process at BelowNormal.
+        _restoreTask = Task.Run(async () =>
         {
             await _tickLock.WaitAsync();
             try { await RestoreAllAsync(); }
@@ -134,25 +137,33 @@ public sealed class IdleThrottleService : IDisposable
                         {
                             if (_actionLock.TryLock(proc.Pid, Owner))
                             {
-                                // NOTE: ProcessInfo.BasePriority is an int, not a ProcessPriority enum.
-                                // We restore to Normal since we can't read the actual priority class here.
-                                // Processes set to High/AboveNormal will be downgraded on restore.
-                                // TODO: read actual priority class before throttling.
-                                _savedPriorities[proc.Pid] = ProcessPriority.Normal;
-                                try
+                                // Read the process's REAL current priority before throttling it —
+                                // never assume Normal. If it can't be determined, or it's already
+                                // at/below BelowNormal, skip entirely (no priority change, no eco
+                                // flag) and release the lock we just took.
+                                var original = await _processProvider.GetPriorityAsync(proc.Pid);
+                                if (original is null || original <= ProcessPriority.BelowNormal)
                                 {
-                                    await _processProvider.SetPriorityAsync(proc.Pid, ProcessPriority.BelowNormal);
-                                    if (useEco)
-                                    {
-                                        await _processProvider.SetEfficiencyModeAsync(proc.Pid, true);
-                                        _efficiencyPids.Add(proc.Pid);
-                                    }
-                                }
-                                catch
-                                {
-                                    _savedPriorities.Remove(proc.Pid);
-                                    _efficiencyPids.Remove(proc.Pid);
                                     _actionLock.Release(proc.Pid, Owner);
+                                }
+                                else
+                                {
+                                    _savedPriorities[proc.Pid] = original.Value;
+                                    try
+                                    {
+                                        await _processProvider.SetPriorityAsync(proc.Pid, ProcessPriority.BelowNormal);
+                                        if (useEco)
+                                        {
+                                            await _processProvider.SetEfficiencyModeAsync(proc.Pid, true);
+                                            _efficiencyPids.Add(proc.Pid);
+                                        }
+                                    }
+                                    catch
+                                    {
+                                        _savedPriorities.Remove(proc.Pid);
+                                        _efficiencyPids.Remove(proc.Pid);
+                                        _actionLock.Release(proc.Pid, Owner);
+                                    }
                                 }
                             }
                         }
@@ -189,5 +200,11 @@ public sealed class IdleThrottleService : IDisposable
             await RestorePidAsync(pid);
     }
 
-    public void Dispose() => Stop();
+    public void Dispose()
+    {
+        Stop();
+        // Bound-wait for the restore Stop() kicked off so teardown doesn't proceed while a
+        // restore is still in flight.
+        try { _restoreTask?.Wait(TimeSpan.FromSeconds(3)); } catch (AggregateException) { }
+    }
 }

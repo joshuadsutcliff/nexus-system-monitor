@@ -24,6 +24,7 @@ public sealed class ForegroundBoostService : IDisposable
     private int _lastFgPid = -1;
     private IDisposable? _subscription;
     private bool _running;
+    private Task? _restoreTask;
 
     private readonly SemaphoreSlim _tickLock = new(1, 1);
 
@@ -65,7 +66,9 @@ public sealed class ForegroundBoostService : IDisposable
         _running = false;
         _subscription?.Dispose();
         _subscription = null;
-        _ = Task.Run(async () =>
+        // Captured (not discarded) so Dispose() can bound-wait on it — an abandoned restore
+        // here would permanently strand the boosted process at AboveNormal.
+        _restoreTask = Task.Run(async () =>
         {
             await _tickLock.WaitAsync();
             try { await RestoreAllAsync(); }
@@ -114,11 +117,17 @@ public sealed class ForegroundBoostService : IDisposable
 
             if (!_actionLock.TryLock(fgPid, Owner)) return;
 
-            // NOTE: ProcessInfo.BasePriority is an int (Windows base priority class value), not a
-            // ProcessPriority enum. We can't map it reliably without a P/Invoke call, so we restore
-            // to Normal. Processes intentionally set to High/AboveNormal will be downgraded on restore.
-            // TODO: read actual priority class before boosting.
-            _savedPriorities[fgPid] = ProcessPriority.Normal;
+            // Read the process's REAL current priority before boosting it — never assume Normal.
+            // Skip entirely if it can't be determined, and never downgrade a foreground process
+            // that's already at or above AboveNormal.
+            var actual = await _processProvider.GetPriorityAsync(fgPid);
+            if (actual is null || actual >= ProcessPriority.AboveNormal)
+            {
+                _actionLock.Release(fgPid, Owner);
+                return;
+            }
+
+            _savedPriorities[fgPid] = actual.Value;
             try { await _processProvider.SetPriorityAsync(fgPid, ProcessPriority.AboveNormal); }
             catch
             {
@@ -140,5 +149,11 @@ public sealed class ForegroundBoostService : IDisposable
         _savedPriorities.Clear();
     }
 
-    public void Dispose() => Stop();
+    public void Dispose()
+    {
+        Stop();
+        // Bound-wait for the restore Stop() kicked off so teardown doesn't proceed while a
+        // restore is still in flight.
+        try { _restoreTask?.Wait(TimeSpan.FromSeconds(3)); } catch (AggregateException) { }
+    }
 }

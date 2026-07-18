@@ -59,6 +59,9 @@ public static class MockFactory
         mock.Setup(p => p.SetPriorityAsync(It.IsAny<int>(), It.IsAny<ProcessPriority>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
+        mock.Setup(p => p.GetPriorityAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((ProcessPriority?)ProcessPriority.Normal);
+
         mock.Setup(p => p.SetAffinityAsync(It.IsAny<int>(), It.IsAny<long>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 

@@ -29,6 +29,9 @@ public sealed class MockProcessProvider : IProcessProvider
     public Task SetPriorityAsync(int pid, ProcessPriority priority, CancellationToken ct = default)
         => Task.CompletedTask;
 
+    public Task<ProcessPriority?> GetPriorityAsync(int pid, CancellationToken cancellationToken = default)
+        => Task.FromResult<ProcessPriority?>(ProcessPriority.Normal);
+
     public Task SetAffinityAsync(int pid, long affinityMask, CancellationToken ct = default)
         => Task.CompletedTask;
 
