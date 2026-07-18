@@ -79,13 +79,16 @@ internal sealed class IOAccelerator : IDisposable
                 var utilization = GpuPerformanceStats.SelectUtilization(stats);
                 if (utilization is null) continue; // guarded above by HasUtilizationKey; defensive only
 
-                stats.TryGetValue(GpuPerformanceStats.InUseSystemMemoryKey, out var inUse);
-                stats.TryGetValue(GpuPerformanceStats.AllocSystemMemoryKey, out var alloc);
+                // C4: ReadMemoryBytes distinguishes "key absent" (null — honest unavailable) from
+                // "key present with value 0" (a genuinely reported zero); plain TryGetValue alone
+                // left both as the same fabricated 0.
+                var inUse  = GpuPerformanceStats.ReadMemoryBytes(stats, GpuPerformanceStats.InUseSystemMemoryKey);
+                var alloc  = GpuPerformanceStats.ReadMemoryBytes(stats, GpuPerformanceStats.AllocSystemMemoryKey);
 
                 return new GpuPerformanceSample(
                     utilization.Value,
-                    GpuPerformanceStats.ClampMemoryBytes(inUse),
-                    GpuPerformanceStats.ClampMemoryBytes(alloc));
+                    inUse,
+                    alloc);
             }
             finally
             {

@@ -128,7 +128,10 @@ public sealed class MetricsRollupService : IDisposable
     }
 
     // ── 5-minute rollups ───────────────────────────────────────────────────────
-    private void ProcessRollup5m()
+    // internal (not private): lets MetricsRollupServiceTests (InternalsVisibleTo
+    // NexusMonitor.Core.Tests) drive a single rollup pass directly instead of waiting on the
+    // real 60s timer.
+    internal void ProcessRollup5m()
     {
         var lastTs    = _db.GetMeta("last_rollup_5m_ts");
         var nowMs     = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -144,6 +147,12 @@ public sealed class MetricsRollupService : IDisposable
         using var tx  = _db.Connection.BeginTransaction();
         using var ins = _db.Connection.CreateCommand();
         ins.Transaction = tx;
+        // Sample-weighted averages (C3): each source bucket's own average is weighted by how many
+        // raw samples fed it, so a 2-sample bucket (e.g. right after resume from sleep) doesn't
+        // weigh the same as a 58-sample bucket. NULLIF guards the (practically unreachable, since
+        // HAVING COUNT(*) > 0 implies SUM(sample_count) >= 1) degenerate all-zero-sample_count
+        // case so division yields NULL instead of erroring. MAX columns are unaffected — a max is
+        // already weight-independent.
         ins.CommandText = @"
             INSERT OR REPLACE INTO rollups_5m
                 (ts, cpu_avg, cpu_max, mem_avg_bytes, mem_max_bytes,
@@ -151,11 +160,13 @@ public sealed class MetricsRollupService : IDisposable
                  gpu_avg, gpu_max, sample_count)
             SELECT
                 $bucket,
-                AVG(cpu_avg), MAX(cpu_max),
-                AVG(mem_avg_bytes), MAX(mem_max_bytes),
-                AVG(disk_read_avg), AVG(disk_write_avg),
-                AVG(net_send_avg),  AVG(net_recv_avg),
-                AVG(gpu_avg),       MAX(gpu_max),
+                SUM(cpu_avg * sample_count)       / NULLIF(SUM(sample_count), 0), MAX(cpu_max),
+                SUM(mem_avg_bytes * sample_count)  / NULLIF(SUM(sample_count), 0), MAX(mem_max_bytes),
+                SUM(disk_read_avg * sample_count)  / NULLIF(SUM(sample_count), 0),
+                SUM(disk_write_avg * sample_count) / NULLIF(SUM(sample_count), 0),
+                SUM(net_send_avg * sample_count)   / NULLIF(SUM(sample_count), 0),
+                SUM(net_recv_avg * sample_count)   / NULLIF(SUM(sample_count), 0),
+                SUM(gpu_avg * sample_count)        / NULLIF(SUM(sample_count), 0), MAX(gpu_max),
                 SUM(sample_count)
             FROM rollups_1m
             WHERE ts >= $from AND ts < $to
@@ -178,7 +189,10 @@ public sealed class MetricsRollupService : IDisposable
     }
 
     // ── 1-hour rollups ─────────────────────────────────────────────────────────
-    private void ProcessRollup1h()
+    // internal (not private): lets MetricsRollupServiceTests (InternalsVisibleTo
+    // NexusMonitor.Core.Tests) drive a single rollup pass directly instead of waiting on the
+    // real 60s timer.
+    internal void ProcessRollup1h()
     {
         var lastTs    = _db.GetMeta("last_rollup_1h_ts");
         var nowMs     = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -194,6 +208,8 @@ public sealed class MetricsRollupService : IDisposable
         using var tx  = _db.Connection.BeginTransaction();
         using var ins = _db.Connection.CreateCommand();
         ins.Transaction = tx;
+        // Sample-weighted averages (C3) — same rationale as the 1m->5m rollup above, applied to
+        // 5m->1h.
         ins.CommandText = @"
             INSERT OR REPLACE INTO rollups_1h
                 (ts, cpu_avg, cpu_max, mem_avg_bytes, mem_max_bytes,
@@ -201,11 +217,13 @@ public sealed class MetricsRollupService : IDisposable
                  gpu_avg, gpu_max, sample_count)
             SELECT
                 $bucket,
-                AVG(cpu_avg), MAX(cpu_max),
-                AVG(mem_avg_bytes), MAX(mem_max_bytes),
-                AVG(disk_read_avg), AVG(disk_write_avg),
-                AVG(net_send_avg),  AVG(net_recv_avg),
-                AVG(gpu_avg),       MAX(gpu_max),
+                SUM(cpu_avg * sample_count)       / NULLIF(SUM(sample_count), 0), MAX(cpu_max),
+                SUM(mem_avg_bytes * sample_count)  / NULLIF(SUM(sample_count), 0), MAX(mem_max_bytes),
+                SUM(disk_read_avg * sample_count)  / NULLIF(SUM(sample_count), 0),
+                SUM(disk_write_avg * sample_count) / NULLIF(SUM(sample_count), 0),
+                SUM(net_send_avg * sample_count)   / NULLIF(SUM(sample_count), 0),
+                SUM(net_recv_avg * sample_count)   / NULLIF(SUM(sample_count), 0),
+                SUM(gpu_avg * sample_count)        / NULLIF(SUM(sample_count), 0), MAX(gpu_max),
                 SUM(sample_count)
             FROM rollups_5m
             WHERE ts >= $from AND ts < $to
