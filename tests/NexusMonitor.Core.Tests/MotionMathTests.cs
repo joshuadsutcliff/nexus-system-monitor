@@ -124,6 +124,59 @@ public class MotionMathTests
         MotionMath.EffectEnabled(settings, MotionEffect.SpecularShimmer).Should().BeFalse();
     }
 
+    // ── EffectEnabled — OS "Reduce Motion" runtime clamp (task brief, 2026-07-11) ─────
+
+    [Fact]
+    public void EffectEnabled_ReduceMotionTrue_AllEffectsFalse_EvenIfToggleTrueAndSpeedNonZero()
+    {
+        var settings = new AppSettings
+        {
+            AnimationSpeed          = 1.0,
+            AnimatePageTransitions  = true,
+            AnimateHoverEffects     = true,
+            AnimatePopOutMotion     = true,
+            AnimateEditChrome       = true,
+            AnimateValueChanges     = true,
+            AnimateSpecularShimmer  = true,
+        };
+
+        MotionMath.EffectEnabled(settings, MotionEffect.PageTransitions, reduceMotion: true).Should().BeFalse();
+        MotionMath.EffectEnabled(settings, MotionEffect.HoverEffects,    reduceMotion: true).Should().BeFalse();
+        MotionMath.EffectEnabled(settings, MotionEffect.PopOutMotion,    reduceMotion: true).Should().BeFalse();
+        MotionMath.EffectEnabled(settings, MotionEffect.EditChrome,      reduceMotion: true).Should().BeFalse();
+        MotionMath.EffectEnabled(settings, MotionEffect.ValueChanges,    reduceMotion: true).Should().BeFalse();
+        MotionMath.EffectEnabled(settings, MotionEffect.SpecularShimmer, reduceMotion: true).Should().BeFalse();
+    }
+
+    [Fact]
+    public void EffectEnabled_ReduceMotionFalse_ReturnsPerEffectToggle_UnaffectedByClamp()
+    {
+        var settings = new AppSettings { AnimationSpeed = 1.0, AnimatePageTransitions = true };
+        MotionMath.EffectEnabled(settings, MotionEffect.PageTransitions, reduceMotion: false).Should().BeTrue();
+    }
+
+    [Fact]
+    public void EffectEnabled_DefaultParameter_NoReduceMotionClamp_MatchesTwoArgOverloadBehavior()
+    {
+        // Existing callers that don't know about the OS signal (the default parameter) must be
+        // completely unaffected — pins source/behavior compatibility for any two-arg call site.
+        var settings = new AppSettings { AnimationSpeed = 1.0, AnimateHoverEffects = true };
+        MotionMath.EffectEnabled(settings, MotionEffect.HoverEffects)
+            .Should().Be(MotionMath.EffectEnabled(settings, MotionEffect.HoverEffects, reduceMotion: false));
+    }
+
+    [Fact]
+    public void EffectEnabled_ReduceMotionClears_ReturnsToPerEffectToggle()
+    {
+        // "Signal clears -> rendered on again" precedence, mirrored from AccessibilityClampTests'
+        // glass equivalent: the same settings input flips purely based on the reduceMotion arg.
+        var settings = new AppSettings { AnimationSpeed = 1.0, AnimatePageTransitions = true };
+        MotionMath.EffectEnabled(settings, MotionEffect.PageTransitions, reduceMotion: true)
+            .Should().BeFalse("the signal was active");
+        MotionMath.EffectEnabled(settings, MotionEffect.PageTransitions, reduceMotion: false)
+            .Should().BeTrue("the signal cleared and AnimatePageTransitions was never touched");
+    }
+
     // ── DepthMultiplier ──────────────────────────────────────────────────────
 
     [Fact]

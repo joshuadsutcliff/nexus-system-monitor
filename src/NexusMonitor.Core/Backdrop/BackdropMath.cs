@@ -111,9 +111,17 @@ public static class BackdropMath
     /// preference tier (see class doc); an unrecognized string is treated the same as
     /// <c>"None"</c> — <c>[None]</c> — the conservative choice for a value the Settings UI never
     /// actually offers.</param>
-    public static IReadOnlyList<BackdropLevel> GetHintChain(BackdropPlatform platform, bool glassEnabled, string mode)
+    /// <param name="reduceTransparency">
+    /// The live OS "Reduce Transparency" accessibility signal (see
+    /// <c>NexusMonitor.Core.Abstractions.IAccessibilitySignals.ReduceTransparency</c>). When
+    /// <see langword="true"/>, always returns <c>[None]</c> regardless of
+    /// <paramref name="glassEnabled"/>/<paramref name="mode"/>/<paramref name="platform"/> — a
+    /// RUNTIME CLAMP only, it never mutates <c>AppSettings.BackdropBlurMode</c>. Defaults to
+    /// <see langword="false"/> so existing callers that don't pass an OS signal are unaffected.
+    /// </param>
+    public static IReadOnlyList<BackdropLevel> GetHintChain(BackdropPlatform platform, bool glassEnabled, string mode, bool reduceTransparency = false)
     {
-        if (!glassEnabled)
+        if (!glassEnabled || reduceTransparency)
             return NoneChain;
 
         return mode switch

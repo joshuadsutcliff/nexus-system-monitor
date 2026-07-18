@@ -265,7 +265,7 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
     /// change events of its own); instead it's re-raised via <see cref="OnMotionSettingsChanged"/>,
     /// subscribed to <see cref="MotionSettingsService.MotionChanged"/> in the constructor — Phase 8
     /// Task 3 carryover B, resolving the "not wired yet" gap Task 2 originally left here.</summary>
-    public bool HoverEffectsEnabled => MotionSettingsService.EffectEnabled(_settings, MotionEffect.HoverEffects);
+    public bool HoverEffectsEnabled => _motionSettingsService.EffectEnabled(_settings, MotionEffect.HoverEffects);
 
     /// <summary>Phase 8 Task 3 gate fix: true when the edit-mode toolbar (<see cref="Views.DashboardView"/>)
     /// and the add-widget gallery overlay (<see cref="Controls.WidgetGalleryControl"/>) should fade
@@ -275,7 +275,7 @@ public partial class DashboardViewModel : ViewModelBase, IDisposable
     /// directly, since neither is a plain Opacity binding — see each control's own fade-wiring doc
     /// for why. Re-raised via <see cref="OnMotionSettingsChanged"/>, same mechanism as
     /// <see cref="HoverEffectsEnabled"/>.</summary>
-    public bool EditChromeMotionEnabled => MotionSettingsService.EffectEnabled(_settings, MotionEffect.EditChrome);
+    public bool EditChromeMotionEnabled => _motionSettingsService.EffectEnabled(_settings, MotionEffect.EditChrome);
 
     /// <summary>Phase 8 Task 3 carryover B (+ Task 3 gate fix): re-raises <see cref="HoverEffectsEnabled"/>
     /// and <see cref="EditChromeMotionEnabled"/> whenever <see cref="MotionSettingsService.Apply"/>

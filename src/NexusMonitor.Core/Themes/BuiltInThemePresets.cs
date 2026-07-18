@@ -6,7 +6,15 @@ public static class BuiltInThemePresets
 {
     public static IReadOnlyList<ThemePreset> All { get; } = new ThemePreset[]
     {
-        new() { Id = "nexus-default",    Name = "Nexus Default",    ThemeMode = "Dark",  AccentColorHex = "#0A84FF", TextAccentColorHex = "",        CustomWindowBgHex = "",        CustomSurfaceBgHex = "",        CustomSidebarBgHex = "",        IsGlassEnabled = true,  GlassOpacity = 0.80, BackdropBlurMode = "Acrylic", IsSpecularEnabled = true,  SpecularIntensity = 0.55, FontFamily = "",                FontSizeMultiplier = 1.0 },
+        // Redefined quiet (owner-approved ruling 2026-07-11) to match AppSettings' new
+        // fresh-install defaults exactly: glass/backdrop/specular off, ThemeMode "System"
+        // (follows the OS instead of forcing Dark). Custom window/surface/sidebar hexes stay ""
+        // (empty = derive from theme) — a literal hex here would trip the known theme-flip
+        // stale-color bug.
+        new() { Id = "nexus-default",    Name = "Nexus Default",    ThemeMode = "System", AccentColorHex = "#0A84FF", TextAccentColorHex = "",        CustomWindowBgHex = "",        CustomSurfaceBgHex = "",        CustomSidebarBgHex = "",        IsGlassEnabled = false, GlassOpacity = 0.80, BackdropBlurMode = "None",    IsSpecularEnabled = false, SpecularIntensity = 0.55, FontFamily = "",                FontSizeMultiplier = 1.0 },
+        // New (2026-07-11): carries the PREVIOUS "Nexus Default" showcase look verbatim (same
+        // values, just renamed/re-IDed) so it stays available as an explicit opt-in preset.
+        new() { Id = "crystal-glass",    Name = "Crystal Glass",    ThemeMode = "Dark",   AccentColorHex = "#0A84FF", TextAccentColorHex = "",        CustomWindowBgHex = "",        CustomSurfaceBgHex = "",        CustomSidebarBgHex = "",        IsGlassEnabled = true,  GlassOpacity = 0.80, BackdropBlurMode = "Acrylic", IsSpecularEnabled = true,  SpecularIntensity = 0.55, FontFamily = "",                FontSizeMultiplier = 1.0 },
         new() { Id = "clean-light",      Name = "Clean Light",      ThemeMode = "Light", AccentColorHex = "#007AFF", TextAccentColorHex = "",        CustomWindowBgHex = "",        CustomSurfaceBgHex = "",        CustomSidebarBgHex = "",        IsGlassEnabled = false, GlassOpacity = 0.80, BackdropBlurMode = "None",    IsSpecularEnabled = false, SpecularIntensity = 0.55, FontFamily = "",                FontSizeMultiplier = 1.0 },
         new() { Id = "neon",             Name = "Neon",             ThemeMode = "Dark",  AccentColorHex = "#39FF14", TextAccentColorHex = "#00FFFF", CustomWindowBgHex = "#0A0014", CustomSurfaceBgHex = "#0F0020", CustomSidebarBgHex = "#0D001A", IsGlassEnabled = true,  GlassOpacity = 0.70, BackdropBlurMode = "Acrylic", IsSpecularEnabled = true,  SpecularIntensity = 0.70, FontFamily = "Orbitron",        FontSizeMultiplier = 1.0 },
         new() { Id = "cherry-blossom",   Name = "Cherry Blossom",   ThemeMode = "Light", AccentColorHex = "#E84393", TextAccentColorHex = "#D63384", CustomWindowBgHex = "#FFF0F5", CustomSurfaceBgHex = "#FFFFFF", CustomSidebarBgHex = "#FFF5F8", IsGlassEnabled = false, GlassOpacity = 0.85, BackdropBlurMode = "None",    IsSpecularEnabled = false, SpecularIntensity = 0.30, FontFamily = "Quicksand",       FontSizeMultiplier = 1.0 },

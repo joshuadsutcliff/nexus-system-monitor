@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Media;
 using Avalonia.Styling;
+using NexusMonitor.Core.Abstractions;
 using NexusMonitor.Core.Models;
 using NexusMonitor.Core.Motion;
 
@@ -47,6 +48,13 @@ namespace NexusMonitor.UI.Services;
 /// </summary>
 public sealed class MotionSettingsService
 {
+    private readonly IAccessibilitySignals _accessibilitySignals;
+
+    public MotionSettingsService(IAccessibilitySignals accessibilitySignals)
+    {
+        _accessibilitySignals = accessibilitySignals;
+    }
+
     private static readonly TimeSpan FastBaseDuration = TimeSpan.FromMilliseconds(120);
     private static readonly TimeSpan BaseBaseDuration  = TimeSpan.FromMilliseconds(180);
     private static readonly TimeSpan SlowBaseDuration  = TimeSpan.FromMilliseconds(280);
@@ -128,9 +136,12 @@ public sealed class MotionSettingsService
 
     /// <summary>
     /// True when <paramref name="effect"/> should currently animate for <paramref name="settings"/>:
-    /// false for every effect when AnimationSpeed is 0 (all motion off), otherwise the effect's
-    /// own <c>Animate*</c> toggle. Forwards to <see cref="MotionMath.EffectEnabled"/>.
+    /// false for every effect when AnimationSpeed is 0 (all motion off) OR the OS "Reduce Motion"
+    /// accessibility signal is active (a runtime clamp — see <see cref="IAccessibilitySignals"/> —
+    /// that never mutates <paramref name="settings"/>), otherwise the effect's own <c>Animate*</c>
+    /// toggle. Forwards to <see cref="MotionMath.EffectEnabled"/>. Instance method (not static)
+    /// specifically so it can read the DI-injected <see cref="IAccessibilitySignals"/>.
     /// </summary>
-    public static bool EffectEnabled(AppSettings settings, MotionEffect effect) =>
-        MotionMath.EffectEnabled(settings, effect);
+    public bool EffectEnabled(AppSettings settings, MotionEffect effect) =>
+        MotionMath.EffectEnabled(settings, effect, _accessibilitySignals.ReduceMotion);
 }

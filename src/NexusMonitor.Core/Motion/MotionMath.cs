@@ -57,8 +57,17 @@ public static class MotionMath
     /// regardless of its own toggle — "0 = everything instant" per the Phase 8 plan. Otherwise
     /// returns the effect's own <c>Animate*</c> toggle from <paramref name="settings"/>.
     /// </summary>
-    public static bool EffectEnabled(AppSettings settings, MotionEffect effect)
+    /// <param name="reduceMotion">
+    /// The live OS "Reduce Motion" accessibility signal (see
+    /// <c>NexusMonitor.Core.Abstractions.IAccessibilitySignals.ReduceMotion</c>). When
+    /// <see langword="true"/>, every effect is disabled — same precedence as
+    /// <c>AnimationSpeed &lt;= 0</c> — regardless of the per-effect toggle or AnimationSpeed. This
+    /// is a RUNTIME CLAMP only: it never mutates <paramref name="settings"/>. Defaults to
+    /// <see langword="false"/> so existing callers that don't pass an OS signal are unaffected.
+    /// </param>
+    public static bool EffectEnabled(AppSettings settings, MotionEffect effect, bool reduceMotion = false)
     {
+        if (reduceMotion) return false;
         if (settings.AnimationSpeed <= 0.0) return false;
 
         return effect switch

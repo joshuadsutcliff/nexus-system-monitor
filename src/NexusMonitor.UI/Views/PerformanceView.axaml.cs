@@ -66,7 +66,7 @@ public partial class PerformanceView : UserControl
     private void UpdateDeviceTransition()
     {
         var settings = App.Services.GetRequiredService<SettingsService>().Current;
-        DeviceHost.PageTransition = MotionSettingsService.EffectEnabled(settings, MotionEffect.PageTransitions)
+        DeviceHost.PageTransition = _motionSettingsService.EffectEnabled(settings, MotionEffect.PageTransitions)
             ? new CrossFade(ResolveMotionFast())
             : null;
     }

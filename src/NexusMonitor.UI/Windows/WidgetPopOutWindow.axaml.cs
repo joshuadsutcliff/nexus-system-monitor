@@ -114,7 +114,8 @@ public partial class WidgetPopOutWindow : Window
         Opened -= OnOpenedAnimateIn;
 
         var settings = App.Services.GetRequiredService<SettingsService>().Current;
-        if (!MotionSettingsService.EffectEnabled(settings, MotionEffect.PopOutMotion))
+        var motionSettingsService = App.Services.GetRequiredService<MotionSettingsService>();
+        if (!motionSettingsService.EffectEnabled(settings, MotionEffect.PopOutMotion))
             CardHost.Transitions = null; // skip the animated frame — jump straight to the final state
 
         CardHost.Opacity        = 1;

@@ -10,12 +10,17 @@ public class AppSettings
     /// <summary>"System" | "Dark" | "Light"</summary>
     public string ThemeMode          { get; set; } = "System";
 
-    // Crystal Glass
-    public bool   IsGlassEnabled     { get; set; } = true;
-    public double GlassOpacity       { get; set; } = 0.80;   // 0 = fully transparent, 1 = fully opaque
-    public string BackdropBlurMode   { get; set; } = "Acrylic"; // None | Blur | Acrylic | Mica
-    public bool   IsSpecularEnabled  { get; set; } = true;
-    public double SpecularIntensity  { get; set; } = 0.55;   // default raised for visibility
+    // Crystal Glass — quiet-defaults ruling (owner-approved 2026-07-11): fresh installs get a
+    // restrained, Apple-grade first impression (decorative glass is opt-in, not opt-out). See
+    // SettingsService.MigrateQuietDefaultsGap for the existing-user protection this depends on —
+    // Save() always serializes the FULL AppSettings object, so any settings.json already written
+    // by a version that had these keys already pins the user's real (possibly old-default) value
+    // explicitly; only a settings.json that PREDATES a key entirely needs the migration guard.
+    public bool   IsGlassEnabled     { get; set; } = false;
+    public double GlassOpacity       { get; set; } = 0.80;   // 0 = fully transparent, 1 = fully opaque; inert while IsGlassEnabled is false
+    public string BackdropBlurMode   { get; set; } = "None"; // None | Blur | Acrylic | Mica
+    public bool   IsSpecularEnabled  { get; set; } = false;
+    public double SpecularIntensity  { get; set; } = 0.55;   // inert while IsSpecularEnabled is false
 
     // Accent
     public string AccentColorHex     { get; set; } = "#0A84FF";
@@ -83,8 +88,9 @@ public class AppSettings
     // Dashboard (Phase 1)
     public bool DashboardEnabled { get; set; } = true;
 
-    // Theme Presets
-    public string ActiveThemePresetId { get; set; } = "";  // "" = custom/none
+    // Theme Presets — defaults to the redefined quiet "nexus-default" preset (owner ruling
+    // 2026-07-11) so a fresh install's picker shows a real selection instead of "(Custom)".
+    public string ActiveThemePresetId { get; set; } = "nexus-default";  // "" = custom/none
 
     // Performance Profiles (Phase 17)
     public List<PerformanceProfile> PerformanceProfiles { get; set; } = new();
@@ -181,10 +187,12 @@ public class AppSettings
     public bool   AnimatePopOutMotion { get; set; } = true;
     /// <summary>Edit-mode chrome and widget-gallery fade transitions.</summary>
     public bool   AnimateEditChrome { get; set; } = true;
-    /// <summary>Animated numeric value changes on widget tiles.</summary>
-    public bool   AnimateValueChanges { get; set; } = true;
-    /// <summary>Crystal Glass specular shimmer sweep timer.</summary>
-    public bool   AnimateSpecularShimmer { get; set; } = true;
+    /// <summary>Animated numeric value changes on widget tiles. Off by default (quiet-defaults
+    /// ruling, 2026-07-11) — see the Crystal Glass fields' doc comment above.</summary>
+    public bool   AnimateValueChanges { get; set; } = false;
+    /// <summary>Crystal Glass specular shimmer sweep timer. Off by default (quiet-defaults
+    /// ruling, 2026-07-11) — inert anyway while <see cref="IsSpecularEnabled"/> is false.</summary>
+    public bool   AnimateSpecularShimmer { get; set; } = false;
     /// <summary>
     /// Strength of elevation shadows (ElevationRaised/Floating/Modal tokens) — scales shadow
     /// alpha at apply time. 0 = flat/no shadow, 1 = full depth. Default 0.5 (subtle-Apple look).
