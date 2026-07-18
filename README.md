@@ -192,7 +192,7 @@ The table above is a summary; feature-level support varies more than "Full" impl
 | Per-connection network throughput | ✅ (`GetPerTcpConnectionEStats`; auto-hides on NICs that error, e.g. TSO/RSC) | ❌ | ❌ |
 | Startup items: list | ✅ | ✅ | ✅ |
 | Startup items: enable / disable | ✅ | ✅ | ❌ (listing only — modifying LaunchAgent plists needs elevation, not yet implemented) |
-| Temperature / fan sensors | ✅ Strongest — LibreHardwareMonitor (CPU + GPU) | ✅ `hwmon` (coretemp/k10temp/zenpower) → `thermal_zone*` fallback | ⚠️ Limited — no public API for CPU/GPU temperature; reports `0`/N/A |
+| Temperature / fan sensors | ✅ Strongest — LibreHardwareMonitor (CPU + GPU) | ✅ `hwmon` (coretemp/k10temp/zenpower) → `thermal_zone*` fallback | ✅ CPU via AppleSMC per-generation tables → IOHID fallback; GPU temperature shown when the hardware reports a plausible reading, marked unavailable otherwise (notably at idle on some Apple Silicon) |
 
 ✅ = fully supported · ⚠️ = partial/limited · ❌ = not supported on this platform
 
