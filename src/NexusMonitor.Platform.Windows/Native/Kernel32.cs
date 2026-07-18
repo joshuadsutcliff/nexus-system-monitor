@@ -78,6 +78,9 @@ internal static partial class Kernel32
     public static partial bool SetPriorityClass(nint hProcess, uint dwPriorityClass);
 
     [LibraryImport(Dll, SetLastError = true)]
+    public static partial uint GetPriorityClass(nint hProcess);
+
+    [LibraryImport(Dll, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool SetProcessAffinityMask(nint hProcess, nint dwProcessAffinityMask);
 

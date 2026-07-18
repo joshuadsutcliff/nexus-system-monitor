@@ -11,6 +11,14 @@ public interface IProcessProvider
     Task SuspendProcessAsync(int pid, CancellationToken ct = default);
     Task ResumeProcessAsync(int pid, CancellationToken ct = default);
     Task SetPriorityAsync(int pid, ProcessPriority priority, CancellationToken ct = default);
+
+    /// <summary>
+    /// Reads the process's current priority class/nice value and maps it back to
+    /// <see cref="ProcessPriority"/>. Returns null when the priority cannot be determined
+    /// (process has exited, access denied, or an unrecognized/platform-specific value) —
+    /// callers must treat null as "unknown," never assume <see cref="ProcessPriority.Normal"/>.
+    /// </summary>
+    Task<ProcessPriority?> GetPriorityAsync(int pid, CancellationToken cancellationToken = default);
     Task SetAffinityAsync(int pid, long affinityMask, CancellationToken ct = default);
     Task SetIoPriorityAsync(int pid, IoPriority priority, CancellationToken ct = default);
     Task SetMemoryPriorityAsync(int pid, MemoryPriority priority, CancellationToken ct = default);

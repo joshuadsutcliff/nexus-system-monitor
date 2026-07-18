@@ -519,6 +519,33 @@ public sealed class MacOSProcessProvider : IProcessProvider, IDisposable
             setpriority(PRIO_PROCESS, (uint)pid, nice);
         }, ct);
 
+    // getpriority(2) legitimately returns negative values on success, so -1 alone doesn't mean
+    // failure — we also need errno. DllImport(SetLastError = true) captures errno right after
+    // the native call returns (before any managed code can perturb it), which is the standard
+    // portable way to disambiguate a genuine nice value of -1 from a real ESRCH/EPERM failure.
+    // Uses PRIO_PROCESS (standard POSIX nice), not PRIO_DARWIN_PROCESS (the Efficiency Mode
+    // background-QoS clamp read separately by ReadEfficiencyMode below).
+    public Task<ProcessPriority?> GetPriorityAsync(int pid, CancellationToken cancellationToken = default) =>
+        Task.Run(() =>
+        {
+            int nice = getpriority(PRIO_PROCESS, (uint)pid);
+            if (nice == -1)
+            {
+                var errno = Marshal.GetLastWin32Error();
+                if (errno != 0) return (ProcessPriority?)null;
+            }
+
+            return nice switch
+            {
+                <= -15          => ProcessPriority.RealTime,
+                >= -14 and <= -8 => ProcessPriority.High,
+                >= -7 and <= -1  => ProcessPriority.AboveNormal,
+                0                => ProcessPriority.Normal,
+                >= 1 and <= 14   => ProcessPriority.BelowNormal,
+                _                => ProcessPriority.Idle, // >= 15
+            };
+        }, cancellationToken);
+
     // NOTE (2026-07-04 capability-flag audit; Efficiency Mode carved out 2026-07-08 Sym-1 Task 4):
     // the four tuning no-ops below (affinity, I/O priority, memory priority, working-set trim)
     // are still correctly gated off via IPlatformCapabilities on macOS — SupportsCpuAffinity,

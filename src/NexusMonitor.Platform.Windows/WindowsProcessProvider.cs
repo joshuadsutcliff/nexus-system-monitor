@@ -625,6 +625,28 @@ public sealed class WindowsProcessProvider : IProcessProvider, IDisposable
             finally { Kernel32.CloseHandle(h); }
         }, ct);
 
+    public Task<ProcessPriority?> GetPriorityAsync(int pid, CancellationToken cancellationToken = default) =>
+        Task.Run(() =>
+        {
+            nint h = Kernel32.OpenProcess(Kernel32.PROCESS_QUERY_LIMITED_INFO, false, (uint)pid);
+            if (h == nint.Zero) return (ProcessPriority?)null;
+            try
+            {
+                uint cls = Kernel32.GetPriorityClass(h);
+                return cls switch
+                {
+                    Kernel32.IDLE_PRIORITY_CLASS         => ProcessPriority.Idle,
+                    Kernel32.BELOW_NORMAL_PRIORITY_CLASS => ProcessPriority.BelowNormal,
+                    Kernel32.NORMAL_PRIORITY_CLASS       => ProcessPriority.Normal,
+                    Kernel32.ABOVE_NORMAL_PRIORITY_CLASS => ProcessPriority.AboveNormal,
+                    Kernel32.HIGH_PRIORITY_CLASS         => ProcessPriority.High,
+                    Kernel32.REALTIME_PRIORITY_CLASS     => ProcessPriority.RealTime,
+                    _                                    => (ProcessPriority?)null, // 0 (failure) or an unrecognized value
+                };
+            }
+            finally { Kernel32.CloseHandle(h); }
+        }, cancellationToken);
+
     public Task<IReadOnlyList<ModuleInfo>> GetModulesAsync(int pid, CancellationToken ct = default)
     {
         return Task.Run(() =>
