@@ -34,7 +34,8 @@ public sealed class SnapshotDatabase : IDisposable
         }
         catch
         {
-            Connection.Dispose(); // never leak an open handle on a corrupt file
+            ReadConnection?.Dispose(); // never leak an open handle on a corrupt file
+            Connection.Dispose();
             throw;
         }
     }
@@ -62,6 +63,27 @@ public sealed class SnapshotDatabase : IDisposable
             db?.Dispose();
             SqliteConnection.ClearPool(new SqliteConnection($"Data Source={dbPath}"));
             var aside = $"{dbPath}.corrupt-{DateTime.UtcNow:yyyyMMdd-HHmmss}";
+
+            // WAL-mode databases leave sidecar files; move them aside before moving the main file.
+            // SQLite may clean up these files when detecting corruption, so we move what exists.
+            foreach (var suffix in new[] { "-wal", "-shm", "-journal" })
+            {
+                var sidePath = dbPath + suffix;
+                var asideSidePath = aside + suffix;
+                if (File.Exists(sidePath))
+                {
+                    try
+                    {
+                        File.Move(sidePath, asideSidePath, overwrite: true);
+                    }
+                    catch (Exception moveEx)
+                    {
+                        // Log but don't fail; sidecar loss is non-critical to recovery
+                        System.Diagnostics.Debug.WriteLine($"Failed to move {sidePath}: {moveEx.Message}");
+                    }
+                }
+            }
+
             File.Move(dbPath, aside, overwrite: true);
             recovered = true;
             return new SnapshotDatabase(dbPath);
@@ -82,7 +104,7 @@ public sealed class SnapshotDatabase : IDisposable
     private void InitSchema()
     {
         using var cmd = Connection.CreateCommand();
-        cmd.CommandText = @"
+        cmd.CommandText = $@"
             CREATE TABLE IF NOT EXISTS meta (
                 key   TEXT PRIMARY KEY,
                 value TEXT NOT NULL
@@ -122,7 +144,7 @@ public sealed class SnapshotDatabase : IDisposable
                 PRIMARY KEY (snapshot_id, id)
             );
             CREATE INDEX IF NOT EXISTS idx_nodes_parent ON nodes(snapshot_id, parent_id);
-            INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '1');";
+            INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '{SchemaVersion}');";
         cmd.ExecuteNonQuery();
     }
 

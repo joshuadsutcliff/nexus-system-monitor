@@ -38,12 +38,23 @@ public class SnapshotDatabaseTests : IDisposable
     public void OpenOrRecover_RenamesCorruptFileAndRecreates()
     {
         File.WriteAllText(DbPath, "this is not a sqlite database, not even close");
+        // Also create sidecar files that might exist in a WAL-mode database
+        File.WriteAllText(DbPath + "-wal", "wal junk");
+        File.WriteAllText(DbPath + "-shm", "shm junk");
+
         using var db = SnapshotDatabase.OpenOrRecover(DbPath, out var recovered);
         recovered.Should().BeTrue();
-        Directory.GetFiles(_dir, "disk-snapshots.db.corrupt-*").Should().HaveCount(1);
+
+        // Corrupt file should be moved aside
+        Directory.GetFiles(_dir, "disk-snapshots.db.corrupt-*").Where(p => !p.EndsWith("-wal") && !p.EndsWith("-shm") && !p.EndsWith("-journal")).Should().HaveCount(1);
+
+        // New database should be healthy and have fresh WAL files created
         using var cmd = db.Connection.CreateCommand();
         cmd.CommandText = "SELECT COUNT(*) FROM snapshots";
         Convert.ToInt64(cmd.ExecuteScalar()).Should().Be(0);
+
+        File.Exists(DbPath).Should().BeTrue("new database file should exist");
+        File.Exists(DbPath + "-wal").Should().BeTrue("fresh WAL file should be created by SQLite");
     }
 
     [Fact]
@@ -53,4 +64,5 @@ public class SnapshotDatabaseTests : IDisposable
         using var db = SnapshotDatabase.OpenOrRecover(DbPath, out var recovered);
         recovered.Should().BeFalse();
     }
+
 }
