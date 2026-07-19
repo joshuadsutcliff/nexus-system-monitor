@@ -45,8 +45,12 @@ public partial class PerformanceViewModel : ViewModelBase, IActivatable, IDispos
     // Display-ready labels: some platforms (e.g. macOS — no public sensor/frequency API) report
     // a hard 0 for these rather than omitting the reading. A real 0°C / 0 GHz doesn't occur on
     // hardware that actually reports the value, so "—" is keyed off the value, not the OS.
-    [ObservableProperty] private string _cpuTempLabel = "—";
-    [ObservableProperty] private string _cpuFrequencyLabel = "—";
+    [ObservableProperty] private string _cpuTempLabel = MetricFormatting.Dash;
+    [ObservableProperty] private string _cpuFrequencyLabel = MetricFormatting.Dash;
+    // Null when a real value is showing (no tooltip); explains WHY when the "—" placeholder above
+    // is showing instead. See UnavailableMetricCopy.
+    [ObservableProperty] private string? _cpuTempUnavailableTooltip;
+    [ObservableProperty] private string? _cpuFrequencyUnavailableTooltip;
     [ObservableProperty] private string _cpuModelName = string.Empty;
     [ObservableProperty] private int _logicalCores;
     [ObservableProperty] private IReadOnlyList<CoreCellViewModel> _coreCells = [];
@@ -208,8 +212,14 @@ public partial class PerformanceViewModel : ViewModelBase, IActivatable, IDispos
         CpuTempC        = Math.Round(m.Cpu.TemperatureCelsius, 0);
         // Keyed off the raw reading, not the OS: no sensor data comes back as <= 0, never as
         // a real measurement, so "—" reliably means "unavailable" everywhere.
-        CpuFrequencyLabel = m.Cpu.FrequencyMhz       > 0 ? $"{CpuFrequencyGhz:F2} GHz" : "—";
-        CpuTempLabel      = m.Cpu.TemperatureCelsius > 0 ? $"{CpuTempC}°C"             : "—";
+        CpuFrequencyLabel = MetricFormatting.FormatOrDash(m.Cpu.FrequencyMhz, CpuFrequencyGhz, "{0:F2} GHz");
+        CpuTempLabel      = MetricFormatting.FormatOrDash(m.Cpu.TemperatureCelsius, CpuTempC, "{0}°C");
+        CpuFrequencyUnavailableTooltip = CpuFrequencyLabel == MetricFormatting.Dash
+            ? UnavailableMetricCopy.Generic
+            : null;
+        CpuTempUnavailableTooltip = CpuTempLabel == MetricFormatting.Dash
+            ? UnavailableMetricCopy.CpuTempUnsupported
+            : null;
         CpuModelName    = m.Cpu.ModelName;
         LogicalCores    = m.Cpu.LogicalCores;
         Push(_cpuValues, _ringIdx, m.Cpu.TotalPercent);

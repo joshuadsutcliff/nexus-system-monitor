@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
+using NexusMonitor.Core.Formatting;
 using NexusMonitor.Core.Models;
 #if WINDOWS
 using NexusMonitor.Platform.Windows;
@@ -24,13 +25,19 @@ public partial class SystemInfoViewModel : ViewModelBase
     // hw.l3cachesize are absent on Apple Silicon) report a hard 0 rather than omitting the
     // reading. A real max clock or L3 cache size of 0 doesn't occur on hardware that actually
     // reports the value, so "—" is keyed off the value, not the OS.
-    [ObservableProperty] private string _maxClockDisplay = "—";
-    [ObservableProperty] private string _l3CacheDisplay  = "—";
+    [ObservableProperty] private string _maxClockDisplay = MetricFormatting.Dash;
+    [ObservableProperty] private string _l3CacheDisplay  = MetricFormatting.Dash;
 
     // Socket is meaningless on Apple Silicon (no discrete CPU socket) — the provider reports
     // string.Empty there rather than fabricate a value, so "—" is keyed off the value like the
     // fields above.
-    [ObservableProperty] private string _socketDisplay = "—";
+    [ObservableProperty] private string _socketDisplay = MetricFormatting.Dash;
+
+    // Null when a real value is showing (no tooltip); explains WHY when the "—" placeholder
+    // above is showing instead. See UnavailableMetricCopy.
+    [ObservableProperty] private string? _maxClockUnavailableTooltip;
+    [ObservableProperty] private string? _l3CacheUnavailableTooltip;
+    [ObservableProperty] private string? _socketUnavailableTooltip;
 
     /// <summary>True when RAM slot data is available. False on Apple Silicon (unified memory has
     /// no discrete slots), where the Memory section collapses the slot table to a single line
@@ -39,15 +46,19 @@ public partial class SystemInfoViewModel : ViewModelBase
 
     partial void OnInfoChanged(SystemHardwareInfo? value)
     {
-        MaxClockDisplay = value is not null && value.Cpu.MaxClockMhz > 0
-            ? $"{value.Cpu.MaxClockMhz:F0}"
-            : "—";
-        L3CacheDisplay = value is not null && value.Cpu.L3CacheKB > 0
-            ? $"{value.Cpu.L3CacheKB} KB"
-            : "—";
+        MaxClockDisplay = value is null
+            ? MetricFormatting.Dash
+            : MetricFormatting.FormatOrDash(value.Cpu.MaxClockMhz, "{0:F0}");
+        L3CacheDisplay = value is null
+            ? MetricFormatting.Dash
+            : MetricFormatting.FormatOrDash(value.Cpu.L3CacheKB, "{0} KB");
         SocketDisplay = value is not null && !string.IsNullOrWhiteSpace(value.Cpu.Socket)
             ? value.Cpu.Socket
-            : "—";
+            : MetricFormatting.Dash;
+
+        MaxClockUnavailableTooltip = MaxClockDisplay == MetricFormatting.Dash ? UnavailableMetricCopy.Generic : null;
+        L3CacheUnavailableTooltip  = L3CacheDisplay  == MetricFormatting.Dash ? UnavailableMetricCopy.Generic : null;
+        SocketUnavailableTooltip   = SocketDisplay   == MetricFormatting.Dash ? UnavailableMetricCopy.Generic : null;
     }
 
 #if WINDOWS

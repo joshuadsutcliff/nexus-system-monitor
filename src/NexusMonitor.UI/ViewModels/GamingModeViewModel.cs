@@ -3,6 +3,7 @@ using System.Reactive.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using NexusMonitor.Core.Abstractions;
+using NexusMonitor.Core.Formatting;
 using NexusMonitor.Core.Gaming;
 using NexusMonitor.Core.Services;
 using ReactiveUI;
@@ -29,7 +30,10 @@ public partial class GamingModeViewModel : ViewModelBase, IDisposable
     // ── Stats ─────────────────────────────────────────────────────────────────
 
     [ObservableProperty] private int    _throttledCount  = 0;
-    [ObservableProperty] private string _currentPlanName = "—";
+    [ObservableProperty] private string _currentPlanName = MetricFormatting.Dash;
+    // Null when a real value is showing (no tooltip); explains WHY when CurrentPlanName has
+    // fallen back to "—" instead. See UnavailableMetricCopy.
+    [ObservableProperty] private string? _currentPlanNameUnavailableTooltip;
 
     // ── Configuration ─────────────────────────────────────────────────────────
 
@@ -182,11 +186,11 @@ public partial class GamingModeViewModel : ViewModelBase, IDisposable
         {
             var activePlan = _powerPlanProvider.GetActivePlan();
             var plans      = _powerPlanProvider.GetPowerPlans();
-            CurrentPlanName = plans.FirstOrDefault(p => p.SchemeGuid == activePlan)?.Name ?? "—";
+            CurrentPlanName = plans.FirstOrDefault(p => p.SchemeGuid == activePlan)?.Name ?? MetricFormatting.Dash;
         }
         catch
         {
-            CurrentPlanName = "—";
+            CurrentPlanName = MetricFormatting.Dash;
         }
     }
 
@@ -199,15 +203,18 @@ public partial class GamingModeViewModel : ViewModelBase, IDisposable
             foreach (var plan in _powerPlanProvider.GetPowerPlans())
                 AvailablePlans.Add(plan);
 
-            CurrentPlanName = AvailablePlans.FirstOrDefault(p => p.SchemeGuid == active)?.Name ?? "—";
+            CurrentPlanName = AvailablePlans.FirstOrDefault(p => p.SchemeGuid == active)?.Name ?? MetricFormatting.Dash;
             SelectedPlan    = AvailablePlans.FirstOrDefault(p => p.SchemeGuid == active)
                               ?? AvailablePlans.FirstOrDefault();
         }
         catch
         {
-            CurrentPlanName = "—";
+            CurrentPlanName = MetricFormatting.Dash;
         }
     }
+
+    partial void OnCurrentPlanNameChanged(string value) =>
+        CurrentPlanNameUnavailableTooltip = value == MetricFormatting.Dash ? UnavailableMetricCopy.Generic : null;
 
     // ── IDisposable ───────────────────────────────────────────────────────────
 

@@ -3,6 +3,7 @@ using System.Reactive.Linq;
 using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using NexusMonitor.Core.Formatting;
 using NexusMonitor.Core.Health;
 using NexusMonitor.Core.Models;
 using NexusMonitor.Core.Services;
@@ -138,6 +139,9 @@ public sealed partial class LeakSuspectCardViewModel : ObservableObject
     public string ProcessName { get; init; }
     public string LeakRateLabel { get; }
     public string HandleRateLabel { get; }
+    // Null when a real value is showing (no tooltip); explains WHY when HandleRateLabel has
+    // fallen back to "—" instead. See UnavailableMetricCopy.
+    public string? HandleRateUnavailableTooltip { get; }
     public string ConfidenceLabel { get; }
     public double ConfidenceValue { get; }
     public string ObservationTimeLabel { get; }
@@ -156,8 +160,8 @@ public sealed partial class LeakSuspectCardViewModel : ObservableObject
             ? $"+{rateMb:F0} MB/hr"
             : $"+{rateMb * 1024:F0} KB/hr";
 
-        HandleRateLabel   = suspect.HandleLeakRatePerHour > 0
-            ? $"+{suspect.HandleLeakRatePerHour:F0}/hr" : "—";
+        HandleRateLabel   = MetricFormatting.FormatOrDash(suspect.HandleLeakRatePerHour, "+{0:F0}/hr");
+        HandleRateUnavailableTooltip = HandleRateLabel == MetricFormatting.Dash ? UnavailableMetricCopy.Generic : null;
         ConfidenceLabel   = $"{suspect.Confidence:P0}";
         ConfidenceValue   = suspect.Confidence;
 

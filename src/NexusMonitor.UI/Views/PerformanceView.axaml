@@ -171,9 +171,9 @@
                                        FontSize="24" FontWeight="Bold" Foreground="{DynamicResource AccentBlueBrush}"/>
                           </StackPanel>
                           <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="{Binding CpuFrequencyLabel}"
+                            <TextBlock Text="{Binding CpuFrequencyLabel}" ToolTip.Tip="{Binding CpuFrequencyUnavailableTooltip}"
                                        FontSize="{DynamicResource NxFont10}" Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Right"/>
-                            <TextBlock Text="{Binding CpuTempLabel}"
+                            <TextBlock Text="{Binding CpuTempLabel}" ToolTip.Tip="{Binding CpuTempUnavailableTooltip}"
                                        FontSize="{DynamicResource NxFont10}" Foreground="{DynamicResource TextTertiaryBrush}" HorizontalAlignment="Right"/>
                           </StackPanel>
                         </Grid>
@@ -1258,7 +1258,7 @@
                          pool to report a total for), so a used-only figure is shown instead of the
                          fabricated-looking "used / 0 GB"; platforms with a real dedicated pool keep the
                          original "used / total GB" format unchanged. -->
-                    <TextBlock Text="{Binding DedicatedDisplay}" FontSize="{DynamicResource NxFont13}" FontWeight="SemiBold"
+                    <TextBlock Text="{Binding DedicatedDisplay}" ToolTip.Tip="{Binding DedicatedUnavailableTooltip}" FontSize="{DynamicResource NxFont13}" FontWeight="SemiBold"
                                Foreground="{DynamicResource TextPrimaryBrush}" HorizontalAlignment="Center"/>
                     <TextBlock Text="Dedicated" FontSize="{DynamicResource NxFont10}"
                                Foreground="{DynamicResource TextTertiaryBrush}" HorizontalAlignment="Center"/>

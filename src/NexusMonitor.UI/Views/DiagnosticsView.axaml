@@ -135,7 +135,7 @@
                     <TextBlock Text="Handle Rate"
                                FontSize="{DynamicResource NxFont11}"
                                Foreground="{DynamicResource TextSecondaryBrush}"/>
-                    <TextBlock Text="{Binding HandleRateLabel}"
+                    <TextBlock Text="{Binding HandleRateLabel}" ToolTip.Tip="{Binding HandleRateUnavailableTooltip}"
                                FontSize="{DynamicResource NxFont14}"
                                Foreground="{DynamicResource TextSecondaryBrush}"/>
                   </StackPanel>

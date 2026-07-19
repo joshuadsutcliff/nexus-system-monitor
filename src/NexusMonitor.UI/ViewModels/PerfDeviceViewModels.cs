@@ -499,6 +499,9 @@ public sealed partial class GpuDeviceViewModel : PerfDeviceViewModel
     [ObservableProperty] private double _dedicatedUsedGb;
     [ObservableProperty] private double _dedicatedTotalGb;
     [ObservableProperty] private string _dedicatedDisplay = string.Empty;
+    // Null when a real dedicated-total figure is showing (no tooltip); explains WHY when
+    // DedicatedDisplay has fallen back to its used-only branch (see GpuMemoryDisplayMath).
+    [ObservableProperty] private string? _dedicatedUnavailableTooltip;
     [ObservableProperty] private double _sharedUsedGb;
     [ObservableProperty] private double _tempC;
 
@@ -548,6 +551,13 @@ public sealed partial class GpuDeviceViewModel : PerfDeviceViewModel
         // GpuMemoryDisplayMath (NexusMonitor.Core.Formatting) so it's unit-testable — see
         // GpuMemoryDisplayMathTests.
         DedicatedDisplay    = GpuMemoryDisplayMath.FormatUsedTotal(DedicatedUsedGb, DedicatedTotalGb);
+        // DedicatedTotalGb <= 0 is the same honest-unknown-total condition DedicatedDisplay's
+        // used-only branch keys off (see comment above) — reason-specific copy only on macOS,
+        // where this is a known, expected shape (unified memory). A zero total elsewhere would be
+        // unexpected, so it still gets an explanation, just the generic one.
+        DedicatedUnavailableTooltip = DedicatedTotalGb <= 0
+            ? (OperatingSystem.IsMacOS() ? UnavailableMetricCopy.GpuMemoryTotalMacOS : UnavailableMetricCopy.Generic)
+            : null;
         SharedUsedGb        = Math.Round(g.SharedMemoryUsedBytes / 1e9, 1);
         TempC               = Math.Round(g.TemperatureCelsius, 0);
 
