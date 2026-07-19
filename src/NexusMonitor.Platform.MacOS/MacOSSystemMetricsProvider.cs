@@ -23,9 +23,15 @@ internal static partial class LibSystem
 
     private static uint ReadTaskSelfPort()
     {
+        // Free our Load reference once the value is read — libSystem is linked by the runtime
+        // itself, so this only drops the extra refcount this lookup took, never unloads it.
         var handle = NativeLibrary.Load("libSystem.B.dylib");
-        var addr   = NativeLibrary.GetExport(handle, "mach_task_self_");
-        return (uint)Marshal.ReadInt32(addr);   // mach_port_t is a 32-bit unsigned int
+        try
+        {
+            var addr = NativeLibrary.GetExport(handle, "mach_task_self_");
+            return (uint)Marshal.ReadInt32(addr);   // mach_port_t is a 32-bit unsigned int
+        }
+        finally { NativeLibrary.Free(handle); }
     }
 
     [LibraryImport("libSystem.B.dylib", StringMarshalling = StringMarshalling.Utf8)]

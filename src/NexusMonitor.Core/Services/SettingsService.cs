@@ -13,6 +13,12 @@ public class SettingsService : IDisposable
     private readonly string _path;
     private Timer? _debounceTimer;
 
+    // JSON snapshot captured on the Save() caller's thread. Mutations to Current happen
+    // un-locked all over the UI, so serializing later on the debounce (threadpool) thread
+    // could observe a half-mutated object; serializing at Save() time on the mutator's own
+    // thread makes the background write race-free — it only ever writes this immutable string.
+    private string? _pendingJson;
+
     public AppSettings Current { get; private set; } = new();
 
     /// <param name="logger">Standard DI-resolved logger.</param>
@@ -158,6 +164,7 @@ public class SettingsService : IDisposable
         // Restart the debounce timer on every call; the actual write happens 250 ms after the last call.
         lock (_saveLock)
         {
+            _pendingJson = JsonSerializer.Serialize(Current, _opts);
             _debounceTimer?.Dispose();
             _debounceTimer = new Timer(_ => WriteToDisk(), null,
                 dueTime: TimeSpan.FromMilliseconds(250),
@@ -171,9 +178,10 @@ public class SettingsService : IDisposable
         {
             string json;
             lock (_saveLock)
-                json = JsonSerializer.Serialize(Current, _opts);
+                json = _pendingJson ??= JsonSerializer.Serialize(Current, _opts);
 
-            Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+            var dir = Path.GetDirectoryName(_path);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             // Write to a temp file then rename to prevent partial writes corrupting the file
             var tmp = _path + ".tmp";
             File.WriteAllText(tmp, json);
@@ -188,6 +196,10 @@ public class SettingsService : IDisposable
         {
             _debounceTimer?.Dispose();
             _debounceTimer = null;
+            // Final flush persists the LIVE object (not a stale debounce snapshot): re-serialize
+            // now, on the disposing thread — services are already stopped at shutdown, so this
+            // is the one moment the un-locked mutators are known to be quiet.
+            _pendingJson = JsonSerializer.Serialize(Current, _opts);
         }
         WriteToDisk();
     }

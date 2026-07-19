@@ -255,6 +255,45 @@ public class SettingsServiceTests : IDisposable
         contents.Should().Contain("1234");
     }
 
+    [Fact]
+    public void Save_SerializesAtCallTime_UnsavedLaterMutationIsNotWrittenByDebounce()
+    {
+        var svc = CreateService();
+        svc.Current.DefaultTab = "Dashboard";
+        svc.Save();
+
+        // Mutate AFTER Save() without saving again — the debounced write must persist the
+        // state as it was at Save() time, not whatever the object looks like when the timer
+        // fires on a threadpool thread (that's the serialize-during-mutation race in
+        // miniature, made deterministic).
+        svc.Current.DefaultTab = "Processes";
+
+        Thread.Sleep(700); // debounce is 250 ms
+        File.ReadAllText(_settingsPath).Should().Contain("\"DefaultTab\": \"Dashboard\"");
+        // Deliberately not disposing svc here: Dispose() flushes the LIVE object by design,
+        // which would overwrite the debounced snapshot this test is pinning.
+    }
+
+    [Fact]
+    public void RelativePathWithoutDirectory_DisposePersistsInsteadOfSilentlyDropping()
+    {
+        // Path.GetDirectoryName("file.json") is "" and Directory.CreateDirectory("") throws —
+        // the write catch swallowed it, silently dropping every save for a directory-less
+        // relative settings path. (Constructed outside CreateService on purpose: a bare
+        // relative name can never resolve to the real per-user settings path.)
+        var file = $"c5-relpath-{Guid.NewGuid():N}.json";
+        try
+        {
+            var svc = new SettingsService(MockFactory.CreateLogger<SettingsService>().Object, file);
+            svc.Current.UpdateIntervalMs = 4321;
+            svc.Dispose();
+
+            File.Exists(file).Should().BeTrue("a directory-less relative path must still persist");
+            File.ReadAllText(file).Should().Contain("4321");
+        }
+        finally { if (File.Exists(file)) File.Delete(file); }
+    }
+
     // ── Multiple instances ────────────────────────────────────────────────────
 
     [Fact]
