@@ -452,7 +452,7 @@
                         BorderBrush="{DynamicResource GlassBorderBrush}" BorderThickness="1"
                         CornerRadius="{StaticResource CornerMD}">
                   <StackPanel HorizontalAlignment="Center">
-                    <TextBlock Text="{Binding TempC, Converter={StaticResource MacOsNa}, ConverterParameter='{}{0:F0}°C'}" FontSize="{DynamicResource NxFont14}" FontWeight="SemiBold"
+                    <TextBlock Text="{Binding TempDisplay}" ToolTip.Tip="{Binding TempUnavailableTooltip}" FontSize="{DynamicResource NxFont14}" FontWeight="SemiBold"
                                Foreground="{StaticResource ColorWarningBrush}" HorizontalAlignment="Center"/>
                     <TextBlock Text="Temperature" FontSize="{DynamicResource NxFont10}"
                                Foreground="{DynamicResource TextTertiaryBrush}" HorizontalAlignment="Center"/>
@@ -1280,7 +1280,7 @@
                         BorderBrush="{DynamicResource GlassBorderBrush}" BorderThickness="1"
                         CornerRadius="{StaticResource CornerMD}">
                   <StackPanel HorizontalAlignment="Center">
-                    <TextBlock Text="{Binding TempC, Converter={StaticResource MacOsNa}, ConverterParameter='{}{0:F0}°C'}" FontSize="22" FontWeight="Bold"
+                    <TextBlock Text="{Binding TempDisplay}" ToolTip.Tip="{Binding TempUnavailableTooltip}" FontSize="22" FontWeight="Bold"
                                Foreground="{StaticResource ColorWarningBrush}" HorizontalAlignment="Center"/>
                     <TextBlock Text="Temp" FontSize="{DynamicResource NxFont10}"
                                Foreground="{DynamicResource TextTertiaryBrush}" HorizontalAlignment="Center"/>
