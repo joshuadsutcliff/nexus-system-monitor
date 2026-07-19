@@ -1,0 +1,81 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:NexusMonitor.Core.ViewModels"
+             x:Class="NexusMonitor.UI.Controls.FirstRunOverlay"
+             x:DataType="vm:FirstRunOrientationViewModel"
+             IsVisible="{Binding IsOpen}">
+
+  <!-- One-time first-run welcome overlay (1.0 gate item): a single glass-styled card shown
+       centered over the dashboard on first launch only, then never again — not a wizard, no
+       steps, no coach marks. Structurally mirrors CommandPaletteControl (full-screen backdrop +
+       centered card, same solid BgElevatedBrush card family so it looks right under the quiet
+       first-launch defaults with glass/acrylic/shimmer all off) but has no list/search/keyboard
+       navigation of its own — just Dismiss. -->
+
+  <!-- Full-screen panel: backdrop layer + card layer -->
+  <Panel>
+
+    <!-- Backdrop: semi-transparent dimmer. No click-to-dismiss here (unlike the Command
+         Palette) — this is a one-time orientation card, not a transient popover; the only way
+         out is the explicit "Get started" action (button, Enter, or Escape). -->
+    <Border Background="#80000000"/>
+
+    <!-- Welcome card: centered, solid elevated surface — same family as CommandPaletteControl's
+         PaletteCard and WidgetGalleryControl's card, deliberately NOT the translucent
+         glass-surface class so it renders correctly regardless of IsGlassEnabled/backdrop mode. -->
+    <Border x:Name="WelcomeCard"
+            Width="480"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            Padding="28,24"
+            CornerRadius="{StaticResource CornerLG}"
+            Background="{DynamicResource BgElevatedBrush}"
+            BorderBrush="{DynamicResource GlassBorderBrush}"
+            BorderThickness="1"
+            BoxShadow="{DynamicResource ElevationModal}">
+
+      <StackPanel Spacing="14">
+
+        <!-- Text is set from NexusMonitor.Core.Onboarding.FirstRunCopy in code-behind (not
+             hardcoded here) so the deployed card can never drift from the TDD-locked copy
+             constants — see FirstRunOverlay.axaml.cs's constructor. -->
+        <TextBlock x:Name="TitleText"
+                   FontSize="{DynamicResource NxFont20}"
+                   FontWeight="SemiBold"
+                   Foreground="{DynamicResource TextPrimaryBrush}"/>
+
+        <StackPanel Spacing="10">
+          <TextBlock x:Name="Row1Text"
+                     FontSize="{DynamicResource NxFont13}"
+                     Foreground="{DynamicResource TextSecondaryBrush}"
+                     TextWrapping="Wrap"/>
+          <TextBlock x:Name="Row2Text"
+                     FontSize="{DynamicResource NxFont13}"
+                     Foreground="{DynamicResource TextSecondaryBrush}"
+                     TextWrapping="Wrap"/>
+          <TextBlock x:Name="Row3Text"
+                     FontSize="{DynamicResource NxFont13}"
+                     Foreground="{DynamicResource TextSecondaryBrush}"
+                     TextWrapping="Wrap"/>
+          <TextBlock x:Name="Row4Text"
+                     FontSize="{DynamicResource NxFont13}"
+                     Foreground="{DynamicResource TextSecondaryBrush}"
+                     TextWrapping="Wrap"/>
+        </StackPanel>
+
+        <Button x:Name="GetStartedButton"
+                Classes="nx-btn-accent"
+                HorizontalAlignment="Right"
+                HorizontalContentAlignment="Center"
+                Padding="18,8"
+                Margin="0,6,0,0"
+                Click="OnGetStartedClick">
+          <TextBlock x:Name="ButtonLabelText" FontSize="{DynamicResource NxFont13}"/>
+        </Button>
+
+      </StackPanel>
+    </Border>
+
+  </Panel>
+
+</UserControl>

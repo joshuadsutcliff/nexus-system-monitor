@@ -531,5 +531,15 @@
                                      Grid.Row="0" Grid.RowSpan="2"
                                      ZIndex="200"/>
 
+    <!-- ===== FIRST-RUN ORIENTATION OVERLAY ===== -->
+    <!-- Spans entire window; topmost of all overlays — it's the first thing a genuinely new
+         user should see and interact with. DataContext wired eagerly in code-behind (see
+         InitializeFirstRunOverlay) so IsVisible="{Binding IsOpen}" always has a source. Shown
+         once ever, per user, then never constructs open again (SettingsService's
+         HasSeenFirstRunOrientation flag, persisted immediately on dismissal). -->
+    <controls:FirstRunOverlay x:Name="FirstRunOverlay"
+                               Grid.Row="0" Grid.RowSpan="2"
+                               ZIndex="300"/>
+
   </Grid>
 </Window>

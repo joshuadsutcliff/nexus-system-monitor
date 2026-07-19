@@ -568,4 +568,80 @@ public class SettingsServiceTests : IDisposable
         svc2.Current.BackdropBlurMode.Should().Be("Acrylic", "this key was absent from the file, both times");
         svc2.Current.IsSpecularEnabled.Should().BeTrue("this key was absent from the file, both times");
     }
+
+    // ── First-run orientation overlay migration guard (2026-07-19) ─────────────────────────────
+    //
+    // Same three-scenario shape as the quiet-defaults guard above:
+    //  1. No settings.json at all -> genuinely fresh install -> overlay-eligible (flag stays the
+    //     initializer default, false) so the one-time welcome overlay shows on first launch.
+    //  2. A settings.json that already carries the key explicitly (this version, or a later one,
+    //     already wrote it once) -> the real value is preserved untouched, whatever it is.
+    //  3. A settings.json that PREDATES this key entirely (an existing user from before this
+    //     feature shipped) -> migrated to true so that user is never shown the overlay.
+
+    [Fact]
+    public void FirstRun_NoFile_HasSeenFlagDefaultsFalse_OverlayEligible()
+    {
+        WithSettings(null, svc =>
+        {
+            svc.Current.HasSeenFirstRunOrientation.Should().BeFalse(
+                "a genuinely fresh install must see the first-run overlay on first launch");
+        });
+    }
+
+    [Fact]
+    public void FirstRun_PreExistingFilePredatingKey_MigratedToTrue_OverlayNeverShown()
+    {
+        // Hand-made file mimicking a real settings.json written before this feature existed —
+        // the key was never serialized. Without the migration guard, Deserialize would silently
+        // fall back to the new initializer default (false), which is indistinguishable from a
+        // fresh install and would incorrectly show an existing user the "Welcome to Nexus" card.
+        var json = """{"ThemeMode":"Dark","UpdateIntervalMs":2000}""";
+
+        WithSettings(json, svc =>
+        {
+            svc.Current.HasSeenFirstRunOrientation.Should().BeTrue(
+                "an existing user's file predates this key entirely and must never see the overlay");
+        });
+    }
+
+    [Fact]
+    public void FirstRun_FileWithKeyExplicitlyFalse_PreservedFalse_NotOverriddenByGuard()
+    {
+        // A settings.json this same version already wrote once, before the user dismissed the
+        // overlay (e.g. they changed an unrelated setting and quit before clicking "Get
+        // started"). The key IS present -> the migration guard must leave it alone.
+        var json = """{"ThemeMode":"Dark","HasSeenFirstRunOrientation":false}""";
+
+        WithSettings(json, svc =>
+        {
+            svc.Current.HasSeenFirstRunOrientation.Should().BeFalse(
+                "the file already pinned this key explicitly to false — not yet dismissed");
+        });
+    }
+
+    [Fact]
+    public void FirstRun_FileWithKeyExplicitlyTrue_PreservedTrue()
+    {
+        var json = """{"ThemeMode":"Dark","HasSeenFirstRunOrientation":true}""";
+
+        WithSettings(json, svc =>
+        {
+            svc.Current.HasSeenFirstRunOrientation.Should().BeTrue(
+                "the file already pinned this key explicitly to true — already dismissed");
+        });
+    }
+
+    [Fact]
+    public void FirstRun_Dismiss_PersistsAcrossReload()
+    {
+        var svc1 = CreateService();
+        svc1.Current.HasSeenFirstRunOrientation.Should().BeFalse();
+        svc1.Current.HasSeenFirstRunOrientation = true;
+        svc1.Dispose(); // flushes synchronously
+
+        using var svc2 = CreateService();
+        svc2.Current.HasSeenFirstRunOrientation.Should().BeTrue(
+            "dismissal must persist so the overlay never constructs again, even across restarts");
+    }
 }
