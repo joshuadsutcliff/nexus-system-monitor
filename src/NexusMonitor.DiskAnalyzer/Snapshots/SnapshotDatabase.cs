@@ -76,10 +76,10 @@ public sealed class SnapshotDatabase : IDisposable
                     {
                         File.Move(sidePath, asideSidePath, overwrite: true);
                     }
-                    catch (Exception moveEx)
+                    catch (Exception)
                     {
-                        // Log but don't fail; sidecar loss is non-critical to recovery
-                        System.Diagnostics.Debug.WriteLine($"Failed to move {sidePath}: {moveEx.Message}");
+                        // Best-effort: a locked sidecar must not abort recovery; the
+                        // fresh DB ignores stale sidecars.
                     }
                 }
             }

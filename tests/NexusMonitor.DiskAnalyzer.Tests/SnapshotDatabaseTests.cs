@@ -37,10 +37,44 @@ public class SnapshotDatabaseTests : IDisposable
     [Fact]
     public void OpenOrRecover_RenamesCorruptFileAndRecreates()
     {
-        File.WriteAllText(DbPath, "this is not a sqlite database, not even close");
-        // Also create sidecar files that might exist in a WAL-mode database
-        File.WriteAllText(DbPath + "-wal", "wal junk");
-        File.WriteAllText(DbPath + "-shm", "shm junk");
+        // Build a healthy db first, then dispose (checkpoints + truncates the WAL) so
+        // we start from a known-clean on-disk file, then corrupt only the DATA pages
+        // (offset 4096+) while leaving the page-1 header/schema intact. This matters:
+        // if the header itself is unreadable, SQLite's own WAL-mode negotiation
+        // discards ANY pre-existing -wal/-shm file (valid or junk) before our recovery
+        // code ever runs — verified empirically; a garbage-header corruption can never
+        // reach the sidecar-move loop with -wal/-shm still present. Keeping the header
+        // valid avoids that, and is also a more realistic corruption model (partial
+        // write / bit-rot in the data region, not the whole file).
+        using (new SnapshotDatabase(DbPath)) { }
+        var bytes = File.ReadAllBytes(DbPath);
+        for (int i = 4096; i < bytes.Length; i++) bytes[i] = 0xAB;
+        File.WriteAllBytes(DbPath, bytes);
+
+        // Distinctive sidecar content: the ONLY way this content can show up at the
+        // aside path is if the production move loop actually ran. A test that merely
+        // checks File.Exists at the original path would pass even if the move never
+        // happened, since a fresh WAL-mode DB creates its own -wal there regardless.
+        //
+        // -wal/-shm junk is written here (arrange only — NOT asserted on below): once
+        // WAL mode is active, SQLite validates any pre-existing -wal/-shm against its own
+        // internal format independent of the main file's health, and junk text fails that
+        // validation and gets purged before our loop runs, on any header state (verified
+        // empirically). Their presence still matters for the arrange, though: it forces
+        // SQLite to perform WAL/hot-journal negotiation eagerly on open, which is what
+        // reliably surfaces the page-2+ corruption as a SqliteException — without them,
+        // this file opens leniently and the corruption isn't touched until a damaged page
+        // is actually read, which doesn't reliably happen during the recovery probe.
+        //
+        // -journal is different: once WAL mode is active, SQLite doesn't touch legacy
+        // rollback-journal files at all, so a stray -journal genuinely survives to reach
+        // the production loop — making it the one suffix this in-process test can prove
+        // end-to-end. The loop's -wal/-shm handling shares the exact same code path (same
+        // loop body, only the suffix differs), so proving -journal moves is a genuine test
+        // of the loop logic itself.
+        File.WriteAllText(DbPath + "-wal", "junk-wal");
+        File.WriteAllText(DbPath + "-shm", "junk-shm");
+        File.WriteAllText(DbPath + "-journal", "junk-journal");
 
         using var db = SnapshotDatabase.OpenOrRecover(DbPath, out var recovered);
         recovered.Should().BeTrue();
@@ -48,13 +82,21 @@ public class SnapshotDatabaseTests : IDisposable
         // Corrupt file should be moved aside
         Directory.GetFiles(_dir, "disk-snapshots.db.corrupt-*").Where(p => !p.EndsWith("-wal") && !p.EndsWith("-shm") && !p.EndsWith("-journal")).Should().HaveCount(1);
 
-        // New database should be healthy and have fresh WAL files created
+        // The junk -journal sidecar must have been moved aside (not left, not lost) —
+        // content equality is what discriminates a real move from a no-op.
+        var asideJournal = Directory.GetFiles(_dir, "disk-snapshots.db.corrupt-*-journal");
+        asideJournal.Should().HaveCount(1);
+        File.ReadAllText(asideJournal[0]).Should().Be("junk-journal");
+        File.Exists(DbPath + "-journal").Should().BeFalse("the junk journal must not be left behind at the original path");
+
+        // New database should be healthy
         using var cmd = db.Connection.CreateCommand();
         cmd.CommandText = "SELECT COUNT(*) FROM snapshots";
         Convert.ToInt64(cmd.ExecuteScalar()).Should().Be(0);
 
         File.Exists(DbPath).Should().BeTrue("new database file should exist");
-        File.Exists(DbPath + "-wal").Should().BeTrue("fresh WAL file should be created by SQLite");
+        // Whether a fresh -wal exists at the original path depends on SQLite's
+        // checkpoint/WAL state at the time of assertion — not asserted either way.
     }
 
     [Fact]
