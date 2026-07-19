@@ -268,8 +268,23 @@ public class SettingsServiceTests : IDisposable
         // miniature, made deterministic).
         svc.Current.DefaultTab = "Processes";
 
-        Thread.Sleep(700); // debounce is 250 ms
-        File.ReadAllText(_settingsPath).Should().Contain("\"DefaultTab\": \"Dashboard\"");
+        // Poll for the debounced write (250 ms timer) instead of a fixed sleep — under
+        // parallel test load the threadpool can starve the timer well past any fixed margin.
+        // The property under test is unchanged: whatever eventually gets written must be the
+        // Save()-time snapshot, not the later mutation.
+        string? written = null;
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (File.Exists(_settingsPath))
+            {
+                written = File.ReadAllText(_settingsPath);
+                if (written.Contains("\"DefaultTab\"")) break;
+            }
+            Thread.Sleep(50);
+        }
+        written.Should().NotBeNull("the debounced write should land within the polling window");
+        written.Should().Contain("\"DefaultTab\": \"Dashboard\"");
         // Deliberately not disposing svc here: Dispose() flushes the LIVE object by design,
         // which would overwrite the debounced snapshot this test is pinning.
     }
