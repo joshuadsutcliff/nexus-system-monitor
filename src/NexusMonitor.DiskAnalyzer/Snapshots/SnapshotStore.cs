@@ -267,8 +267,13 @@ public sealed class SnapshotStore : ISnapshotStore
 
     internal void ApplyRetention(SnapshotOptions options)
     {
+        // Defensive floor (review finding, 2026-07-19): a non-positive RetentionPerRoot
+        // must never be allowed to prune the snapshot Save just inserted.
+        var keep = Math.Max(1, options.RetentionPerRoot);
+
         // Pass 1 — per-root count (spec §4: default 26 ≈ six months of weekly scans).
         // Delete over-limit snapshot rows directly, then orphan-sweep their nodes.
+        int pass1Rows;
         using (var tx = Database.Connection.BeginTransaction())
         {
             using (var cmd = Database.Connection.CreateCommand())
@@ -282,8 +287,8 @@ public sealed class SnapshotStore : ISnapshotStore
                                  AND (n.created_at > s.created_at
                                       OR (n.created_at = s.created_at AND n.id > s.id)))
                               >= $keep);";
-                cmd.Parameters.AddWithValue("$keep", options.RetentionPerRoot);
-                cmd.ExecuteNonQuery();
+                cmd.Parameters.AddWithValue("$keep", keep);
+                pass1Rows = cmd.ExecuteNonQuery();
             }
             using (var orphans = Database.Connection.CreateCommand())
             {
@@ -300,7 +305,9 @@ public sealed class SnapshotStore : ISnapshotStore
         // shrink until VACUUM (the loop would otherwise over-delete every root to 1),
         // and a VACUUM per iteration rewrites the whole file each time (review
         // consensus, 2026-07-19). One VACUUM after the loop reclaims the space.
-        var deletedAny = false;
+        // deletedAny also captures pass 1's deletions (review finding, 2026-07-19) —
+        // pass-1-only prunes free pages too and must not skip the reclaim.
+        var deletedAny = pass1Rows > 0;
         while (Database.GetLiveSizeBytes() > options.MaxDbSizeBytes)
         {
             long victim;
