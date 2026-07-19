@@ -227,6 +227,25 @@
                     IsVisible="{Binding IsDuplicateViewActive}"/>
           </Panel>
         </Button>
+        <Button Command="{Binding SelectSnapshotViewCommand}" Padding="16,9" CornerRadius="0">
+          <Button.Styles>
+            <Style Selector="Button">
+              <Setter Property="Background" Value="Transparent"/>
+              <Setter Property="BorderThickness" Value="0"/>
+            </Style>
+            <Style Selector="Button:pointerover /template/ ContentPresenter">
+              <Setter Property="Background" Value="{DynamicResource BgHoverBrush}"/>
+            </Style>
+          </Button.Styles>
+          <Panel>
+            <TextBlock Text="Snapshots"
+                       FontSize="{DynamicResource NxFont12}" FontWeight="Medium"
+                       Foreground="{DynamicResource TextSecondaryBrush}"/>
+            <Border Height="2" VerticalAlignment="Bottom"
+                    Background="{DynamicResource AccentBlueBrush}"
+                    IsVisible="{Binding IsSnapshotViewActive}"/>
+          </Panel>
+        </Button>
       </StackPanel>
     </Border>
 
@@ -595,6 +614,156 @@
         </Panel>
 
       </Grid><!-- end duplicates view -->
+
+      <!-- ═══════ SNAPSHOTS VIEW ═══════ -->
+      <Grid IsVisible="{Binding IsSnapshotViewActive}" RowDefinitions="Auto,Auto,*,Auto,*">
+
+        <!-- Header: compare buttons + store summary -->
+        <Border Grid.Row="0" Padding="16,10"
+                Background="{DynamicResource BgSecondaryBrush}"
+                BorderBrush="{DynamicResource BorderSubtleBrush}"
+                BorderThickness="0,0,0,1">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="8">
+              <Button Content="Compare with previous"
+                      Command="{Binding CompareWithPreviousCommand}"
+                      Padding="14,7" CornerRadius="8"
+                      FontSize="{DynamicResource NxFont12}">
+                <Button.Styles>
+                  <Style Selector="Button">
+                    <Setter Property="Background" Value="{DynamicResource BgElevatedBrush}"/>
+                    <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+                  </Style>
+                </Button.Styles>
+              </Button>
+              <Button Content="Compare selected"
+                      Command="{Binding CompareSelectedCommand}"
+                      Padding="14,7" CornerRadius="8"
+                      FontSize="{DynamicResource NxFont12}">
+                <Button.Styles>
+                  <Style Selector="Button">
+                    <Setter Property="Background" Value="{DynamicResource BgElevatedBrush}"/>
+                    <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+                  </Style>
+                </Button.Styles>
+              </Button>
+            </StackPanel>
+            <TextBlock Text="{Binding SnapshotStoreSummary}"
+                       FontSize="{DynamicResource NxFont13}"
+                       Foreground="{DynamicResource TextSecondaryBrush}"
+                       VerticalAlignment="Center"
+                       Margin="14,0,0,0"/>
+          </DockPanel>
+        </Border>
+
+        <TextBlock Grid.Row="1" Text="Saving snapshot…"
+                   IsVisible="{Binding IsSavingSnapshot}"
+                   FontSize="{DynamicResource NxFont11}"
+                   Foreground="{DynamicResource TextTertiaryBrush}"
+                   Margin="16,6,0,0"/>
+
+        <!-- Snapshot list -->
+        <DataGrid Grid.Row="2"
+                  ItemsSource="{Binding Snapshots}"
+                  AutoGenerateColumns="False"
+                  IsReadOnly="False"
+                  GridLinesVisibility="Horizontal"
+                  CanUserSortColumns="False"
+                  CanUserResizeColumns="True"
+                  FontSize="{DynamicResource NxFont12}"
+                  Background="{DynamicResource BgPrimaryBrush}">
+          <DataGrid.Columns>
+            <DataGridCheckBoxColumn Binding="{Binding IsSelected}" Width="40" IsReadOnly="False"/>
+            <DataGridTextColumn Header="Created" Binding="{Binding CreatedDisplay}" Width="1.5*" MinWidth="120" IsReadOnly="True"/>
+            <DataGridTextColumn Header="Size"    Binding="{Binding SizeDisplay}"    Width="*"    MinWidth="70"  IsReadOnly="True"/>
+            <DataGridTextColumn Header="Files"   Binding="{Binding FilesDisplay}"   Width="*"    MinWidth="70"  IsReadOnly="True"/>
+            <DataGridTemplateColumn Width="50">
+              <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate DataType="vm:SnapshotRow">
+                  <Button Content="✕"
+                          Command="{Binding $parent[UserControl].DataContext.DeleteSnapshotCommand}"
+                          CommandParameter="{Binding}"
+                          Padding="6,2" HorizontalAlignment="Center">
+                    <Button.Styles>
+                      <Style Selector="Button">
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="BorderThickness" Value="0"/>
+                        <Setter Property="Foreground" Value="{StaticResource ColorDangerBrush}"/>
+                      </Style>
+                    </Button.Styles>
+                  </Button>
+                </DataTemplate>
+              </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+          </DataGrid.Columns>
+        </DataGrid>
+
+        <TextBlock Grid.Row="3" Text="{Binding DiffHeader}"
+                   IsVisible="{Binding HasDiff}"
+                   FontSize="{DynamicResource NxFont13}"
+                   Foreground="{DynamicResource TextSecondaryBrush}"
+                   Margin="16,10,16,4" TextWrapping="Wrap"/>
+
+        <!-- Diff tree: flat-list, collapsed by default (mirrors the Folder View tree) -->
+        <DataGrid Grid.Row="4"
+                  ItemsSource="{Binding DiffRows}"
+                  IsVisible="{Binding HasDiff}"
+                  AutoGenerateColumns="False"
+                  IsReadOnly="True"
+                  GridLinesVisibility="Horizontal"
+                  CanUserSortColumns="False"
+                  CanUserResizeColumns="True"
+                  FontSize="{DynamicResource NxFont12}"
+                  Background="{DynamicResource BgPrimaryBrush}">
+          <DataGrid.Columns>
+            <DataGridTemplateColumn Header="Name" Width="2.5*" MinWidth="150">
+              <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate DataType="vm:DiffRow">
+                  <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding Indent}" FontFamily="monospace"/>
+                    <!-- Expander toggle (▶/▼) for nodes with children -->
+                    <Button IsVisible="{Binding HasChildren}"
+                            Command="{Binding $parent[UserControl].DataContext.ToggleDiffRowCommand}"
+                            CommandParameter="{Binding}"
+                            Width="16" Height="16" Padding="0"
+                            VerticalAlignment="Center"
+                            VerticalContentAlignment="Center"
+                            HorizontalContentAlignment="Center">
+                      <Button.Styles>
+                        <Style Selector="Button">
+                          <Setter Property="Background" Value="Transparent"/>
+                          <Setter Property="BorderThickness" Value="0"/>
+                          <Setter Property="FontSize" Value="9"/>
+                          <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+                        </Style>
+                      </Button.Styles>
+                      <Panel>
+                        <TextBlock Text="▶" IsVisible="{Binding !IsExpanded}" FontSize="9" VerticalAlignment="Center"/>
+                        <TextBlock Text="▼" IsVisible="{Binding IsExpanded}"  FontSize="9" VerticalAlignment="Center"/>
+                      </Panel>
+                    </Button>
+                    <!-- Placeholder spacer for leaf nodes (no expander) -->
+                    <Border Width="16" IsVisible="{Binding !HasChildren}"/>
+                    <TextBlock Text="{Binding Node.Name}"
+                               FontSize="{DynamicResource NxFont12}"
+                               Foreground="{DynamicResource TextPrimaryBrush}"
+                               VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Text="{Binding SmallFilesDisplay}"
+                               FontSize="{DynamicResource NxFont11}"
+                               Foreground="{DynamicResource TextTertiaryBrush}"
+                               VerticalAlignment="Center" Margin="6,0,0,0"/>
+                  </StackPanel>
+                </DataTemplate>
+              </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+            <DataGridTextColumn Header="Change"         Binding="{Binding KindDisplay}"        Width="0.8*" MinWidth="70"  IsReadOnly="True"/>
+            <DataGridTextColumn Header="Before → After" Binding="{Binding BeforeAfterDisplay}" Width="1.2*" MinWidth="110" IsReadOnly="True"/>
+            <DataGridTextColumn Header="Δ"              Binding="{Binding DeltaDisplay}"       Width="0.7*" MinWidth="70"  IsReadOnly="True"/>
+          </DataGrid.Columns>
+        </DataGrid>
+
+      </Grid><!-- end snapshots view -->
 
       <!-- ═══════ EMPTY STATE OVERLAY ═══════ (renders on top when no scan) -->
       <Border Background="{DynamicResource BgBaseBrush}"
