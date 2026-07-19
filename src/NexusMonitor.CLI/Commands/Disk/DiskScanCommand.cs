@@ -45,9 +45,11 @@ internal sealed class DiskScanCommand : AsyncCommand<DiskScanCommand.Settings>
 
     public override async Task<int> ExecuteAsync(CommandContext context, Settings s)
     {
+        var format = s.Format.ToLowerInvariant();
+
         if (!Directory.Exists(s.Path))
         {
-            AnsiConsole.MarkupLine($"[red]Path not found:[/] {s.Path}");
+            AnsiConsole.MarkupLine($"[red]Path not found:[/] {Markup.Escape(s.Path)}");
             return 1;
         }
 
@@ -61,7 +63,7 @@ internal sealed class DiskScanCommand : AsyncCommand<DiskScanCommand.Settings>
             baseline = SnapshotRefs.Resolve(_store.ListSnapshots(s.Path), s.Diff);
             if (baseline == null)
             {
-                AnsiConsole.MarkupLine($"[red]No snapshot matches[/] '{s.Diff}' for this root.");
+                AnsiConsole.MarkupLine($"[red]No snapshot matches[/] '{Markup.Escape(s.Diff)}' for this root.");
                 return 1;
             }
         }
@@ -75,7 +77,7 @@ internal sealed class DiskScanCommand : AsyncCommand<DiskScanCommand.Settings>
         var id = _store.Save(result, opts,
             typeof(DiskScanCommand).Assembly.GetName().Version?.ToString());
 
-        if (s.Format != "json")
+        if (format != "json")
             AnsiConsole.MarkupLine(
                 $"Scanned [bold]{result.TotalFiles:N0}[/] files, {DiskNode.FormatSize(result.TotalSize)} " +
                 $"— saved snapshot [bold]#{id}[/].");
@@ -83,7 +85,7 @@ internal sealed class DiskScanCommand : AsyncCommand<DiskScanCommand.Settings>
         if (baseline == null) return 0;
 
         var diff = SnapshotDiffer.Diff(_store, baseline.Id, id);
-        Console.Write(s.Format.ToLowerInvariant() == "json"
+        Console.Write(format == "json"
             ? DiffFormatter.ToJson(diff, s.Top)
             : DiffFormatter.ToTable(diff, s.Top));
         return 0;
