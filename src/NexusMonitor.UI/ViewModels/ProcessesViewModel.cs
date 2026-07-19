@@ -31,6 +31,7 @@ public partial class ProcessesViewModel : ViewModelBase, IActivatable, IDisposab
     private readonly MemoryLeakDetectionService? _leakService;
     private readonly ProcessGroupStore?          _groupStore;
     private readonly CancellationTokenSource _cts = new();
+    private readonly BatchProcessActions _batchActions;
 
     /// <summary>Exposes platform capability flags for binding in the View.</summary>
     public IPlatformCapabilities Platform { get; }
@@ -68,6 +69,61 @@ public partial class ProcessesViewModel : ViewModelBase, IActivatable, IDisposab
 
     [ObservableProperty]
     private ProcessRowViewModel? _selectedProcess;
+
+    // ── Multi-select (Ctrl/Cmd+click, Shift+click) ───────────────────────────
+    // DataGrid.SelectedItems (Avalonia 11.2.3) is a get-only IList, not a bindable
+    // AvaloniaProperty, so the View syncs it into this collection via a SelectionChanged
+    // handler (same code-behind-wires-grid-events pattern as OnGridSorting). SelectedProcess
+    // above keeps tracking the DataGrid's single "current" item — its own binding is untouched,
+    // so single-click UX (details pane, etc.) is unchanged.
+    public ObservableCollection<ProcessRowViewModel> SelectedProcesses { get; } = [];
+
+    /// <summary>True when 2 or more processes are selected — gates batch confirmation/labeling.</summary>
+    public bool HasMultiSelection => SelectedProcesses.Count > 1;
+
+    public string EndProcessMenuLabel =>
+        HasMultiSelection ? $"End {SelectedProcesses.Count} Processes" : "End Process";
+
+    public string EndProcessTreeMenuLabel =>
+        HasMultiSelection ? $"End {SelectedProcesses.Count} Process Trees" : "End Process Tree";
+
+    /// <summary>
+    /// Called by the View's DataGrid.SelectionChanged handler to sync the live multi-selection.
+    /// </summary>
+    public void UpdateSelection(IReadOnlyList<ProcessRowViewModel> selected)
+    {
+        SelectedProcesses.Clear();
+        foreach (var row in selected) SelectedProcesses.Add(row);
+        OnPropertyChanged(nameof(HasMultiSelection));
+        OnPropertyChanged(nameof(EndProcessMenuLabel));
+        OnPropertyChanged(nameof(EndProcessTreeMenuLabel));
+    }
+
+    private static BatchTarget ToBatchTarget(ProcessRowViewModel row) => new(row.Pid, row.Name, row.Category);
+
+    /// <summary>
+    /// Resolves the current action target set: the live multi-selection when populated, falling
+    /// back to the single anchor <see cref="SelectedProcess"/> otherwise (covers any
+    /// programmatic selection — e.g. <see cref="NavigateToProcessMessage"/> — that
+    /// hasn't round-tripped through the View's DataGrid.SelectionChanged sync yet).
+    /// </summary>
+    private List<BatchTarget> GetSelectionTargets()
+    {
+        IEnumerable<ProcessRowViewModel> rows = SelectedProcesses.Count > 0
+            ? SelectedProcesses
+            : SelectedProcess is not null ? [SelectedProcess] : [];
+        return rows.Select(ToBatchTarget).ToList();
+    }
+
+    /// <summary>Shows a single OK/Cancel confirmation dialog; returns true iff the user confirmed.</summary>
+    private async Task<bool> ConfirmAsync(string title, string message)
+    {
+        var mainWin = (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
+        if (mainWin is null) return false;
+        var dialog = new ConfirmationDialog(title, message);
+        var result = await dialog.ShowDialog<bool?>(mainWin);
+        return result == true;
+    }
 
     [ObservableProperty]
     private ProcessDetailViewModel? _selectedDetails;
@@ -154,6 +210,7 @@ public partial class ProcessesViewModel : ViewModelBase, IActivatable, IDisposab
         _preferenceStore  = preferenceStore;
         _leakService      = leakService;
         _groupStore       = groupStore;
+        _batchActions     = new BatchProcessActions(processProvider);
         GroupsViewModel   = groupsViewModel;
         Platform          = platformCapabilities ?? new MockPlatformCapabilities();
         Title = "Processes";
@@ -439,27 +496,41 @@ public partial class ProcessesViewModel : ViewModelBase, IActivatable, IDisposab
     }
 
     [RelayCommand]
-    private async Task KillProcess()
-    {
-        if (SelectedProcess is null) return;
-        try
-        {
-            LastError = string.Empty;
-            await _processProvider.KillProcessAsync(SelectedProcess.Pid, killTree: false, _cts.Token);
-        }
-        catch (Exception ex) { LastError = $"Kill failed: {ex.Message}"; }
-    }
+    private Task KillProcess() => KillSelection(killTree: false);
 
     [RelayCommand]
-    private async Task KillProcessTree()
+    private Task KillProcessTree() => KillSelection(killTree: true);
+
+    /// <summary>
+    /// Shared kill/kill-tree body. A single-target selection runs the exact pre-multi-select
+    /// code path (same call, same error message, no confirmation dialog — requirement: "single
+    /// process flow keeps today's behavior exactly"). Two or more targets show ONE confirmation
+    /// dialog, then run through <see cref="_batchActions"/> so one process's failure never
+    /// aborts the rest of the batch, ending in one honest summary in <see cref="LastError"/>.
+    /// </summary>
+    private async Task KillSelection(bool killTree)
     {
-        if (SelectedProcess is null) return;
-        try
+        var targets = GetSelectionTargets();
+        if (targets.Count == 0) return;
+
+        if (targets.Count == 1)
         {
-            LastError = string.Empty;
-            await _processProvider.KillProcessAsync(SelectedProcess.Pid, killTree: true, _cts.Token);
+            try
+            {
+                LastError = string.Empty;
+                await _processProvider.KillProcessAsync(targets[0].Pid, killTree, _cts.Token);
+            }
+            catch (Exception ex) { LastError = $"{(killTree ? "Kill tree" : "Kill")} failed: {ex.Message}"; }
+            return;
         }
-        catch (Exception ex) { LastError = $"Kill tree failed: {ex.Message}"; }
+
+        var names = targets.Select(t => t.Name).ToList();
+        if (!await ConfirmAsync("End Processes", BatchConfirmationText.BuildKillConfirmationMessage(names)))
+            return;
+
+        LastError = string.Empty;
+        var result = await _batchActions.KillAsync(targets, killTree, _cts.Token);
+        LastError = result.Summarize("Ended");
     }
 
     [RelayCommand]
@@ -489,14 +560,24 @@ public partial class ProcessesViewModel : ViewModelBase, IActivatable, IDisposab
     [RelayCommand]
     private async Task SetPriority(string priorityName)
     {
-        if (SelectedProcess is null) return;
+        var targets = GetSelectionTargets();
+        if (targets.Count == 0) return;
         if (!Enum.TryParse<ProcessPriority>(priorityName, out var priority)) return;
-        try
+
+        if (targets.Count == 1)
         {
-            LastError = string.Empty;
-            await _processProvider.SetPriorityAsync(SelectedProcess.Pid, priority, _cts.Token);
+            try
+            {
+                LastError = string.Empty;
+                await _processProvider.SetPriorityAsync(targets[0].Pid, priority, _cts.Token);
+            }
+            catch (Exception ex) { LastError = $"Set priority failed: {ex.Message}"; }
+            return;
         }
-        catch (Exception ex) { LastError = $"Set priority failed: {ex.Message}"; }
+
+        LastError = string.Empty;
+        var result = await _batchActions.SetPriorityAsync(targets, priority, _cts.Token);
+        LastError = result.Summarize("Updated priority for");
     }
 
     [RelayCommand]
@@ -564,24 +645,38 @@ public partial class ProcessesViewModel : ViewModelBase, IActivatable, IDisposab
     [RelayCommand]
     private async Task SetAffinity()
     {
-        if (SelectedProcess is null) return;
+        var targets = GetSelectionTargets();
+        if (targets.Count == 0) return;
         try
         {
             LastError = string.Empty;
-            var (procMask, sysMask) = await _processProvider.GetAffinityMasksAsync(SelectedProcess.Pid, _cts.Token);
+
+            // The CPU checklist is seeded from the anchor (first-selected) process's current
+            // mask — the system mask (which CPUs exist) is machine-wide and identical for every
+            // target, so one dialog covers the whole selection.
+            var anchor = targets[0];
+            var (procMask, sysMask) = await _processProvider.GetAffinityMasksAsync(anchor.Pid, _cts.Token);
 
             var mainWin = (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
             if (mainWin is null) return;
 
-            var dialog = new AffinityDialog(
-                $"{SelectedProcess.Name} (PID {SelectedProcess.Pid})",
-                procMask, sysMask);
+            var label = targets.Count == 1
+                ? $"{anchor.Name} (PID {anchor.Pid})"
+                : $"{targets.Count} processes";
+
+            var dialog = new AffinityDialog(label, procMask, sysMask);
 
             var result = await dialog.ShowDialog<long?>(mainWin);
-            if (result is long newMask && newMask > 0)
+            if (result is not long newMask || newMask <= 0) return;
+
+            if (targets.Count == 1)
             {
-                await _processProvider.SetAffinityAsync(SelectedProcess.Pid, newMask, _cts.Token);
+                await _processProvider.SetAffinityAsync(anchor.Pid, newMask, _cts.Token);
+                return;
             }
+
+            var batchResult = await _batchActions.SetAffinityAsync(targets, newMask, _cts.Token);
+            LastError = batchResult.Summarize("Set affinity for");
         }
         catch (Exception ex) { LastError = $"Set affinity failed: {ex.Message}"; }
     }

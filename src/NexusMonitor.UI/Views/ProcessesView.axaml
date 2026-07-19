@@ -78,7 +78,7 @@
                 Margin="0,0,4,0"
                 Command="{Binding KillProcessCommand}"
                 IsEnabled="{Binding SelectedProcess, Converter={StaticResource NullToBool}}"
-                ToolTip.Tip="End process">
+                ToolTip.Tip="{Binding EndProcessMenuLabel}">
           <StackPanel Orientation="Horizontal" Spacing="6">
             <TextBlock Text="✕" FontSize="{DynamicResource NxFont11}" Foreground="{StaticResource ColorDangerBrush}"/>
             <TextBlock Text="End" FontSize="{DynamicResource NxFont12}"/>
@@ -213,7 +213,7 @@
                 CanUserSortColumns="True"
                 CanUserResizeColumns="True"
                 CanUserReorderColumns="True"
-                SelectionMode="Single"
+                SelectionMode="Extended"
                 AutoGenerateColumns="False"
                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
                 Margin="0">
@@ -229,12 +229,12 @@
 
         <DataGrid.ContextMenu>
           <ContextMenu>
-            <MenuItem Header="End Process" Command="{Binding KillProcessCommand}">
+            <MenuItem Header="{Binding EndProcessMenuLabel}" Command="{Binding KillProcessCommand}">
               <MenuItem.Icon>
                 <TextBlock Text="✕" Foreground="{StaticResource ColorDangerBrush}"/>
               </MenuItem.Icon>
             </MenuItem>
-            <MenuItem Header="End Process Tree" Command="{Binding KillProcessTreeCommand}"/>
+            <MenuItem Header="{Binding EndProcessTreeMenuLabel}" Command="{Binding KillProcessTreeCommand}"/>
             <Separator/>
             <MenuItem Header="Suspend" Command="{Binding SuspendProcessCommand}"/>
             <MenuItem Header="Resume"  Command="{Binding ResumeProcessCommand}"/>

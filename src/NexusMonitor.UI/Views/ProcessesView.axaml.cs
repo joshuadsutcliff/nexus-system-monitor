@@ -18,7 +18,8 @@ public partial class ProcessesView : UserControl
     protected override void OnLoaded(RoutedEventArgs e)
     {
         base.OnLoaded(e);
-        ProcessGrid.Sorting += OnGridSorting;
+        ProcessGrid.Sorting          += OnGridSorting;
+        ProcessGrid.SelectionChanged += OnGridSelectionChanged;
 
         // Restore sort indicator from the VM — survives tab switches (View is recreated, VM is not).
         RestoreSort();
@@ -33,13 +34,28 @@ public partial class ProcessesView : UserControl
     protected override void OnUnloaded(RoutedEventArgs e)
     {
         base.OnUnloaded(e);
-        ProcessGrid.Sorting -= OnGridSorting;
+        ProcessGrid.Sorting          -= OnGridSorting;
+        ProcessGrid.SelectionChanged -= OnGridSelectionChanged;
 
         if (DataContext is ProcessesViewModel vm)
         {
             vm.Processes.CollectionChanged -= OnProcessesCollectionChanged;
             vm.PropertyChanged            -= OnVmPropertyChanged;
         }
+    }
+
+    /// <summary>
+    /// Syncs the DataGrid's live multi-selection (SelectionMode="Extended": Ctrl/Cmd+click
+    /// toggles, Shift+click ranges) into the ViewModel. DataGrid.SelectedItems (Avalonia 11.2.3)
+    /// is a get-only IList, not a bindable AvaloniaProperty, so this event-driven sync is the
+    /// standard way to expose it — the same pattern this file already uses for OnGridSorting.
+    /// SelectedItem stays bound directly in XAML and keeps driving the details pane/anchor
+    /// selection unchanged.
+    /// </summary>
+    private void OnGridSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (DataContext is not ProcessesViewModel vm) return;
+        vm.UpdateSelection(ProcessGrid.SelectedItems.OfType<ProcessRowViewModel>().ToList());
     }
 
     private void OnGridSorting(object? sender, DataGridColumnEventArgs e)
