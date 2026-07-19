@@ -240,6 +240,11 @@ public sealed class LinuxHardwareInfoProvider
             }
         }
         catch { }
+        // TODO(availability-enum): this "N/A" is provider-baked (bypasses
+        // SystemInfoViewModel.SocketDisplay's own dash logic entirely, since "N/A" isn't
+        // whitespace) — out of scope for the unavailable-metric-tooltips PR. See CONTRIBUTING.md
+        // "Platform code honesty contract" for the planned structured-availability migration that
+        // would let this express "dmidecode unavailable/unprivileged" explicitly instead.
         return "N/A";
     }
 

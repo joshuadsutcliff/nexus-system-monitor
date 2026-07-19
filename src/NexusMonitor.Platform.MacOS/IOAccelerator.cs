@@ -32,6 +32,15 @@ internal sealed class IOAccelerator : IDisposable
 
     private IOAccelerator(uint[] entries) => _entries = entries;
 
+    // TODO(availability-enum): Open() returning null and ReadMemoryBytes (GpuPerformanceStats.cs)
+    // returning null both already distinguish "no accelerator node" / "key absent" from a real
+    // zero — but that reason is discarded by the time it reaches GpuMetrics (a non-nullable
+    // record) further up the stack, so the VM only ever sees "total is 0" with no way to know
+    // whether that's "no dedicated VRAM pool" (macOS/Apple Silicon — GpuDeviceViewModel already
+    // infers this locally via OperatingSystem.IsMacOS()) or something else entirely. See
+    // CONTRIBUTING.md "Platform code honesty contract" for the planned structured-availability
+    // channel that would carry this reason all the way to the tooltip instead of it being
+    // re-inferred at the VM.
     /// <summary>
     /// Matches every "IOAccelerator" service in the IOKit registry and keeps their handles open
     /// for reuse. Returns <c>null</c> if none are found (older hardware / no GPU accelerator
@@ -82,6 +91,10 @@ internal sealed class IOAccelerator : IDisposable
                 // C4: ReadMemoryBytes distinguishes "key absent" (null — honest unavailable) from
                 // "key present with value 0" (a genuinely reported zero); plain TryGetValue alone
                 // left both as the same fabricated 0.
+                // TODO(availability-enum): inUse/alloc's null-vs-zero distinction is still lost
+                // once GpuPerformanceSample flows into the non-nullable GpuMetrics further up the
+                // stack (see the TODO on IOAccelerator.Open() above and CONTRIBUTING.md
+                // "Platform code honesty contract").
                 var inUse  = GpuPerformanceStats.ReadMemoryBytes(stats, GpuPerformanceStats.InUseSystemMemoryKey);
                 var alloc  = GpuPerformanceStats.ReadMemoryBytes(stats, GpuPerformanceStats.AllocSystemMemoryKey);
 
