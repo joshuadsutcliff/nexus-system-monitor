@@ -8,7 +8,8 @@
 
 **Tech Stack:** .NET 8, Microsoft.Data.Sqlite 8.0.1, CommunityToolkit.Mvvm, Avalonia (existing DataGrid patterns), Spectre.Console CLI, xunit + FluentAssertions.
 
-**Spec:** `docs/superpowers/specs/2026-07-19-snapshot-compare-design.md` (rev 2). Two deliberate consolidations vs. the spec's component list, both invisible at the API boundary: (1) `SnapshotWriter`/`SnapshotReader` are private concerns of one `SnapshotStore` class implementing `ISnapshotStore` — two files of ceremony saved, same interface; (2) the spec's nested `diskSnapshots:{}` settings block becomes four flat `Snapshot*` properties on `AppSettings`, because the repo's settings convention is flat props under comment banners (`AppSettings.cs:53-56`), not nested objects.
+**Spec:** `docs/superpowers/specs/2026-07-19-snapshot-compare-design.md` (rev 2).
+**Plan rev 2 (2026-07-19):** amended after three-way review (Kiro w/ repo access + nemotron slim brief + conductor empirical tests): retention cap loop measures live bytes with a single post-loop VACUUM; targeted `ClearPool` instead of process-wide `ClearAllPools`; dedicated read connection (SqliteConnection is not thread-safe); simplified retention SQL; + 7 smaller review tweaks. The multi-statement `ExecuteScalar` "bug" claimed in review was disproven by a live driver test — those patterns stand. Two deliberate consolidations vs. the spec's component list, both invisible at the API boundary: (1) `SnapshotWriter`/`SnapshotReader` are private concerns of one `SnapshotStore` class implementing `ISnapshotStore` — two files of ceremony saved, same interface; (2) the spec's nested `diskSnapshots:{}` settings block becomes four flat `Snapshot*` properties on `AppSettings`, because the repo's settings convention is flat props under comment banners (`AppSettings.cs:53-56`), not nested objects.
 
 ## Global Constraints
 
@@ -227,7 +228,7 @@ git commit -m "feat(snapshots): test project scaffold + path normalization keys"
 
 **Interfaces:**
 - Consumes: nothing new.
-- Produces: `SnapshotDatabase(string dbPath)` with `.Connection : SqliteConnection`, `.GetDatabaseSizeBytes() : long`, `.Checkpoint()`, `IDisposable`; static `SnapshotDatabase.OpenOrRecover(string dbPath, out bool recovered) : SnapshotDatabase`. Model types: `SnapshotInfo` (record: `Id, RootPath, RootKey, CreatedAtUtc, Scanner, FileSystem, VolumeTotal, VolumeFree, TotalSize, TotalFiles, TotalDirs, ThresholdBytes, AppVersion`), `SnapshotNode` (class: `Id, ParentId, Name, IsDirectory, Size, AllocatedSize, FileCount, FolderCount, LastModified, Created, LastAccessed, SmallFilesSize, SmallFilesCount`), `SnapshotOptions` (record: `ThresholdBytes, RetentionPerRoot, MaxDbSizeBytes`), enum `ChangeKind { Added, Removed, Grown, Shrunk, Unchanged }`, `DiffNode`, `DiffResult` — used by every later task.
+- Produces: `SnapshotDatabase(string dbPath)` with `.Connection : SqliteConnection` (writes), `.ReadConnection : SqliteConnection` (reads — WAL concurrent-reader; SqliteConnection is not thread-safe so reads never share the write connection), `.GetDatabaseSizeBytes() : long`, `.GetLiveSizeBytes() : long`, `.Checkpoint()`, `IDisposable`; static `SnapshotDatabase.OpenOrRecover(string dbPath, out bool recovered) : SnapshotDatabase`. Model types: `SnapshotInfo` (record: `Id, RootPath, RootKey, CreatedAtUtc, Scanner, FileSystem, VolumeTotal, VolumeFree, TotalSize, TotalFiles, TotalDirs, ThresholdBytes, AppVersion`), `SnapshotNode` (class: `Id, ParentId, Name, IsDirectory, Size, AllocatedSize, FileCount, FolderCount, LastModified, Created, LastAccessed, SmallFilesSize, SmallFilesCount`), `SnapshotOptions` (record: `ThresholdBytes, RetentionPerRoot, MaxDbSizeBytes`), enum `ChangeKind { Added, Removed, Grown, Shrunk, Unchanged }`, `DiffNode`, `DiffResult` — used by every later task.
 
 - [ ] **Step 1: Add the Sqlite package reference**
 
@@ -407,17 +408,34 @@ public sealed class SnapshotDatabase : IDisposable
         Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
         Connection = new SqliteConnection($"Data Source={dbPath}");
         Connection.Open();
-        ConfigurePragmas();
-        InitSchema();
+        try
+        {
+            ConfigurePragmas();
+            InitSchema();
+            // Second connection for reads: WAL supports concurrent readers with one
+            // writer, and SqliteConnection itself is NOT thread-safe — UI-thread reads
+            // must never share the write connection with background saves (review
+            // consensus 2026-07-19; mirrors the MetricsStore two-connection pattern).
+            ReadConnection = new SqliteConnection($"Data Source={dbPath}");
+            ReadConnection.Open();
+        }
+        catch
+        {
+            Connection.Dispose(); // never leak an open handle on a corrupt file
+            throw;
+        }
     }
+
+    public SqliteConnection ReadConnection { get; private set; } = null!;
 
     /// <summary>Spec §8: corrupt DB → rename aside, recreate empty, report recovery.</summary>
     public static SnapshotDatabase OpenOrRecover(string dbPath, out bool recovered)
     {
         recovered = false;
+        SnapshotDatabase? db = null;
         try
         {
-            var db = new SnapshotDatabase(dbPath);
+            db = new SnapshotDatabase(dbPath);
             // A file can open yet still be corrupt; force a real read.
             using var cmd = db.Connection.CreateCommand();
             cmd.CommandText = "SELECT COUNT(*) FROM snapshots";
@@ -426,7 +444,10 @@ public sealed class SnapshotDatabase : IDisposable
         }
         catch (SqliteException)
         {
-            SqliteConnection.ClearAllPools(); // release the file handle before renaming
+            // Release only THIS file's handles. ClearAllPools() is process-wide and
+            // would disturb the metrics DB's pooling (review finding, 2026-07-19).
+            db?.Dispose();
+            SqliteConnection.ClearPool(new SqliteConnection($"Data Source={dbPath}"));
             var aside = $"{dbPath}.corrupt-{DateTime.UtcNow:yyyyMMdd-HHmmss}";
             File.Move(dbPath, aside, overwrite: true);
             recovered = true;
@@ -498,6 +519,17 @@ public sealed class SnapshotDatabase : IDisposable
         return f.Exists ? f.Length : 0;
     }
 
+    /// <summary>Live (non-free) bytes. Unlike file length, this shrinks as rows are
+    /// deleted, without needing VACUUM — the retention cap loop depends on that.</summary>
+    public long GetLiveSizeBytes()
+    {
+        using var cmd = Connection.CreateCommand();
+        cmd.CommandText = @"SELECT ((SELECT * FROM pragma_page_count) -
+                                    (SELECT * FROM pragma_freelist_count))
+                                 * (SELECT * FROM pragma_page_size);";
+        return Convert.ToInt64(cmd.ExecuteScalar());
+    }
+
     public void Checkpoint()
     {
         using var cmd = Connection.CreateCommand();
@@ -508,6 +540,7 @@ public sealed class SnapshotDatabase : IDisposable
     public void Dispose()
     {
         try { Checkpoint(); } catch { /* best effort */ }
+        ReadConnection?.Dispose();
         Connection.Dispose();
     }
 }
@@ -557,11 +590,12 @@ public interface ISnapshotStore : IDisposable
 
 - [ ] **Step 0: Add InternalsVisibleTo (tests touch the internal `Database` property)**
 
-Create `src/NexusMonitor.DiskAnalyzer/Properties/AssemblyInfo.cs` with exactly:
+In `src/NexusMonitor.DiskAnalyzer/NexusMonitor.DiskAnalyzer.csproj`, add a new item group (SDK-native form — avoids any duplicate-assembly-attribute risk from generated AssemblyInfo):
 
-```csharp
-using System.Runtime.CompilerServices;
-[assembly: InternalsVisibleTo("NexusMonitor.DiskAnalyzer.Tests")]
+```xml
+<ItemGroup>
+  <InternalsVisibleTo Include="NexusMonitor.DiskAnalyzer.Tests" />
+</ItemGroup>
 ```
 
 - [ ] **Step 1: Write the test-tree helper**
@@ -795,7 +829,7 @@ public sealed class SnapshotStore : ISnapshotStore
                     cmd.Parameters.AddWithValue("$rp", PathKeys.NormalizeDisplay(result.ScannedPath));
                     cmd.Parameters.AddWithValue("$rk", PathKeys.ToRootKey(result.ScannedPath));
                     cmd.Parameters.AddWithValue("$ca", DateTime.UtcNow.ToString("o"));
-                    cmd.Parameters.AddWithValue("$sc", OperatingSystem.IsWindows() ? "mft" : "recursive");
+                    cmd.Parameters.AddWithValue("$sc", OperatingSystem.IsWindows() ? "mft-or-recursive" : "recursive");
                     cmd.Parameters.AddWithValue("$fs", (object?)NullIfEmpty(result.FileSystem) ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("$vt", result.VolumeTotal);
                     cmd.Parameters.AddWithValue("$vf", result.VolumeFree);
@@ -903,7 +937,7 @@ public sealed class SnapshotStore : ISnapshotStore
 
     public IReadOnlyList<SnapshotInfo> ListSnapshots(string? rootPath = null)
     {
-        using var cmd = Database.Connection.CreateCommand();
+        using var cmd = Database.ReadConnection.CreateCommand();
         cmd.CommandText = @"SELECT id, root_path, root_key, created_at, scanner, file_system,
                                    volume_total, volume_free, total_size, total_files, total_dirs,
                                    threshold_bytes, app_version
@@ -919,7 +953,7 @@ public sealed class SnapshotStore : ISnapshotStore
 
     public SnapshotInfo? GetSnapshot(long id)
     {
-        using var cmd = Database.Connection.CreateCommand();
+        using var cmd = Database.ReadConnection.CreateCommand();
         cmd.CommandText = @"SELECT id, root_path, root_key, created_at, scanner, file_system,
                                    volume_total, volume_free, total_size, total_files, total_dirs,
                                    threshold_bytes, app_version
@@ -947,7 +981,7 @@ public sealed class SnapshotStore : ISnapshotStore
 
     public IReadOnlyList<SnapshotNode> LoadNodes(long snapshotId)
     {
-        using var cmd = Database.Connection.CreateCommand();
+        using var cmd = Database.ReadConnection.CreateCommand();
         cmd.CommandText = @"SELECT id, parent_id, name, is_dir, size, allocated_size,
                                    file_count, folder_count, last_modified, created, last_accessed,
                                    small_files_size, small_files_count
@@ -1022,7 +1056,7 @@ public sealed class SnapshotStore : ISnapshotStore
 }
 ```
 
-Note on the `scanner` column value: `ScanResult` does not carry which scanner produced it, so `Save` infers `"mft"` on Windows / `"recursive"` elsewhere (matching `MftScanner`'s own fallback rule). Do NOT modify `ScanResult` to add it — scanner files are out of bounds.
+Note on the `scanner` column value: `ScanResult` does not carry which scanner produced it, and `MftScanner` silently falls back to `RecursiveScanner` when the MFT read fails — so on Windows the honest value is `"mft-or-recursive"`, not a confident `"mft"` that may be wrong (review finding). Do NOT modify `ScanResult` to add the real value — scanner files are out of bounds.
 
 - [ ] **Step 5: Run tests to verify they pass**
 
@@ -1158,6 +1192,9 @@ public class SnapshotDifferTests : IDisposable
         // mid.bin is a row only in the older snapshot; at effective threshold it must
         // NOT appear as a Removed file — it is re-aggregated instead.
         diff.Root.Children.Should().NotContain(c => c.Name == "mid.bin");
+        // Full accounting: same file, same size, both sides at effective resolution —
+        // the re-aggregated small-files delta must net to zero (review finding).
+        diff.Root.SmallFilesDelta.Should().Be(0);
     }
 
     [Fact]
@@ -1291,14 +1328,9 @@ public static class SnapshotDiffer
         }
         foreach (var (name, newChild) in newKids)
         {
-            if (!oldKids.ContainsKey(name) ||
-                oldKids[name].IsDirectory != newChild.IsDirectory)
-            {
-                if (!oldKids.ContainsKey(name))
-                    children.Add(Leaf(name, newChild.IsDirectory, ChangeKind.Added, null, newChild.Size));
-                else // type flipped file<->dir: report as Removed (above) + Added
-                    children.Add(Leaf(name, newChild.IsDirectory, ChangeKind.Added, null, newChild.Size));
-            }
+            if (!oldKids.TryGetValue(name, out var oldMatch) || oldMatch.IsDirectory != newChild.IsDirectory)
+                children.Add(Leaf(name, newChild.IsDirectory, ChangeKind.Added, null, newChild.Size));
+            // (a type-flip already emitted its Removed in the oldKids loop above)
         }
 
         var smallDelta = newSide.SmallSize(newDir) - oldSide.SmallSize(oldDir);
@@ -1456,35 +1488,40 @@ Replace the no-op in `SnapshotStore.cs`:
 internal void ApplyRetention(SnapshotOptions options)
 {
     // Pass 1 — per-root count (spec §4: default 26 ≈ six months of weekly scans).
+    // Delete over-limit snapshot rows directly, then orphan-sweep their nodes.
     using (var tx = Database.Connection.BeginTransaction())
     {
-        using var cmd = Database.Connection.CreateCommand();
-        cmd.Transaction = tx;
-        cmd.CommandText = @"
-            DELETE FROM nodes WHERE snapshot_id IN (
-                SELECT id FROM snapshots s
-                WHERE (SELECT COUNT(*) FROM snapshots n
-                       WHERE n.root_key = s.root_key
-                         AND (n.created_at > s.created_at
-                              OR (n.created_at = s.created_at AND n.id > s.id)))
-                      >= $keep);
-            DELETE FROM snapshots WHERE id NOT IN (SELECT DISTINCT snapshot_id FROM nodes)
-                AND id IN (SELECT id FROM snapshots s
+        using (var cmd = Database.Connection.CreateCommand())
+        {
+            cmd.Transaction = tx;
+            cmd.CommandText = @"
+                DELETE FROM snapshots WHERE id IN (
+                    SELECT id FROM snapshots s
                     WHERE (SELECT COUNT(*) FROM snapshots n
                            WHERE n.root_key = s.root_key
                              AND (n.created_at > s.created_at
                                   OR (n.created_at = s.created_at AND n.id > s.id)))
                           >= $keep);";
-        cmd.Parameters.AddWithValue("$keep", options.RetentionPerRoot);
-        cmd.ExecuteNonQuery();
+            cmd.Parameters.AddWithValue("$keep", options.RetentionPerRoot);
+            cmd.ExecuteNonQuery();
+        }
+        using (var orphans = Database.Connection.CreateCommand())
+        {
+            orphans.Transaction = tx;
+            orphans.CommandText = "DELETE FROM nodes WHERE snapshot_id NOT IN (SELECT id FROM snapshots);";
+            orphans.ExecuteNonQuery();
+        }
         tx.Commit();
     }
 
     // Pass 2 — fair global size cap (spec §4): while over cap, delete the OLDEST
     // snapshot from the root that currently holds the MOST snapshots; never drop
-    // a root's last remaining snapshot.
-    Database.Checkpoint();
-    while (Database.GetDatabaseSizeBytes() > options.MaxDbSizeBytes)
+    // a root's last remaining snapshot. Size is LIVE bytes — file length doesn't
+    // shrink until VACUUM (the loop would otherwise over-delete every root to 1),
+    // and a VACUUM per iteration rewrites the whole file each time (review
+    // consensus, 2026-07-19). One VACUUM after the loop reclaims the space.
+    var deletedAny = false;
+    while (Database.GetLiveSizeBytes() > options.MaxDbSizeBytes)
     {
         long victim;
         using (var pick = Database.Connection.CreateCommand())
@@ -1500,7 +1537,11 @@ internal void ApplyRetention(SnapshotOptions options)
             if (res is null || res is DBNull) break; // every root is down to 1 — stop
             victim = Convert.ToInt64(res);
         }
-        Delete(victim);
+        DeleteCore(victim);
+        deletedAny = true;
+    }
+    if (deletedAny)
+    {
         Database.Checkpoint();
         RunVacuum();
     }
@@ -1872,7 +1913,9 @@ internal sealed class DiskScanCommand : AsyncCommand<DiskScanCommand.Settings>
         }
 
         // Resolve the diff reference BEFORE saving: 'latest' means the newest
-        // snapshot that existed before this scan (spec §7).
+        // snapshot that existed before this scan (spec §7). DO NOT move this below
+        // Save — 'latest' would then resolve to the snapshot we just saved and
+        // every --diff latest would be an empty self-diff.
         SnapshotInfo? baseline = null;
         if (s.Diff != null)
         {
@@ -1993,8 +2036,10 @@ git commit -m "feat(cli): nexus disk scan/snapshots/diff commands"
 
 - [ ] **Step 1: Verify SettingsService is resolvable in the UI container**
 
-Run: `grep -n "SettingsService" src/NexusMonitor.UI/App.axaml.cs | head -5`
-Expected: a registration or resolution line exists (the anomaly-toast code at `:371` already reads settings). If it is NOT registered in the UI `ServiceCollection`, inject `AppSettings` access the same way that code path gets it — follow the exact mechanism found here; do not invent a second settings pipeline.
+Run: `grep -n "SettingsService" src/NexusMonitor.UI/App.axaml.cs src/NexusMonitor.Hosting/NexusServiceCollectionExtensions.cs`
+Two outcomes:
+- **Registered** (an `AddSingleton<SettingsService>`/factory line exists): constructor injection just works. (.NET DI honors C# optional-parameter defaults — the VM's existing `IPlatformCapabilities? = null` parameter already relies on exactly this, so the new optional params are safe either way.)
+- **Not registered** (App constructs its own instance — e.g. the `saved` variable used near `:371`): register THAT existing instance in the UI container before it is built (`services.AddSingleton(settingsInstance)`), so the VM receives the same object App reads. Do not construct a second SettingsService.
 
 - [ ] **Step 2: Register the store in App.axaml.cs**
 
@@ -2059,11 +2104,13 @@ private SnapshotOptions CurrentSnapshotOptions()
 
 private async Task SaveSnapshotAsync(ScanResult result)
 {
-    if (_snapshotStore is null) return;
-    if (_settings?.Current is { SnapshotsEnabled: false }) return;
-    Avalonia.Threading.Dispatcher.UIThread.Post(() => IsSavingSnapshot = true);
+    // Entire body inside try — this task is fire-and-forget, so an exception
+    // thrown before the first await would otherwise vanish unobserved.
     try
     {
+        if (_snapshotStore is null) return;
+        if (_settings?.Current is { SnapshotsEnabled: false }) return;
+        Avalonia.Threading.Dispatcher.UIThread.Post(() => IsSavingSnapshot = true);
         await Task.Run(() => _snapshotStore.Save(result, CurrentSnapshotOptions(),
             GetType().Assembly.GetName().Version?.ToString())).ConfigureAwait(false);
         Avalonia.Threading.Dispatcher.UIThread.Post(RefreshSnapshotList);
@@ -2289,7 +2336,7 @@ In `DiskAnalyzerView.axaml`: a fourth mode button beside the existing three (`:1
   <DataGrid Grid.Row="2" ItemsSource="{Binding Snapshots}" AutoGenerateColumns="False"
             IsReadOnly="False" CanUserSortColumns="False">
     <DataGrid.Columns>
-      <DataGridCheckBoxColumn Binding="{Binding IsSelected}" Width="40" />
+      <DataGridCheckBoxColumn Binding="{Binding IsSelected}" Width="40" IsReadOnly="False" />
       <DataGridTextColumn Header="Created" Binding="{Binding CreatedDisplay}" IsReadOnly="True" />
       <DataGridTextColumn Header="Size"    Binding="{Binding SizeDisplay}"    IsReadOnly="True" />
       <DataGridTextColumn Header="Files"   Binding="{Binding FilesDisplay}"   IsReadOnly="True" />
