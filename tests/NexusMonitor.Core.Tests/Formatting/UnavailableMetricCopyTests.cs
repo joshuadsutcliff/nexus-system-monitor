@@ -63,7 +63,7 @@ public class UnavailableMetricCopyTests
     public void CpuTempUnsupported_ExactWording()
     {
         UnavailableMetricCopy.CpuTempUnsupported.Should().Be(
-            "CPU temperature isn't accessible on this hardware — Nexus shows nothing rather than guess.");
+            "CPU temperature isn't accessible on this hardware — Nexus shows nothing rather than estimate.");
     }
 
     [Fact]

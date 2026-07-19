@@ -26,7 +26,7 @@ public static class UnavailableMetricCopy
     /// <summary>CPU temperature unsupported on the current hardware/platform (no sensor exposed
     /// a real reading).</summary>
     public const string CpuTempUnsupported =
-        "CPU temperature isn't accessible on this hardware — Nexus shows nothing rather than guess.";
+        "CPU temperature isn't accessible on this hardware — Nexus shows nothing rather than estimate.";
 
     /// <summary>GPU total memory unavailable on macOS (e.g. Apple Silicon unified memory has no
     /// dedicated VRAM pool to report a total for).</summary>
