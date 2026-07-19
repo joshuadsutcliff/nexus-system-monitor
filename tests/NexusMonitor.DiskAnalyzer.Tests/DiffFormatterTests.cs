@@ -86,4 +86,60 @@ public class DiffFormatterTests
         SnapshotRefs.Resolve(list, "2026-01-01").Should().BeNull();    // none before
         SnapshotRefs.Resolve(list, "999").Should().BeNull();
     }
+
+    [Fact]
+    public void ToJson_TruncatedTrue_WhenTopBelowTotal()
+    {
+        using var doc = JsonDocument.Parse(DiffFormatter.ToJson(SampleDiff(), top: 1));
+        var r = doc.RootElement;
+        r.GetProperty("truncated").GetBoolean().Should().BeTrue();
+        r.GetProperty("changes").GetArrayLength().Should().Be(1);
+    }
+
+    [Fact]
+    public void SnapshotRefs_FullTimestampResolve_AndUppercaseLatest()
+    {
+        var list = new List<SnapshotInfo>
+        {
+            Info(3, created: "2026-07-19T00:00:00.0000000Z"),
+            Info(2, created: "2026-07-12T00:00:00.0000000Z"),
+            Info(1, created: "2026-07-05T00:00:00.0000000Z"),
+        };
+        // Full timestamp: resolves to newest at-or-before the instant
+        SnapshotRefs.Resolve(list, "2026-07-12T12:00:00Z")!.Id.Should().Be(2);
+        // Uppercase "LATEST"
+        SnapshotRefs.Resolve(list, "LATEST")!.Id.Should().Be(3);
+    }
+
+    [Fact]
+    public void Flatten_SmallFilesDelta_EmitsUnchangedDirWithNonzeroSmallFiles()
+    {
+        var root = new DiffNode { Name = "data", IsDirectory = true, Kind = ChangeKind.Grown, Delta = 100, SizeBefore = 1000, SizeAfter = 1100 };
+        var subdir = new DiffNode { Name = "old", IsDirectory = true, Kind = ChangeKind.Unchanged, SmallFilesDelta = 500 };
+        root.Children.Add(subdir);
+        var diff = new DiffResult
+        {
+            Older = Info(1), Newer = Info(2),
+            Root = root, EffectiveThreshold = 1000, ThresholdMismatch = false, NamesMatchedCaseInsensitively = true,
+        };
+        var lines = DiffFormatter.Flatten(diff);
+        lines.Should().ContainSingle(l => l.Path == "/data/old" && l.SmallFilesDelta == 500);
+    }
+
+    [Fact]
+    public void Flatten_ThreeLevelPath_BuildsNestedPathCorrectly()
+    {
+        var root = new DiffNode { Name = "data", IsDirectory = true, Kind = ChangeKind.Grown, Delta = 1000, SizeBefore = 0, SizeAfter = 1000 };
+        var subdir = new DiffNode { Name = "sub", IsDirectory = true, Kind = ChangeKind.Added, Delta = 1000, SizeAfter = 1000 };
+        var file = new DiffNode { Name = "deep.bin", IsDirectory = false, Kind = ChangeKind.Added, Delta = 1000, SizeAfter = 1000 };
+        subdir.Children.Add(file);
+        root.Children.Add(subdir);
+        var diff = new DiffResult
+        {
+            Older = Info(1), Newer = Info(2),
+            Root = root, EffectiveThreshold = 1000, ThresholdMismatch = false, NamesMatchedCaseInsensitively = true,
+        };
+        var lines = DiffFormatter.Flatten(diff);
+        lines.Should().ContainSingle(l => l.Path == "/data/sub/deep.bin");
+    }
 }
