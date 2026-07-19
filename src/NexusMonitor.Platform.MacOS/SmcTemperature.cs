@@ -137,16 +137,30 @@ internal static class SmcTemperature
             return IntelTempKeys.Set;
 
         var b = brandString ?? string.Empty;
-        // Match longest/most-specific generation token. Ordering matters only in that each token
-        // is distinct ("M4" won't match "M14" — Apple's brand strings are "Apple M4", "Apple M4
-        // Pro", etc.), so a simple contains check per generation is unambiguous here.
-        if (b.Contains("M1", StringComparison.Ordinal)) return AppleSiliconTempKeys.M1;
-        if (b.Contains("M2", StringComparison.Ordinal)) return AppleSiliconTempKeys.M2;
-        if (b.Contains("M3", StringComparison.Ordinal)) return AppleSiliconTempKeys.M3;
-        if (b.Contains("M4", StringComparison.Ordinal)) return AppleSiliconTempKeys.M4;
-        if (b.Contains("M5", StringComparison.Ordinal)) return AppleSiliconTempKeys.M5;
+        // Token match with a digit boundary, NOT a plain Contains: "Apple M10" contains the
+        // substring "M1", so a Contains check would silently hand a future two-digit
+        // generation the M1 table. A token followed by another digit is a different
+        // generation and must fall through to the union.
+        if (HasGenerationToken(b, "M1")) return AppleSiliconTempKeys.M1;
+        if (HasGenerationToken(b, "M2")) return AppleSiliconTempKeys.M2;
+        if (HasGenerationToken(b, "M3")) return AppleSiliconTempKeys.M3;
+        if (HasGenerationToken(b, "M4")) return AppleSiliconTempKeys.M4;
+        if (HasGenerationToken(b, "M5")) return AppleSiliconTempKeys.M5;
 
         return AppleSiliconTempKeys.UnknownUnion;
+    }
+
+    private static bool HasGenerationToken(string brand, string token)
+    {
+        for (int i = brand.IndexOf(token, StringComparison.Ordinal); i >= 0;
+             i = brand.IndexOf(token, i + 1, StringComparison.Ordinal))
+        {
+            int end = i + token.Length;
+            bool startOk = i == 0 || !char.IsLetterOrDigit(brand[i - 1]);
+            bool endOk   = end == brand.Length || !char.IsDigit(brand[end]);
+            if (startOk && endOk) return true;
+        }
+        return false;
     }
 }
 

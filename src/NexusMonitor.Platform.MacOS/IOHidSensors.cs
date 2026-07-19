@@ -144,20 +144,23 @@ internal static class IOHidSensors
         CFStringCreateWithCString(nint.Zero, s, KCFStringEncodingUTF8);
 
     // ── CoreFoundation callback-struct globals (passed by address to CFDictionaryCreate) ────
+    // One Load for the class lifetime, deliberately never freed: the exported addresses below
+    // are handed to CoreFoundation at runtime, so the library must stay resident anyway.
+    private static readonly nint CoreFoundationHandle = LoadCoreFoundation();
     private static readonly nint CfTypeDictionaryKeyCallBacks   = ExportAddr("kCFTypeDictionaryKeyCallBacks");
     private static readonly nint CfTypeDictionaryValueCallBacks = ExportAddr("kCFTypeDictionaryValueCallBacks");
 
+    private static nint LoadCoreFoundation()
+    {
+        try { return NativeLibrary.Load(CoreFoundation); }
+        catch { return nint.Zero; }
+    }
+
     private static nint ExportAddr(string symbol)
     {
-        try
-        {
-            var handle = NativeLibrary.Load(CoreFoundation);
-            return NativeLibrary.GetExport(handle, symbol);
-        }
-        catch
-        {
-            return nint.Zero;
-        }
+        if (CoreFoundationHandle == nint.Zero) return nint.Zero;
+        try { return NativeLibrary.GetExport(CoreFoundationHandle, symbol); }
+        catch { return nint.Zero; }
     }
 
     // ── IOHIDEventSystemClient (private-but-stable, IOKit binary) ────────────────────────────

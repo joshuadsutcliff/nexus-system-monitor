@@ -156,4 +156,17 @@ public class SmcTemperatureTests
         set.CpuPerformance.Should().Contain("Tf04");     // from M3
         set.Gpu.Should().Contain("Tg05");                // from M1
     }
+
+    [Fact]
+    public void ResolveKeySet_FutureM10_DoesNotSubstringMatchM1_FallsBackToUnion()
+    {
+        // "Apple M10" contains the substring "M1" — a plain Contains check silently selects
+        // the M1 table. A generation token immediately followed by another digit must not
+        // match; an unknown generation falls back to the union.
+        var set = SmcTemperature.ResolveKeySet("Apple M10", isArm64: true);
+        set.CpuPerformance.Should().Contain("Tf04");     // M3-only key → proves union, not the M1 table
+
+        var pro = SmcTemperature.ResolveKeySet("Apple M10 Pro", isArm64: true);
+        pro.CpuPerformance.Should().Contain("Tf04");
+    }
 }
