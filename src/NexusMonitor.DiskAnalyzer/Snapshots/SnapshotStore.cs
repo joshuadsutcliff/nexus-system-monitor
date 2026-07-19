@@ -230,15 +230,20 @@ public sealed class SnapshotStore : ISnapshotStore
     {
         lock (_writeLock)
         {
-            using var tx = Database.Connection.BeginTransaction();
-            using var cmd = Database.Connection.CreateCommand();
-            cmd.Transaction = tx;
-            cmd.CommandText = @"DELETE FROM nodes WHERE snapshot_id = $id;
-                                DELETE FROM snapshots WHERE id = $id;";
-            cmd.Parameters.AddWithValue("$id", snapshotId);
-            cmd.ExecuteNonQuery();
-            tx.Commit();
+            DeleteCore(snapshotId);
         }
+    }
+
+    private void DeleteCore(long snapshotId)
+    {
+        using var tx = Database.Connection.BeginTransaction();
+        using var cmd = Database.Connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = @"DELETE FROM nodes WHERE snapshot_id = $id;
+                            DELETE FROM snapshots WHERE id = $id;";
+        cmd.Parameters.AddWithValue("$id", snapshotId);
+        cmd.ExecuteNonQuery();
+        tx.Commit();
     }
 
     public int SweepIncomplete()
@@ -260,8 +265,74 @@ public sealed class SnapshotStore : ISnapshotStore
 
     public long GetStoreSizeBytes() => Database.GetDatabaseSizeBytes();
 
-    // ApplyRetention implemented in Task 5 — until then a no-op.
-    private void ApplyRetention(SnapshotOptions options) { }
+    internal void ApplyRetention(SnapshotOptions options)
+    {
+        // Pass 1 — per-root count (spec §4: default 26 ≈ six months of weekly scans).
+        // Delete over-limit snapshot rows directly, then orphan-sweep their nodes.
+        using (var tx = Database.Connection.BeginTransaction())
+        {
+            using (var cmd = Database.Connection.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = @"
+                    DELETE FROM snapshots WHERE id IN (
+                        SELECT id FROM snapshots s
+                        WHERE (SELECT COUNT(*) FROM snapshots n
+                               WHERE n.root_key = s.root_key
+                                 AND (n.created_at > s.created_at
+                                      OR (n.created_at = s.created_at AND n.id > s.id)))
+                              >= $keep);";
+                cmd.Parameters.AddWithValue("$keep", options.RetentionPerRoot);
+                cmd.ExecuteNonQuery();
+            }
+            using (var orphans = Database.Connection.CreateCommand())
+            {
+                orphans.Transaction = tx;
+                orphans.CommandText = "DELETE FROM nodes WHERE snapshot_id NOT IN (SELECT id FROM snapshots);";
+                orphans.ExecuteNonQuery();
+            }
+            tx.Commit();
+        }
+
+        // Pass 2 — fair global size cap (spec §4): while over cap, delete the OLDEST
+        // snapshot from the root that currently holds the MOST snapshots; never drop
+        // a root's last remaining snapshot. Size is LIVE bytes — file length doesn't
+        // shrink until VACUUM (the loop would otherwise over-delete every root to 1),
+        // and a VACUUM per iteration rewrites the whole file each time (review
+        // consensus, 2026-07-19). One VACUUM after the loop reclaims the space.
+        var deletedAny = false;
+        while (Database.GetLiveSizeBytes() > options.MaxDbSizeBytes)
+        {
+            long victim;
+            using (var pick = Database.Connection.CreateCommand())
+            {
+                pick.CommandText = @"
+                    SELECT s.id FROM snapshots s
+                    WHERE s.root_key = (
+                        SELECT root_key FROM snapshots
+                        GROUP BY root_key HAVING COUNT(*) > 1
+                        ORDER BY COUNT(*) DESC LIMIT 1)
+                    ORDER BY s.created_at ASC, s.id ASC LIMIT 1";
+                var res = pick.ExecuteScalar();
+                if (res is null || res is DBNull) break; // every root is down to 1 — stop
+                victim = Convert.ToInt64(res);
+            }
+            DeleteCore(victim);
+            deletedAny = true;
+        }
+        if (deletedAny)
+        {
+            Database.Checkpoint();
+            RunVacuum();
+        }
+    }
+
+    private void RunVacuum()
+    {
+        using var cmd = Database.Connection.CreateCommand();
+        cmd.CommandText = "VACUUM;";
+        cmd.ExecuteNonQuery();
+    }
 
     public void Dispose() => Database.Dispose();
 }
