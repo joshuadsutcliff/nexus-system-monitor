@@ -12,7 +12,8 @@ Thanks for your interest in contributing. This document covers everything you ne
 4. [How platform implementations work](#how-platform-implementations-work)
 5. [Submitting changes](#submitting-changes)
 6. [Coding conventions](#coding-conventions)
-7. [Reporting bugs](#reporting-bugs)
+7. [Platform code honesty contract](#platform-code-honesty-contract)
+8. [Reporting bugs](#reporting-bugs)
 
 ---
 
@@ -144,6 +145,37 @@ Improve IO priority handling on Linux procfs
 - **Logging** — inject `ILogger<T>` and log errors with context. Don't swallow exceptions silently.
 - **Thread safety** — metrics polling runs on background threads. Marshal UI updates with `ObserveOn(RxApp.MainThreadScheduler)`.
 - **No warnings** — treat compiler warnings as errors in PRs.
+
+---
+
+## Platform Code Honesty Contract
+
+Nexus has a strong "honesty" convention: when a metric can't be read, the UI shows nothing (an
+em dash, "—", or "N/A") rather than fabricate or estimate a value. This section covers what that
+means for new platform code specifically.
+
+- **Express unavailability explicitly, never via a sentinel zero.** All *new or touched* P/Invoke
+  call sites must return a nullable or Result-shaped type that lets the caller distinguish "this
+  hardware/driver never reported the figure" from "a real, present value of zero." See
+  `GpuPerformanceStats.ReadMemoryBytes(IReadOnlyDictionary<string, long>, string) : long?` in
+  `NexusMonitor.Platform.MacOS` — it returns `null` only when the key is absent from the
+  PerformanceStatistics dictionary; a present value always goes through `ClampMemoryBytes` first,
+  so a present-but-negative reading still degrades to a real (non-null) zero, never to
+  "unavailable." Follow that precedent (nullable numeric types, or a small Result type when a
+  richer reason is needed) rather than returning a bare `0`/`-1`/empty string and letting the UI
+  layer guess whether it's real.
+- **Reason-specific tooltip copy will migrate onto a structured availability channel.** As of
+  2026-07-19, the unavailable-metric-tooltips feature added hover tooltips explaining *why* a
+  placeholder is showing, using `NexusMonitor.Core.Formatting.UnavailableMetricCopy`. Today those
+  reasons are inferred locally at the ViewModel from context that's already available there (e.g.
+  "we're on macOS AND this is Apple Silicon AND the value is the idle-placeholder"), because
+  several non-nullable models in the pipeline (`GpuMetrics`, `CpuMetrics`) already discard a
+  richer "why" that the platform layer *does* know at read time — see the
+  `// TODO(availability-enum):` comments on `IOAccelerator.Open()`/`ReadPerformanceStatistics()`
+  for a concrete example. This is an adopted decision, not a someday-TODO: as platform code is
+  touched going forward, prefer threading that reason through to the ViewModel over re-inferring
+  it from local context, and widen the relevant model (or introduce an availability enum/Result
+  type) when doing so meaningfully improves tooltip accuracy.
 
 ---
 

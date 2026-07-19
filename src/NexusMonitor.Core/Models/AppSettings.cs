@@ -210,4 +210,14 @@ public class AppSettings
     public int    LastWindowX      { get; set; } = -1;
     public int    LastWindowY      { get; set; } = -1;
     public string LastWindowState  { get; set; } = "Normal";
+
+    // First-run orientation overlay (1.0 gate item)
+    /// <summary>
+    /// True once the user has dismissed the one-time first-run welcome overlay. Defaults to
+    /// false so a genuinely fresh install (no settings.json at all) sees it on first launch.
+    /// See SettingsService.MigrateFirstRunOrientationGap for the existing-user protection this
+    /// depends on: any settings.json that predates this key entirely is migrated to true on
+    /// load, so nobody who was already using the app before this feature shipped is shown it.
+    /// </summary>
+    public bool HasSeenFirstRunOrientation { get; set; } = false;
 }

@@ -171,9 +171,9 @@
                                        FontSize="24" FontWeight="Bold" Foreground="{DynamicResource AccentBlueBrush}"/>
                           </StackPanel>
                           <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="{Binding CpuFrequencyLabel}"
+                            <TextBlock Text="{Binding CpuFrequencyLabel}" ToolTip.Tip="{Binding CpuFrequencyUnavailableTooltip}"
                                        FontSize="{DynamicResource NxFont10}" Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Right"/>
-                            <TextBlock Text="{Binding CpuTempLabel}"
+                            <TextBlock Text="{Binding CpuTempLabel}" ToolTip.Tip="{Binding CpuTempUnavailableTooltip}"
                                        FontSize="{DynamicResource NxFont10}" Foreground="{DynamicResource TextTertiaryBrush}" HorizontalAlignment="Right"/>
                           </StackPanel>
                         </Grid>
@@ -452,7 +452,7 @@
                         BorderBrush="{DynamicResource GlassBorderBrush}" BorderThickness="1"
                         CornerRadius="{StaticResource CornerMD}">
                   <StackPanel HorizontalAlignment="Center">
-                    <TextBlock Text="{Binding TempC, Converter={StaticResource MacOsNa}, ConverterParameter='{}{0:F0}°C'}" FontSize="{DynamicResource NxFont14}" FontWeight="SemiBold"
+                    <TextBlock Text="{Binding TempDisplay}" ToolTip.Tip="{Binding TempUnavailableTooltip}" FontSize="{DynamicResource NxFont14}" FontWeight="SemiBold"
                                Foreground="{StaticResource ColorWarningBrush}" HorizontalAlignment="Center"/>
                     <TextBlock Text="Temperature" FontSize="{DynamicResource NxFont10}"
                                Foreground="{DynamicResource TextTertiaryBrush}" HorizontalAlignment="Center"/>
@@ -1258,7 +1258,7 @@
                          pool to report a total for), so a used-only figure is shown instead of the
                          fabricated-looking "used / 0 GB"; platforms with a real dedicated pool keep the
                          original "used / total GB" format unchanged. -->
-                    <TextBlock Text="{Binding DedicatedDisplay}" FontSize="{DynamicResource NxFont13}" FontWeight="SemiBold"
+                    <TextBlock Text="{Binding DedicatedDisplay}" ToolTip.Tip="{Binding DedicatedUnavailableTooltip}" FontSize="{DynamicResource NxFont13}" FontWeight="SemiBold"
                                Foreground="{DynamicResource TextPrimaryBrush}" HorizontalAlignment="Center"/>
                     <TextBlock Text="Dedicated" FontSize="{DynamicResource NxFont10}"
                                Foreground="{DynamicResource TextTertiaryBrush}" HorizontalAlignment="Center"/>
@@ -1280,7 +1280,7 @@
                         BorderBrush="{DynamicResource GlassBorderBrush}" BorderThickness="1"
                         CornerRadius="{StaticResource CornerMD}">
                   <StackPanel HorizontalAlignment="Center">
-                    <TextBlock Text="{Binding TempC, Converter={StaticResource MacOsNa}, ConverterParameter='{}{0:F0}°C'}" FontSize="22" FontWeight="Bold"
+                    <TextBlock Text="{Binding TempDisplay}" ToolTip.Tip="{Binding TempUnavailableTooltip}" FontSize="22" FontWeight="Bold"
                                Foreground="{StaticResource ColorWarningBrush}" HorizontalAlignment="Center"/>
                     <TextBlock Text="Temp" FontSize="{DynamicResource NxFont10}"
                                Foreground="{DynamicResource TextTertiaryBrush}" HorizontalAlignment="Center"/>

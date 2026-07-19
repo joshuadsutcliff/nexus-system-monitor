@@ -99,6 +99,10 @@ public sealed partial class CpuDeviceViewModel : PerfDeviceViewModel
     [ObservableProperty] private double _utilPercent;
     [ObservableProperty] private string _speedDisplay  = string.Empty;
     [ObservableProperty] private double _tempC;
+    [ObservableProperty] private string _tempDisplay = MetricFormatting.Dash;
+    // Null when a real temperature is showing (no tooltip); explains WHY when TempDisplay is
+    // the dash (same pattern as GpuDeviceViewModel.DedicatedUnavailableTooltip).
+    [ObservableProperty] private string? _tempUnavailableTooltip;
     [ObservableProperty] private int    _logicalCores;
     [ObservableProperty] private int    _physicalCores;
     [ObservableProperty] private string _uptimeDisplay = string.Empty;
@@ -146,6 +150,11 @@ public sealed partial class CpuDeviceViewModel : PerfDeviceViewModel
         UtilPercent   = Math.Round(m.Cpu.TotalPercent, 1);
         SpeedDisplay  = $"{m.Cpu.FrequencyMhz / 1000.0:F2} GHz";
         TempC         = Math.Round(m.Cpu.TemperatureCelsius, 0);
+        // Sentinel-aware display replaces the old unconditional macOS "N/A" converter binding:
+        // post-Sym-2 macOS DOES report real CPU temps when readable — hiding them was wrong in
+        // the other direction. Unreadable (≤ 0) renders the honest dash + reason tooltip.
+        TempDisplay   = MetricFormatting.FormatOrDash(TempC, "{0:F0}°C");
+        TempUnavailableTooltip = TempC <= 0 ? UnavailableMetricCopy.CpuTempUnsupported : null;
         LogicalCores  = m.Cpu.LogicalCores;
         PhysicalCores = m.Cpu.PhysicalCores;
         var up        = TimeSpan.FromMilliseconds(Environment.TickCount64);
@@ -499,8 +508,15 @@ public sealed partial class GpuDeviceViewModel : PerfDeviceViewModel
     [ObservableProperty] private double _dedicatedUsedGb;
     [ObservableProperty] private double _dedicatedTotalGb;
     [ObservableProperty] private string _dedicatedDisplay = string.Empty;
+    // Null when a real dedicated-total figure is showing (no tooltip); explains WHY when
+    // DedicatedDisplay has fallen back to its used-only branch (see GpuMemoryDisplayMath).
+    [ObservableProperty] private string? _dedicatedUnavailableTooltip;
     [ObservableProperty] private double _sharedUsedGb;
     [ObservableProperty] private double _tempC;
+    [ObservableProperty] private string _tempDisplay = MetricFormatting.Dash;
+    // Null when a real temperature is showing (no tooltip); explains WHY when TempDisplay is
+    // the dash — the Apple Silicon idle case is the flagship reason-specific instance.
+    [ObservableProperty] private string? _tempUnavailableTooltip;
 
     // ── Extended detail ─────────────────────────────────────────────────────
     [ObservableProperty] private double _sharedTotalGb;
@@ -548,8 +564,23 @@ public sealed partial class GpuDeviceViewModel : PerfDeviceViewModel
         // GpuMemoryDisplayMath (NexusMonitor.Core.Formatting) so it's unit-testable — see
         // GpuMemoryDisplayMathTests.
         DedicatedDisplay    = GpuMemoryDisplayMath.FormatUsedTotal(DedicatedUsedGb, DedicatedTotalGb);
+        // DedicatedTotalGb <= 0 is the same honest-unknown-total condition DedicatedDisplay's
+        // used-only branch keys off (see comment above) — reason-specific copy only on macOS,
+        // where this is a known, expected shape (unified memory). A zero total elsewhere would be
+        // unexpected, so it still gets an explanation, just the generic one.
+        DedicatedUnavailableTooltip = DedicatedTotalGb <= 0
+            ? (OperatingSystem.IsMacOS() ? UnavailableMetricCopy.GpuMemoryTotalMacOS : UnavailableMetricCopy.Generic)
+            : null;
         SharedUsedGb        = Math.Round(g.SharedMemoryUsedBytes / 1e9, 1);
         TempC               = Math.Round(g.TemperatureCelsius, 0);
+        // Sentinel-aware display replaces the old unconditional macOS "N/A" converter binding —
+        // post-Sym-2 macOS reports real GPU temps under load. Unreadable (≤ 0) renders the honest
+        // dash; on macOS that's the known Apple-Silicon-idle shape (values return under load, so
+        // Nexus shows one only when it's real), elsewhere it gets the generic explanation.
+        TempDisplay         = MetricFormatting.FormatOrDash(TempC, "{0:F0}°C");
+        TempUnavailableTooltip = TempC <= 0
+            ? (OperatingSystem.IsMacOS() ? UnavailableMetricCopy.GpuTempAppleSiliconIdle : UnavailableMetricCopy.Generic)
+            : null;
 
         // Extended detail
         SharedTotalGb    = Math.Round(g.SharedMemoryTotalBytes / 1e9, 1);

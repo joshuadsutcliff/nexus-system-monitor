@@ -75,6 +75,11 @@ public partial class MainWindow : Window
         // and Avalonia defaults IsVisible to true — showing the backdrop overlay on startup.
         InitializeCommandPalette();
 
+        // Same eager-DataContext reasoning as above, for the first-run orientation overlay.
+        // FirstRunOrientationViewModel's own constructor decides IsOpen from the already-loaded
+        // (and already migration-guarded) AppSettings.HasSeenFirstRunOrientation flag.
+        InitializeFirstRunOverlay();
+
         // Phase 8 UI polish (Task 3): resolve the saved motion settings and the live-update
         // service. App.axaml.cs's OnFrameworkInitializationCompleted calls
         // MotionSettingsService.Apply(saved.Current) BEFORE `new MainWindow()`, so both
@@ -325,6 +330,24 @@ public partial class MainWindow : Window
             onThemeChanged: ApplyTheme);
 
         CommandPalette.DataContext = _commandPaletteVm;
+    }
+
+    // ── First-run orientation overlay ────────────────────────────────────────
+
+    /// <summary>
+    /// Eagerly initializes the first-run orientation ViewModel and sets DataContext on the
+    /// overlay control — same "avoid a null-DataContext IsVisible default" reasoning as
+    /// <see cref="InitializeCommandPalette"/>. <see cref="FirstRunOrientationViewModel"/>'s own
+    /// constructor decides <c>IsOpen</c> from <see cref="AppSettings.HasSeenFirstRunOrientation"/>,
+    /// which by this point already reflects SettingsService's load-time migration guard (existing
+    /// users' settings.json files are migrated to "seen" before Current is ever handed out).
+    /// </summary>
+    private void InitializeFirstRunOverlay()
+    {
+        var settingsSvc = App.Services.GetRequiredService<SettingsService>();
+
+        var firstRunVm = new FirstRunOrientationViewModel(settingsSvc.Current, settingsSvc.Save);
+        FirstRunOverlay.DataContext = firstRunVm;
     }
 
     private bool _navItemsAddedToPalette;

@@ -56,6 +56,7 @@ public class SettingsService : IDisposable
 
             MigrateLegacyBrandedKeys(doc.RootElement);
             MigrateQuietDefaultsGap(doc.RootElement);
+            MigrateFirstRunOrientationGap(doc.RootElement);
         }
         catch (Exception ex)
         {
@@ -153,6 +154,27 @@ public class SettingsService : IDisposable
             if (root.TryGetProperty(key, out _)) continue; // key present — file already pins a real value, nothing to do
             applyOldDefault(Current);
         }
+    }
+
+    // ── First-run orientation overlay migration guard (added 2026-07-19) ───────────────────
+    // AppSettings.HasSeenFirstRunOrientation defaults to false so a genuinely fresh install
+    // (no settings.json at all — the `if (!File.Exists(_path)) return;` guard above this
+    // method's only caller) sees the one-time welcome overlay on its first launch.
+    //
+    // Existing users must NEVER see it: any settings.json that already exists but PREDATES
+    // this key (never serialized it, because the feature didn't exist yet) would otherwise
+    // silently fall back to the new initializer default (false) on Deserialize — exactly the
+    // "genuinely fresh install" signal, indistinguishable from a real new user. This method
+    // detects exactly that gap (key absent from the raw JSON, file present) and pins it to
+    // true, one shot, on load. If the key IS present in the file — including explicitly false,
+    // e.g. a settings.json this same version already wrote once before the overlay was
+    // dismissed — Deserialize's real value is left untouched; there is nothing to migrate for
+    // that case, same reasoning as MigrateQuietDefaultsGap's "full-object Save() already
+    // protects existing users" claim.
+    private void MigrateFirstRunOrientationGap(JsonElement root)
+    {
+        if (root.TryGetProperty(nameof(AppSettings.HasSeenFirstRunOrientation), out _)) return;
+        Current.HasSeenFirstRunOrientation = true;
     }
 
     /// <summary>

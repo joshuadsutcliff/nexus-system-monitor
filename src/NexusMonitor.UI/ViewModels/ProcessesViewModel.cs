@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using NexusMonitor.Core.Abstractions;
+using NexusMonitor.Core.Formatting;
 using NexusMonitor.Core.Health;
 using NexusMonitor.Core.Models;
 using NexusMonitor.Core.Services;
@@ -1158,7 +1159,12 @@ public class ProcessDetailViewModel : INotifyPropertyChanged, IDisposable
     public string Name        => _row.Name;
     public int    Pid         => _row.Pid;
     public int    ParentPid   => _row.ParentPid;
-    public string User        => _row.UserName.Length > 0 ? _row.UserName : "—";
+    public string User        => MetricFormatting.OrDash(_row.UserName);
+    // Null when a real value is showing (no tooltip); explains WHY the corresponding property
+    // above has fallen back to "—" instead (Nexus couldn't read this attribute — e.g. access
+    // denied on a protected process). See UnavailableMetricCopy.
+    public string? UserUnavailableTooltip =>
+        User == MetricFormatting.Dash ? UnavailableMetricCopy.Generic : null;
     public string State       => _row.State.ToString();
     public string Category    => _row.Category.ToString();
     public bool   IsElevated  => _row.IsElevated;
@@ -1174,10 +1180,24 @@ public class ProcessDetailViewModel : INotifyPropertyChanged, IDisposable
     public string ReadRate    => ProcessRowViewModel.FormatBytes(_row.IoReadBytesPerSec)  + "/s";
     public string WriteRate   => ProcessRowViewModel.FormatBytes(_row.IoWriteBytesPerSec) + "/s";
 
-    public string StartTime   => _row.StartTime == default ? "—" : _row.StartTime.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
-    public string ImagePath   => _row.ImagePath.Length   > 0 ? _row.ImagePath   : "—";
-    public string CommandLine => _row.CommandLine.Length > 0 ? _row.CommandLine : "—";
-    public string Description => _row.Description.Length > 0 ? _row.Description : "—";
+    // Kept as a hand-written ternary (not MetricFormatting.OrDash(DateTime,string)): the sentinel
+    // check must run on the raw _row.StartTime, before ToLocalTime() — converting
+    // default(DateTime) first can shift it away from (or throw converting) default depending on
+    // the local UTC offset, so the availability check and the display formatting can't share the
+    // same converted value the way the helper assumes.
+    public string StartTime   => _row.StartTime == default ? MetricFormatting.Dash : _row.StartTime.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+    public string ImagePath   => MetricFormatting.OrDash(_row.ImagePath);
+    public string CommandLine => MetricFormatting.OrDash(_row.CommandLine);
+    public string Description => MetricFormatting.OrDash(_row.Description);
+
+    public string? StartTimeUnavailableTooltip =>
+        StartTime == MetricFormatting.Dash ? UnavailableMetricCopy.Generic : null;
+    public string? ImagePathUnavailableTooltip =>
+        ImagePath == MetricFormatting.Dash ? UnavailableMetricCopy.Generic : null;
+    public string? CommandLineUnavailableTooltip =>
+        CommandLine == MetricFormatting.Dash ? UnavailableMetricCopy.Generic : null;
+    public string? DescriptionUnavailableTooltip =>
+        Description == MetricFormatting.Dash ? UnavailableMetricCopy.Generic : null;
 
     /// <summary>
     /// Polyline points for the CPU history sparkline.

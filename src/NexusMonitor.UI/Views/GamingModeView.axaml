@@ -106,7 +106,7 @@
             <StackPanel Spacing="4">
               <TextBlock Text="POWER PLAN" FontSize="{DynamicResource NxFont10}" FontWeight="Medium"
                          LetterSpacing="0.6" Foreground="{DynamicResource TextTertiaryBrush}"/>
-              <TextBlock Text="{Binding CurrentPlanName}"
+              <TextBlock Text="{Binding CurrentPlanName}" ToolTip.Tip="{Binding CurrentPlanNameUnavailableTooltip}"
                          FontSize="{DynamicResource NxFont14}" FontWeight="SemiBold"
                          Foreground="{DynamicResource AccentBlueBrush}"
                          TextTrimming="CharacterEllipsis"/>

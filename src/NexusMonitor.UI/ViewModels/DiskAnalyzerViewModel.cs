@@ -4,6 +4,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using NexusMonitor.Core.Abstractions;
+using NexusMonitor.Core.Formatting;
 using NexusMonitor.DiskAnalyzer.Analysis;
 using NexusMonitor.DiskAnalyzer.Models;
 using NexusMonitor.DiskAnalyzer.Scanning;
@@ -40,9 +41,15 @@ public sealed class FolderTreeRow(DiskNode node, int depth, bool isExpanded = fa
     public string FolderCount      => Node.FolderCountDisplay;
     // The synthetic root node (MftScanner.cs) has no real MFT record and is left at
     // default(DateTime); render that as "—" instead of "0001-01-01" rather than fabricate a date.
-    public string Modified         => Node.LastModified == default
-        ? "—"
-        : Node.LastModified.ToString("yyyy-MM-dd");
+    public string Modified         => MetricFormatting.OrDash(Node.LastModified, "yyyy-MM-dd");
+    // Null when a real date is showing (no tooltip); explains WHY when Modified has fallen back
+    // to "—" instead. See UnavailableMetricCopy.
+    // NOTE: bound via a plain DataGridTextColumn — Avalonia's DataGridTextColumn has no
+    // straightforward ToolTip.Tip attachment point without converting to a DataGridTemplateColumn
+    // (a bigger, more invasive change than this PR's scope). Property is here and testable;
+    // axaml wiring intentionally deferred.
+    public string? ModifiedUnavailableTooltip =>
+        Modified == MetricFormatting.Dash ? UnavailableMetricCopy.Generic : null;
 }
 
 /// <summary>Per-extension aggregated stats for the File Types panel.</summary>

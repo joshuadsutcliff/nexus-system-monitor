@@ -16,6 +16,12 @@ namespace NexusMonitor.Platform.Windows;
 /// which uses cumulative byte counters to compute byte-per-second rates.
 /// EStats collection is enabled per-connection; failures (e.g. non-admin for
 /// foreign-process connections) are silently swallowed — rate shows "—".
+// TODO(availability-enum): ProcessName's names.GetValueOrDefault(pid, "—") fallback below is
+// provider-baked, not VM-level — out of scope for the unavailable-metric-tooltips PR's
+// MetricFormatting/UnavailableMetricCopy consolidation. Once P/Invoke call sites migrate to the
+// structured availability channel described in CONTRIBUTING.md ("Platform code honesty
+// contract"), this should express "process name lookup failed" explicitly instead of a bare
+// sentinel string, so the UI layer can attach a specific tooltip reason.
 /// </summary>
 public sealed class WindowsNetworkConnectionsProvider : INetworkConnectionsProvider, IDisposable
 {
@@ -186,6 +192,10 @@ public sealed class WindowsNetworkConnectionsProvider : INetworkConnectionsProvi
 
     // ─── UDP IPv4 ─────────────────────────────────────────────────────────────
 
+    // TODO(availability-enum): RemoteAddress = "—" below (and in GetUdp6) is UDP being
+    // connectionless (no remote address concept), not a failed read — provider-baked, out of
+    // scope for the unavailable-metric-tooltips PR. See CONTRIBUTING.md "Platform code honesty
+    // contract" for the planned structured-availability migration.
     private static IEnumerable<NetworkConnection> GetUdp4(Dictionary<int, string> names)
     {
         int size = 0;
