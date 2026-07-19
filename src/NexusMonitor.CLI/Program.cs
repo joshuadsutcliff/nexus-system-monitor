@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using NexusMonitor.CLI.Commands;
+using NexusMonitor.CLI.Commands.Disk;
 using NexusMonitor.CLI.Infrastructure;
 using NexusMonitor.Core.Services;
 using NexusMonitor.Hosting;
@@ -67,6 +68,20 @@ try
     services.AddSingleton<PrometheusCommand>();
     services.AddSingleton<ExportCommand>();
 
+    var snapshotDbPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "NexusMonitor", "disk-snapshots.db");
+    services.AddSingleton<NexusMonitor.DiskAnalyzer.Snapshots.ISnapshotStore>(_ =>
+    {
+        var store = new NexusMonitor.DiskAnalyzer.Snapshots.SnapshotStore(snapshotDbPath);
+        store.SweepIncomplete(); // spec §4: crash-recovery sweep at startup
+        return store;
+    });
+    services.AddSingleton<DiskScanCommand>();
+    services.AddSingleton<DiskSnapshotsListCommand>();
+    services.AddSingleton<DiskSnapshotsDeleteCommand>();
+    services.AddSingleton<DiskDiffCommand>();
+
     var registrar = new TypeRegistrar(services);
 
     // ── Spectre.Console.Cli app ───────────────────────────────────────────────
@@ -128,6 +143,25 @@ try
 
         config.AddCommand<ExportCommand>("export")
             .WithDescription("Export historical metrics to CSV or JSON");
+
+        config.AddBranch("disk", disk =>
+        {
+            disk.SetDescription("Disk scanning, snapshots, and snapshot diffs");
+            disk.AddCommand<DiskScanCommand>("scan")
+                .WithDescription("Scan a directory, save a snapshot, optionally diff against a previous one. " +
+                    "v1 note: saves use SnapshotOptions defaults unless --threshold is passed — " +
+                    "GUI settings do not flow to the CLI.");
+            disk.AddBranch("snapshots", snaps =>
+            {
+                snaps.SetDescription("Manage stored disk snapshots");
+                snaps.AddCommand<DiskSnapshotsListCommand>("list")
+                    .WithDescription("List snapshots (all roots when no path given)");
+                snaps.AddCommand<DiskSnapshotsDeleteCommand>("delete")
+                    .WithDescription("Delete a snapshot by id");
+            });
+            disk.AddCommand<DiskDiffCommand>("diff")
+                .WithDescription("Diff two stored snapshots of the same root");
+        });
     });
 
     exitCode = await app.RunAsync(args);
