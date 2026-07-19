@@ -632,6 +632,18 @@ public class App : Application
         // handler below.
         services.AddSingleton<BackdropService>();
 
+        // Snapshot & Compare (Task 8) — crash-recovery sweep runs once at startup before any
+        // ViewModel resolves the store.
+        var snapshotDbPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "NexusMonitor", "disk-snapshots.db");
+        services.AddSingleton<NexusMonitor.DiskAnalyzer.Snapshots.ISnapshotStore>(_ =>
+        {
+            var store = new NexusMonitor.DiskAnalyzer.Snapshots.SnapshotStore(snapshotDbPath);
+            store.SweepIncomplete(); // spec §4: crash-recovery sweep at startup
+            return store;
+        });
+
         // -- ViewModels --
         services.AddSingleton<HealthTrendsViewModel>();
         services.AddSingleton<MainViewModel>();

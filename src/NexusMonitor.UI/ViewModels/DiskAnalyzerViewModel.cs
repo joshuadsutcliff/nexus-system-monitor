@@ -5,9 +5,11 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using NexusMonitor.Core.Abstractions;
 using NexusMonitor.Core.Formatting;
+using NexusMonitor.Core.Services;
 using NexusMonitor.DiskAnalyzer.Analysis;
 using NexusMonitor.DiskAnalyzer.Models;
 using NexusMonitor.DiskAnalyzer.Scanning;
+using NexusMonitor.DiskAnalyzer.Snapshots;
 
 namespace NexusMonitor.UI.ViewModels;
 
@@ -141,11 +143,74 @@ public partial class DiskAnalyzerViewModel : ViewModelBase, IDisposable
     /// <summary>Exposes platform capability flags for binding in the View.</summary>
     public IPlatformCapabilities Platform { get; }
 
-    public DiskAnalyzerViewModel(IPlatformCapabilities? platformCapabilities = null)
+    private readonly ISnapshotStore? _snapshotStore;
+    private readonly IInAppNotificationService? _notifications;
+    private readonly SettingsService? _settings;
+
+    [ObservableProperty] private bool _isSavingSnapshot;
+
+    public DiskAnalyzerViewModel(
+        IPlatformCapabilities? platformCapabilities = null,
+        ISnapshotStore? snapshotStore = null,
+        IInAppNotificationService? notifications = null,
+        SettingsService? settings = null)
     {
         Title    = "Disk Analyzer";
         Platform = platformCapabilities ?? new MockPlatformCapabilities();
+        _snapshotStore = snapshotStore;
+        _notifications = notifications;
+        _settings      = settings;
+        if (_snapshotStore?.WasRecovered == true)
+            _notifications?.Show(new InAppNotification(
+                Title: "Snapshot store recovered",
+                Body: "The snapshot database was corrupt and has been recreated. Previous snapshots were set aside.",
+                Severity: InAppSeverity.Warning,
+                AutoDismiss: TimeSpan.FromSeconds(8)));
     }
+
+    private SnapshotOptions CurrentSnapshotOptions()
+    {
+        var s = _settings?.Current;
+        // TODO(Task 10): read from AppSettings Snapshot* props once they land; this is a
+        // three-line swap (s?.SnapshotThresholdBytes / SnapshotRetentionPerRoot / SnapshotMaxDbSizeMb).
+        return new SnapshotOptions(
+            ThresholdBytes:   1_048_576,
+            RetentionPerRoot: 26,
+            MaxDbSizeBytes:   500 * 1024L * 1024L);
+    }
+
+    private async Task SaveSnapshotAsync(ScanResult result)
+    {
+        // Entire body inside try — this task is fire-and-forget, so an exception
+        // thrown before the first await would otherwise vanish unobserved.
+        try
+        {
+            if (_snapshotStore is null) return;
+            // TODO(Task 10): gate on `_settings?.Current is { SnapshotsEnabled: false }` once that
+            // AppSettings property lands (same three-line-swap category as CurrentSnapshotOptions
+            // above); snapshots are unconditionally enabled until then.
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => IsSavingSnapshot = true);
+            await Task.Run(() => _snapshotStore.Save(result, CurrentSnapshotOptions(),
+                GetType().Assembly.GetName().Version?.ToString())).ConfigureAwait(false);
+            Avalonia.Threading.Dispatcher.UIThread.Post(RefreshSnapshotList);
+        }
+        catch (Exception ex)
+        {
+            // Spec §4/§8: never let the user silently believe a snapshot exists.
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                _notifications?.Show(new InAppNotification(
+                    Title: "Snapshot not saved",
+                    Body: $"Scan completed but the snapshot could not be saved: {ex.Message}",
+                    Severity: InAppSeverity.Warning,
+                    AutoDismiss: TimeSpan.FromSeconds(8))));
+        }
+        finally
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => IsSavingSnapshot = false);
+        }
+    }
+
+    private void RefreshSnapshotList() { } // Task 9 fills this
 
     // ── Tab switching ────────────────────────────────────────────────────────
 
@@ -229,6 +294,7 @@ public partial class DiskAnalyzerViewModel : ViewModelBase, IDisposable
             SummaryText = $"{result.TotalFiles:N0} files, {result.TotalFolders:N0} folders \u2014 " +
                           $"{DiskNode.FormatSize(result.TotalSize)} in {result.Duration.TotalSeconds:F1}s";
             ScanStatus  = SummaryText;
+            _ = SaveSnapshotAsync(result); // fire-and-forget; failures surface as a toast
 
             // Volume stats
             if (result.VolumeTotal > 0)
