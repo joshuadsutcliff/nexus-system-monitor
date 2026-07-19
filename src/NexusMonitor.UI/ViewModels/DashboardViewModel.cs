@@ -7,6 +7,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Win32;
 using CommunityToolkit.Mvvm.Messaging;
+using NexusMonitor.Core.Formatting;
 using NexusMonitor.Core.Health;
 using NexusMonitor.Core.Models;
 using NexusMonitor.Core.Motion;
@@ -815,8 +816,14 @@ public partial class BottleneckCardViewModel : ObservableObject
     // Default to the same "—" fallback Apply() uses for an unavailable reading, so the
     // label never renders blank before the first Run Analysis (or on platforms where the
     // sensor never reports > 0).
-    [ObservableProperty] private string _cpuTempLabel  = "—";
-    [ObservableProperty] private string _gpuTempLabel  = "—";
+    [ObservableProperty] private string _cpuTempLabel  = MetricFormatting.Dash;
+    [ObservableProperty] private string _gpuTempLabel  = MetricFormatting.Dash;
+    // Null when a real value is showing (no tooltip); explains WHY when the "—" placeholder
+    // above is showing instead. See UnavailableMetricCopy.
+    // NOTE: BottleneckCard is not currently bound in any View (pre-existing, unrelated to this
+    // PR) — these properties are unit-testable but have no live tooltip surface today.
+    [ObservableProperty] private string? _cpuTempUnavailableTooltip;
+    [ObservableProperty] private string? _gpuTempUnavailableTooltip;
     [ObservableProperty] private bool   _showThermalWarning;
 
     // HVCI / Memory Integrity hint
@@ -864,8 +871,19 @@ public partial class BottleneckCardViewModel : ObservableObject
         MemPercent  = r.MemoryPercent;
         DiskPercent = r.DiskPercent;
 
-        CpuTempLabel = r.CpuTempCelsius > 0 ? $"{r.CpuTempCelsius:F0}°C" : "—";
-        GpuTempLabel = r.GpuTempCelsius > 0 ? $"{r.GpuTempCelsius:F0}°C" : "—";
+        CpuTempLabel = MetricFormatting.FormatOrDash(r.CpuTempCelsius, "{0:F0}°C");
+        GpuTempLabel = MetricFormatting.FormatOrDash(r.GpuTempCelsius, "{0:F0}°C");
+        CpuTempUnavailableTooltip = CpuTempLabel == MetricFormatting.Dash
+            ? UnavailableMetricCopy.CpuTempUnsupported
+            : null;
+        // Apple Silicon idle is the one locally-identifiable reason this VM can distinguish;
+        // any other platform/arch showing a zero reading still gets an honest explanation, just
+        // the generic one (no OS-specific claim to make there).
+        GpuTempUnavailableTooltip = GpuTempLabel != MetricFormatting.Dash
+            ? null
+            : OperatingSystem.IsMacOS() && System.Runtime.InteropServices.RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.Arm64
+                ? UnavailableMetricCopy.GpuTempAppleSiliconIdle
+                : UnavailableMetricCopy.Generic;
         ShowThermalWarning = r.CpuIsThrottling || r.CpuTempCelsius > 95 || r.GpuTempCelsius > 90;
 
         // Show HVCI hint only when CPU temp is unavailable and Memory Integrity is on

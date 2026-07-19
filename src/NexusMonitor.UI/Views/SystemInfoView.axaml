@@ -164,7 +164,7 @@
               <Border Grid.Column="2" Padding="12" Margin="6,0,0,0"
                       Background="{DynamicResource BgSecondaryBrush}" CornerRadius="10">
                 <StackPanel HorizontalAlignment="Center">
-                  <TextBlock Text="{Binding MaxClockDisplay}" FontSize="22" FontWeight="Bold"
+                  <TextBlock Text="{Binding MaxClockDisplay}" ToolTip.Tip="{Binding MaxClockUnavailableTooltip}" FontSize="22" FontWeight="Bold"
                              Foreground="{StaticResource ColorWarningBrush}" HorizontalAlignment="Center"/>
                   <TextBlock Text="Max MHz" FontSize="{DynamicResource NxFont10}"
                              Foreground="{DynamicResource TextTertiaryBrush}" HorizontalAlignment="Center"/>
@@ -182,7 +182,7 @@
                 </Grid>
                 <Grid ColumnDefinitions="*,Auto">
                   <TextBlock Text="L3 Cache" FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"/>
-                  <TextBlock Grid.Column="1" Text="{Binding L3CacheDisplay}"
+                  <TextBlock Grid.Column="1" Text="{Binding L3CacheDisplay}" ToolTip.Tip="{Binding L3CacheUnavailableTooltip}"
                              FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextPrimaryBrush}"/>
                 </Grid>
                 <Grid ColumnDefinitions="*,Auto">
@@ -194,7 +194,7 @@
               <StackPanel Grid.Column="1" Spacing="6" Margin="12,0,0,0">
                 <Grid ColumnDefinitions="*,Auto">
                   <TextBlock Text="Socket" FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextTertiaryBrush}"/>
-                  <TextBlock Grid.Column="1" Text="{Binding SocketDisplay}"
+                  <TextBlock Grid.Column="1" Text="{Binding SocketDisplay}" ToolTip.Tip="{Binding SocketUnavailableTooltip}"
                              FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextSecondaryBrush}"/>
                 </Grid>
                 <Grid ColumnDefinitions="*,Auto">

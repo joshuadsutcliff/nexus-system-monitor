@@ -3,6 +3,7 @@ using System.Reactive.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using NexusMonitor.Core.Abstractions;
+using NexusMonitor.Core.Formatting;
 using NexusMonitor.Core.Models;
 using ReactiveUI;
 
@@ -65,7 +66,10 @@ public partial class OptimizationViewModel : ViewModelBase, IActivatable, IDispo
     [ObservableProperty] private int    _highCount;
     [ObservableProperty] private int    _mediumCount;
     [ObservableProperty] private string _totalCpuDisplay = "0%";
-    [ObservableProperty] private string _topRamProcess   = "—";
+    [ObservableProperty] private string _topRamProcess   = MetricFormatting.Dash;
+    // Null when a real value is showing (no tooltip); explains WHY when TopRamProcess has
+    // fallen back to "—" instead. See UnavailableMetricCopy.
+    [ObservableProperty] private string? _topRamProcessUnavailableTooltip;
     [ObservableProperty] private string _summaryLine     = "Scanning processes…";
 
     // ── Status bar ────────────────────────────────────────────────────────────
@@ -126,7 +130,7 @@ public partial class OptimizationViewModel : ViewModelBase, IActivatable, IDispo
         var topRam = processes.OrderByDescending(p => p.WorkingSetBytes).FirstOrDefault();
         string topRamProcess = topRam is not null
             ? $"{topRam.Name} ({ProcessRowViewModel.FormatBytes(topRam.WorkingSetBytes)})"
-            : "—";
+            : MetricFormatting.Dash;
 
         // Classify & sort: Critical → High → Medium; within tier sort by CPU desc
         var recs = processes
@@ -150,6 +154,9 @@ public partial class OptimizationViewModel : ViewModelBase, IActivatable, IDispo
         return new UpdateResult(totalCpuDisplay, topRamProcess, recs,
             criticalCount, highCount, mediumCount, summaryLine);
     }
+
+    partial void OnTopRamProcessChanged(string value) =>
+        TopRamProcessUnavailableTooltip = value == MetricFormatting.Dash ? UnavailableMetricCopy.Generic : null;
 
     private void ApplyUpdate(UpdateResult r)
     {

@@ -129,7 +129,7 @@
             <StackPanel Spacing="4">
               <TextBlock Text="TOP RAM CONSUMER" FontSize="{DynamicResource NxFont11}" FontWeight="Medium" LetterSpacing="0.6"
                          Foreground="{DynamicResource TextTertiaryBrush}"/>
-              <TextBlock Text="{Binding TopRamProcess}"
+              <TextBlock Text="{Binding TopRamProcess}" ToolTip.Tip="{Binding TopRamProcessUnavailableTooltip}"
                          FontSize="{DynamicResource NxFont12}" FontWeight="SemiBold"
                          Foreground="{DynamicResource TextPrimaryBrush}"
                          TextTrimming="CharacterEllipsis"/>

@@ -515,13 +515,13 @@
 
             <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto" Margin="0,0,0,12">
               <TextBlock Grid.Row="0" Grid.Column="0" Text="User"     Classes="detail-label"/>
-              <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding User}"      Classes="detail-value"/>
+              <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding User}" ToolTip.Tip="{Binding UserUnavailableTooltip}"      Classes="detail-value"/>
               <TextBlock Grid.Row="1" Grid.Column="0" Text="State"    Classes="detail-label"/>
               <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding State}"     Classes="detail-value"/>
               <TextBlock Grid.Row="2" Grid.Column="0" Text="Category" Classes="detail-label"/>
               <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Category}"  Classes="detail-value"/>
               <TextBlock Grid.Row="3" Grid.Column="0" Text="Started"  Classes="detail-label"/>
-              <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding StartTime}" Classes="detail-value"/>
+              <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding StartTime}" ToolTip.Tip="{Binding StartTimeUnavailableTooltip}" Classes="detail-value"/>
             </Grid>
 
             <!-- Section: Performance -->
@@ -578,15 +578,15 @@
                        Foreground="{DynamicResource TextTertiaryBrush}"
                        LetterSpacing="0.8" Margin="0,0,0,6"/>
 
-            <TextBlock Text="{Binding Description}"
+            <TextBlock Text="{Binding Description}" ToolTip.Tip="{Binding DescriptionUnavailableTooltip}"
                        FontSize="{DynamicResource NxFont11}" Foreground="{DynamicResource TextSecondaryBrush}"
                        TextWrapping="Wrap" Margin="0,0,0,6"/>
 
-            <TextBlock Text="{Binding ImagePath}"
+            <TextBlock Text="{Binding ImagePath}" ToolTip.Tip="{Binding ImagePathUnavailableTooltip}"
                        FontSize="{DynamicResource NxFont10}" Foreground="{DynamicResource TextTertiaryBrush}"
                        TextWrapping="Wrap" Margin="0,0,0,6"/>
 
-            <TextBlock Text="{Binding CommandLine}"
+            <TextBlock Text="{Binding CommandLine}" ToolTip.Tip="{Binding CommandLineUnavailableTooltip}"
                        FontSize="{DynamicResource NxFont10}" Foreground="{DynamicResource TextTertiaryBrush}"
                        TextWrapping="Wrap" Margin="0,0,0,6"
                        FontStyle="Italic"/>
