@@ -200,9 +200,9 @@ These are known gaps — no need to report them as bugs:
 
 | Area | Limitation |
 |------|------------|
-| **Disk Analyzer tab** | Disabled on all platforms — coming in a future release |
+| **Disk Analyzer — fast scan path** | The MFT fast-scan needs an elevated process on Windows NTFS; non-elevated (and non-NTFS) scans transparently use the slower directory walk |
 | **System Info** | macOS/Linux show basic info (hostname, OS, RAM, uptime) — detailed hardware inventory (CPU cache, memory slot specs, GPU driver) is Windows-only for now |
-| **GPU metrics** | GPU utilization only available on Windows |
+| **GPU metrics** | Linux reads NVIDIA (`nvidia-smi`) and AMD (sysfs DRM) only — Intel iGPU utilization is not read; Apple Silicon reports used/allocated GPU memory with no total (unified memory has none to report) |
 | **Process handles** | Handle count column shows 0 on Linux (kernel doesn't expose this directly) |
 | **Notifications** | Toast notifications not implemented on macOS/Linux |
 | **Gaming Mode — power plans on macOS** | May require `sudo` to apply; see running instructions above |
