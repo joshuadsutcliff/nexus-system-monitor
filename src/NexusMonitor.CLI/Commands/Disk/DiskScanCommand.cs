@@ -82,7 +82,16 @@ internal sealed class DiskScanCommand : AsyncCommand<DiskScanCommand.Settings>
                 $"Scanned [bold]{result.TotalFiles:N0}[/] files, {DiskNode.FormatSize(result.TotalSize)} " +
                 $"— saved snapshot [bold]#{id}[/].");
 
-        if (baseline == null) return 0;
+        if (baseline == null)
+        {
+            // No --diff: --format json must still emit a deliberate, stable,
+            // machine-readable shape (spec §7's "machine-friendly text" requirement
+            // isn't diff-only) — the same SnapshotInfo shape `disk snapshots list
+            // --format json` uses, not silence.
+            if (format == "json")
+                Console.Write(SnapshotInfoJson.ToJson(_store.GetSnapshot(id)!));
+            return 0;
+        }
 
         var diff = SnapshotDiffer.Diff(_store, baseline.Id, id);
         Console.Write(format == "json"

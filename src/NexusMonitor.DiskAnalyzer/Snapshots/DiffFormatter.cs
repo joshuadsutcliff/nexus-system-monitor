@@ -9,7 +9,13 @@ public static class DiffFormatter
     public sealed record Line(string Path, string Kind, bool IsDir,
         long? SizeBefore, long? SizeAfter, long Delta, long SmallFilesDelta);
 
-    public static IReadOnlyList<Line> Flatten(DiffResult diff, int? top = null)
+    public static IReadOnlyList<Line> Flatten(DiffResult diff, int? top = null) =>
+        Truncate(BuildSortedLines(diff), top);
+
+    /// <summary>Walks the diff tree into flat, sorted (by |delta| descending) lines. The one
+    /// place path-building/sort order lives — Flatten and ToJson both build off this so they
+    /// can never disagree on ordering or path spelling.</summary>
+    private static List<Line> BuildSortedLines(DiffResult diff)
     {
         var lines = new List<Line>();
         void Walk(DiffNode n, string path)
@@ -22,13 +28,22 @@ public static class DiffFormatter
         }
         Walk(diff.Root, string.Empty);
         lines.Sort((a, b) => Math.Abs(b.Delta).CompareTo(Math.Abs(a.Delta)));
-        return top is int t && lines.Count > t ? lines.Take(t).ToList() : lines;
+        return lines;
     }
+
+    /// <summary>
+    /// The single place "--top N" truncation happens (after sorting by |delta|
+    /// descending). Both ToJson and ToTable (via Flatten) go through this so the
+    /// two output paths can never drift on what "top N" means or disagree on the
+    /// truncated line count.
+    /// </summary>
+    private static List<Line> Truncate(List<Line> sorted, int? top) =>
+        top is int t && sorted.Count > t ? sorted.Take(t).ToList() : sorted;
 
     public static string ToJson(DiffResult diff, int? top = null)
     {
-        var all = Flatten(diff);
-        var shown = top is int t && all.Count > t ? all.Take(t).ToList() : (List<Line>)all;
+        var all = BuildSortedLines(diff); // untruncated — needed to compute `truncated` below
+        var shown = Truncate(all, top);
         var payload = new
         {
             older = new { id = diff.Older.Id, createdAt = diff.Older.CreatedAtUtc.ToString("o") },

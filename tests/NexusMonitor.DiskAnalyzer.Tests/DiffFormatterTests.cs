@@ -127,6 +127,22 @@ public class DiffFormatterTests
     }
 
     [Fact]
+    public void ToJson_Truncation_MatchesFlattenTruncation_SamePathsSameOrder()
+    {
+        // Fast-follow #2: ToJson's "changes" array must truncate via the exact same
+        // shared logic as Flatten(diff, top) — same count, same paths, same order —
+        // proving there's no second, independently-maintained truncation implementation.
+        var diff = SampleDiff();
+        var flattenTop2 = DiffFormatter.Flatten(diff, top: 2).Select(l => l.Path).ToList();
+
+        using var doc = JsonDocument.Parse(DiffFormatter.ToJson(diff, top: 2));
+        var jsonPaths = doc.RootElement.GetProperty("changes").EnumerateArray()
+            .Select(e => e.GetProperty("path").GetString()).ToList();
+
+        jsonPaths.Should().Equal(flattenTop2);
+    }
+
+    [Fact]
     public void Flatten_ThreeLevelPath_BuildsNestedPathCorrectly()
     {
         var root = new DiffNode { Name = "data", IsDirectory = true, Kind = ChangeKind.Grown, Delta = 1000, SizeBefore = 0, SizeAfter = 1000 };

@@ -118,4 +118,99 @@ public class SnapshotDifferTests : IDisposable
         var act = () => SnapshotDiffer.Diff(_store, a, b);
         act.Should().Throw<InvalidOperationException>().WithMessage("*root*");
     }
+
+    // ── Fast-follow #1: type-flip + deep-nesting pin tests ─────────────────────
+
+    [Fact]
+    public void Diff_TypeFlip_FileBecomesDirectory_EmitsRemovedFileAndAddedDirectory()
+    {
+        // Same path key ("thing"), different node kind across snapshots. The
+        // differ must never try to recurse into one side as a directory when the
+        // other side is a file — it should report a clean Removed + Added pair
+        // (matching the documented rename/replace-as-remove+add honesty rule),
+        // not throw, merge, or silently drop one side.
+        var older = Snap(TestTrees.File("thing", 5000));
+        var newer = Snap(TestTrees.Dir("thing", TestTrees.File("inner.bin", 3000)));
+
+        var diff = SnapshotDiffer.Diff(_store, older, newer);
+        var matches = diff.Root.Children.Where(c => c.Name == "thing").ToList();
+
+        matches.Should().HaveCount(2);
+        matches.Should().ContainSingle(c =>
+            c.Kind == ChangeKind.Removed && !c.IsDirectory && c.SizeBefore == 5000 && c.SizeAfter == null);
+        matches.Should().ContainSingle(c =>
+            c.Kind == ChangeKind.Added && c.IsDirectory && c.SizeAfter == 3000 && c.SizeBefore == null);
+    }
+
+    [Fact]
+    public void Diff_TypeFlip_DirectoryBecomesFile_EmitsRemovedDirectoryAndAddedFile()
+    {
+        // Mirror of the above in the opposite direction.
+        var older = Snap(TestTrees.Dir("thing", TestTrees.File("inner.bin", 3000)));
+        var newer = Snap(TestTrees.File("thing", 7000));
+
+        var diff = SnapshotDiffer.Diff(_store, older, newer);
+        var matches = diff.Root.Children.Where(c => c.Name == "thing").ToList();
+
+        matches.Should().HaveCount(2);
+        matches.Should().ContainSingle(c =>
+            c.Kind == ChangeKind.Removed && c.IsDirectory && c.SizeBefore == 3000 && c.SizeAfter == null);
+        matches.Should().ContainSingle(c =>
+            c.Kind == ChangeKind.Added && !c.IsDirectory && c.SizeAfter == 7000 && c.SizeBefore == null);
+    }
+
+    [Fact]
+    public void Diff_DeepNesting_AttributesGrowthAtEveryAncestorLevel()
+    {
+        // A change four levels down (R/A/B/C/leaf.bin) must roll up correctly at
+        // EVERY ancestor, not just the immediate parent — each directory's own
+        // Delta/Kind/SizeBefore/SizeAfter reflects the same underlying change.
+        var older = Snap(TestTrees.Dir("A", TestTrees.Dir("B", TestTrees.Dir("C", TestTrees.File("leaf.bin", 1000)))));
+        var newer = Snap(TestTrees.Dir("A", TestTrees.Dir("B", TestTrees.Dir("C", TestTrees.File("leaf.bin", 5000)))));
+
+        var diff = SnapshotDiffer.Diff(_store, older, newer);
+
+        diff.Root.Delta.Should().Be(4000);
+        diff.Root.Kind.Should().Be(ChangeKind.Grown);
+        diff.Root.SizeBefore.Should().Be(1000);
+        diff.Root.SizeAfter.Should().Be(5000);
+
+        var a = diff.Root.Children.Single(c => c.Name == "A");
+        a.Delta.Should().Be(4000);
+        a.Kind.Should().Be(ChangeKind.Grown);
+        a.SizeBefore.Should().Be(1000);
+        a.SizeAfter.Should().Be(5000);
+
+        var b = a.Children.Single(c => c.Name == "B");
+        b.Delta.Should().Be(4000);
+        b.Kind.Should().Be(ChangeKind.Grown);
+
+        var c = b.Children.Single(c => c.Name == "C");
+        c.Delta.Should().Be(4000);
+        c.Kind.Should().Be(ChangeKind.Grown);
+
+        var leaf = c.Children.Single(c => c.Name == "leaf.bin");
+        leaf.Kind.Should().Be(ChangeKind.Grown);
+        leaf.SizeBefore.Should().Be(1000);
+        leaf.SizeAfter.Should().Be(5000);
+        leaf.Delta.Should().Be(4000);
+    }
+
+    [Fact]
+    public void Diff_DeepNesting_UnrelatedSiblingSubtreeStaysExcluded()
+    {
+        // A deep change in one branch must not spuriously surface an entirely
+        // unchanged sibling branch anywhere in the output (Unchanged subtrees are
+        // pruned at every level, not just the root).
+        var older = Snap(
+            TestTrees.Dir("changed", TestTrees.Dir("mid", TestTrees.File("leaf.bin", 1000))),
+            TestTrees.Dir("untouched", TestTrees.Dir("mid2", TestTrees.File("stable.bin", 2000))));
+        var newer = Snap(
+            TestTrees.Dir("changed", TestTrees.Dir("mid", TestTrees.File("leaf.bin", 9000))),
+            TestTrees.Dir("untouched", TestTrees.Dir("mid2", TestTrees.File("stable.bin", 2000))));
+
+        var diff = SnapshotDiffer.Diff(_store, older, newer);
+
+        diff.Root.Children.Select(c => c.Name).Should().ContainSingle().Which.Should().Be("changed");
+    }
 }
