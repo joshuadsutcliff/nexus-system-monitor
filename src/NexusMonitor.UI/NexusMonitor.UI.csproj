@@ -17,6 +17,12 @@
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Lets NexusMonitor.UI.Tests assert against ProcessesView's internal
+         _headerByColumnKey (header/three-source-of-truth drift coverage). -->
+    <InternalsVisibleTo Include="NexusMonitor.UI.Tests" />
+  </ItemGroup>
+
   <!-- Windows-specific target framework conditions -->
   <PropertyGroup Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0-windows'))">
     <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>

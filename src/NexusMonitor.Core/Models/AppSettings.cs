@@ -75,6 +75,14 @@ public class AppSettings
     // Sidebar navigation order — empty = default order
     public List<string> NavOrder { get; set; } = new();
 
+    // Process grid column customization (v1, Processes tab only) — stores stable column Keys
+    // (see ProcessColumnOption.Key), never display headers, so a copy tweak never breaks a
+    // saved preference. Empty = all hideable columns visible (the default, and also what a
+    // settings.json written before this key existed deserializes to — no migration code
+    // needed, since List<string> = new() is what the C# initializer already produces when the
+    // key is absent from the JSON).
+    public List<string> ProcessColumnsHidden { get; set; } = new();
+
     // Metrics persistence (Phase 11)
     public bool MetricsEnabled           { get; set; } = false;
     public int  MetricsTopNProcesses     { get; set; } = 15;
