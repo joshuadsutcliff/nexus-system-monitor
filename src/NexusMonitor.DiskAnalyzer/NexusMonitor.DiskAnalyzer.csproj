@@ -6,9 +6,13 @@
     <RootNamespace>NexusMonitor.DiskAnalyzer</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="NexusMonitor.DiskAnalyzer.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="System.Reactive" Version="6.0.1" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
     <PackageReference Include="SkiaSharp" Version="2.88.9" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.1" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\NexusMonitor.Core\NexusMonitor.Core.csproj" />

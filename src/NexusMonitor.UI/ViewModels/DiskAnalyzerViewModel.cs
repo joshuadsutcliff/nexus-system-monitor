@@ -5,9 +5,11 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using NexusMonitor.Core.Abstractions;
 using NexusMonitor.Core.Formatting;
+using NexusMonitor.Core.Services;
 using NexusMonitor.DiskAnalyzer.Analysis;
 using NexusMonitor.DiskAnalyzer.Models;
 using NexusMonitor.DiskAnalyzer.Scanning;
+using NexusMonitor.DiskAnalyzer.Snapshots;
 
 namespace NexusMonitor.UI.ViewModels;
 
@@ -60,6 +62,39 @@ public record FileTypeStatRow(string Extension, long SizeBytes, long FileCount, 
     public string CountDisplay   => $"{FileCount:N0}";
 }
 
+/// <summary>A single row in the Snapshots list (Snapshots mode).</summary>
+public sealed partial class SnapshotRow : ObservableObject
+{
+    public required SnapshotInfo Info { get; init; }
+    [ObservableProperty] private bool _isSelected;
+    public string CreatedDisplay => Info.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+    public string SizeDisplay    => DiskNode.FormatSize(Info.TotalSize);
+    public string FilesDisplay   => $"{Info.TotalFiles:N0} files";
+}
+
+/// <summary>
+/// A single visible row in the flat-list diff tree. Mirrors <see cref="FolderTreeRow"/>'s
+/// collapsed-by-default, expand-in-place approach — the full diff tree is never materialized
+/// (spec §6); children are inserted/removed by <c>ToggleDiffRow</c>.
+/// </summary>
+public sealed partial class DiffRow : ObservableObject
+{
+    public required DiffNode Node { get; init; }
+    public required int Level { get; init; }
+    [ObservableProperty] private bool _isExpanded;
+    public bool HasChildren   => Node.Children.Count > 0;
+    public string Indent      => new(' ', Level * 3);
+    public string KindDisplay => Node.Kind.ToString();
+    public string DeltaDisplay =>
+        (Node.Delta >= 0 ? "+" : "-") + DiskNode.FormatSize(Math.Abs(Node.Delta));
+    public string BeforeAfterDisplay =>
+        $"{(Node.SizeBefore is long b ? DiskNode.FormatSize(b) : "—")} → " +
+        $"{(Node.SizeAfter is long a ? DiskNode.FormatSize(a) : "—")}";
+    public string SmallFilesDisplay => Node.IsDirectory && Node.SmallFilesDelta != 0
+        ? $"({(Node.SmallFilesDelta >= 0 ? "+" : "-")}{DiskNode.FormatSize(Math.Abs(Node.SmallFilesDelta))} in small files)"
+        : string.Empty;
+}
+
 public partial class DiskAnalyzerViewModel : ViewModelBase, IDisposable
 {
     private CancellationTokenSource _cts = new();
@@ -92,6 +127,7 @@ public partial class DiskAnalyzerViewModel : ViewModelBase, IDisposable
     [ObservableProperty] private bool _isFolderViewActive = true;
     [ObservableProperty] private bool _isFileViewActive;
     [ObservableProperty] private bool _isDuplicateViewActive;
+    [ObservableProperty] private bool _isSnapshotViewActive;
 
     // ── Volume stats ─────────────────────────────────────────────────────────
     [ObservableProperty] private string _volumeTotalDisplay = string.Empty;
@@ -120,9 +156,13 @@ public partial class DiskAnalyzerViewModel : ViewModelBase, IDisposable
     [ObservableProperty] private bool _hasDuplicates;
 
     // ── Empty state ───────────────────────────────────────────────────────────
-    public bool ShowEmptyState => !HasScanResult && !IsScanning;
-    partial void OnHasScanResultChanged(bool value) => OnPropertyChanged(nameof(ShowEmptyState));
-    partial void OnIsScanningChanged(bool value)    => OnPropertyChanged(nameof(ShowEmptyState));
+    // Snapshots mode has its own history view (not the pre-scan "Select a drive…"
+    // prompt), so it must never be masked by the empty state (review finding,
+    // 2026-07-19).
+    public bool ShowEmptyState => !HasScanResult && !IsScanning && !IsSnapshotViewActive;
+    partial void OnHasScanResultChanged(bool value)      => OnPropertyChanged(nameof(ShowEmptyState));
+    partial void OnIsScanningChanged(bool value)         => OnPropertyChanged(nameof(ShowEmptyState));
+    partial void OnIsSnapshotViewActiveChanged(bool value) => OnPropertyChanged(nameof(ShowEmptyState));
 
     partial void OnSelectedRowChanged(FolderTreeRow? value)
     {
@@ -141,10 +181,163 @@ public partial class DiskAnalyzerViewModel : ViewModelBase, IDisposable
     /// <summary>Exposes platform capability flags for binding in the View.</summary>
     public IPlatformCapabilities Platform { get; }
 
-    public DiskAnalyzerViewModel(IPlatformCapabilities? platformCapabilities = null)
+    private readonly ISnapshotStore? _snapshotStore;
+    private readonly IInAppNotificationService? _notifications;
+    private readonly SettingsService? _settings;
+
+    [ObservableProperty] private bool _isSavingSnapshot;
+
+    // ── Snapshots / Diff view ────────────────────────────────────────────────
+    [ObservableProperty] private string _snapshotStoreSummary = string.Empty;
+    [ObservableProperty] private string _diffHeader = string.Empty;
+    [ObservableProperty] private bool _hasDiff;
+    public ObservableCollection<SnapshotRow> Snapshots { get; } = new();
+    public ObservableCollection<DiffRow> DiffRows { get; } = new();
+
+    public DiskAnalyzerViewModel(
+        IPlatformCapabilities? platformCapabilities = null,
+        ISnapshotStore? snapshotStore = null,
+        IInAppNotificationService? notifications = null,
+        SettingsService? settings = null)
     {
         Title    = "Disk Analyzer";
         Platform = platformCapabilities ?? new MockPlatformCapabilities();
+        _snapshotStore = snapshotStore;
+        _notifications = notifications;
+        _settings      = settings;
+        if (_snapshotStore?.WasRecovered == true)
+            _notifications?.Show(new InAppNotification(
+                Title: "Snapshot store recovered",
+                Body: "The snapshot database was corrupt and has been recreated. Previous snapshots were set aside.",
+                Severity: InAppSeverity.Warning,
+                AutoDismiss: TimeSpan.FromSeconds(8)));
+    }
+
+    private SnapshotOptions CurrentSnapshotOptions()
+    {
+        var s = _settings?.Current;
+        return new SnapshotOptions(
+            ThresholdBytes:   s?.SnapshotThresholdBytes ?? 1_048_576,
+            RetentionPerRoot: s?.SnapshotRetentionPerRoot ?? 26,
+            MaxDbSizeBytes:   (s?.SnapshotMaxDbSizeMb ?? 500) * 1024L * 1024L);
+    }
+
+    private async Task SaveSnapshotAsync(ScanResult result)
+    {
+        // Entire body inside try — this task is fire-and-forget, so an exception
+        // thrown before the first await would otherwise vanish unobserved.
+        try
+        {
+            if (_snapshotStore is null) return;
+            if (_settings?.Current is { SnapshotsEnabled: false }) return;
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => IsSavingSnapshot = true);
+            await Task.Run(() => _snapshotStore.Save(result, CurrentSnapshotOptions(),
+                GetType().Assembly.GetName().Version?.ToString())).ConfigureAwait(false);
+            Avalonia.Threading.Dispatcher.UIThread.Post(RefreshSnapshotList);
+        }
+        catch (Exception ex)
+        {
+            // Spec §4/§8: never let the user silently believe a snapshot exists.
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                _notifications?.Show(new InAppNotification(
+                    Title: "Snapshot not saved",
+                    Body: $"Scan completed but the snapshot could not be saved: {ex.Message}",
+                    Severity: InAppSeverity.Warning,
+                    AutoDismiss: TimeSpan.FromSeconds(8))));
+        }
+        finally
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => IsSavingSnapshot = false);
+        }
+    }
+
+    private void RefreshSnapshotList()
+    {
+        if (_snapshotStore is null || string.IsNullOrEmpty(SelectedPath)) return;
+        Snapshots.Clear();
+        foreach (var info in _snapshotStore.ListSnapshots(SelectedPath))
+            Snapshots.Add(new SnapshotRow { Info = info });
+        SnapshotStoreSummary =
+            $"{Snapshots.Count} snapshots for this root · store size " +
+            $"{DiskNode.FormatSize(_snapshotStore.GetStoreSizeBytes())} · retention " +
+            $"{CurrentSnapshotOptions().RetentionPerRoot} per root";
+    }
+
+    // ── Compare / diff ───────────────────────────────────────────────────────
+
+    [RelayCommand]
+    private void CompareWithPrevious() // spec §6: first-class "now vs. last time" entry
+    {
+        var two = Snapshots.Take(2).ToList();
+        if (two.Count < 2) return;
+        RunDiff(older: two[1].Info.Id, newer: two[0].Info.Id);
+    }
+
+    [RelayCommand]
+    private void CompareSelected()
+    {
+        var sel = Snapshots.Where(s => s.IsSelected).ToList();
+        if (sel.Count != 2) return;
+        var (a, b) = (sel[0].Info, sel[1].Info);
+        var older = a.CreatedAtUtc <= b.CreatedAtUtc ? a : b;
+        var newer = ReferenceEquals(older, a) ? b : a;
+        RunDiff(older.Id, newer.Id);
+    }
+
+    [RelayCommand]
+    private void DeleteSnapshot(SnapshotRow row)
+    {
+        _snapshotStore?.Delete(row.Info.Id);
+        RefreshSnapshotList();
+    }
+
+    private void RunDiff(long older, long newer)
+    {
+        if (_snapshotStore is null) return;
+        try
+        {
+            var diff = SnapshotDiffer.Diff(_snapshotStore, older, newer);
+            DiffHeader =
+                $"Comparing {diff.Older.CreatedAtUtc.ToLocalTime():MMM d} → " +
+                $"{diff.Newer.CreatedAtUtc.ToLocalTime():MMM d} · {DiffFormatter.ThresholdFooter(diff)}";
+            DiffRows.Clear();
+            foreach (var row in BuildDiffRows(diff.Root, level: 0))
+                DiffRows.Add(row);
+            HasDiff = true;
+        }
+        catch (InvalidOperationException ex)
+        {
+            _notifications?.Show(new InAppNotification(
+                Title: "Cannot compare", Body: ex.Message,
+                Severity: InAppSeverity.Warning, AutoDismiss: TimeSpan.FromSeconds(6)));
+        }
+    }
+
+    private static IEnumerable<DiffRow> BuildDiffRows(DiffNode root, int level)
+    {
+        yield return new DiffRow { Node = root, Level = level };
+        // Children appear only when a row is expanded — see ToggleDiffRow.
+    }
+
+    [RelayCommand]
+    private void ToggleDiffRow(DiffRow row)
+    {
+        var index = DiffRows.IndexOf(row);
+        if (index < 0 || !row.HasChildren) return;
+        if (row.IsExpanded)
+        {
+            // Collapse: remove all following rows deeper than this one.
+            while (index + 1 < DiffRows.Count && DiffRows[index + 1].Level > row.Level)
+                DiffRows.RemoveAt(index + 1);
+            row.IsExpanded = false;
+        }
+        else
+        {
+            var insert = index + 1;
+            foreach (var child in row.Node.Children) // already sorted by |Δ| desc
+                DiffRows.Insert(insert++, new DiffRow { Node = child, Level = row.Level + 1 });
+            row.IsExpanded = true;
+        }
     }
 
     // ── Tab switching ────────────────────────────────────────────────────────
@@ -155,6 +348,7 @@ public partial class DiskAnalyzerViewModel : ViewModelBase, IDisposable
         IsFolderViewActive    = true;
         IsFileViewActive      = false;
         IsDuplicateViewActive = false;
+        IsSnapshotViewActive  = false;
     }
 
     [RelayCommand]
@@ -163,6 +357,7 @@ public partial class DiskAnalyzerViewModel : ViewModelBase, IDisposable
         IsFolderViewActive    = false;
         IsFileViewActive      = true;
         IsDuplicateViewActive = false;
+        IsSnapshotViewActive  = false;
     }
 
     [RelayCommand]
@@ -171,6 +366,17 @@ public partial class DiskAnalyzerViewModel : ViewModelBase, IDisposable
         IsFolderViewActive    = false;
         IsFileViewActive      = false;
         IsDuplicateViewActive = true;
+        IsSnapshotViewActive  = false;
+    }
+
+    [RelayCommand]
+    private void SelectSnapshotView()
+    {
+        IsFolderViewActive    = false;
+        IsFileViewActive      = false;
+        IsDuplicateViewActive = false;
+        IsSnapshotViewActive  = true;
+        RefreshSnapshotList();
     }
 
     // ── Scan ─────────────────────────────────────────────────────────────────
@@ -229,6 +435,7 @@ public partial class DiskAnalyzerViewModel : ViewModelBase, IDisposable
             SummaryText = $"{result.TotalFiles:N0} files, {result.TotalFolders:N0} folders \u2014 " +
                           $"{DiskNode.FormatSize(result.TotalSize)} in {result.Duration.TotalSeconds:F1}s";
             ScanStatus  = SummaryText;
+            _ = SaveSnapshotAsync(result); // fire-and-forget; failures surface as a toast
 
             // Volume stats
             if (result.VolumeTotal > 0)

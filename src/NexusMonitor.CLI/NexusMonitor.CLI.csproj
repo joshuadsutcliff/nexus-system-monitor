@@ -33,5 +33,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\NexusMonitor.Hosting\NexusMonitor.Hosting.csproj" />
+    <ProjectReference Include="..\NexusMonitor.DiskAnalyzer\NexusMonitor.DiskAnalyzer.csproj" />
   </ItemGroup>
 </Project>

@@ -102,6 +102,27 @@ This isn't a lowest-common-denominator approach. Nexus aims for the **union** of
 - Multi-threaded directory scanning
 - Identify space-hogging directories at a glance
 
+### Snapshot & Compare
+
+Every completed disk scan is saved automatically as a compact snapshot
+(directories + files ≥ 1 MB; smaller files aggregated per folder — the
+threshold is configurable). Scan a root again later and compare any two
+snapshots to see exactly what grew, shrank, appeared, or vanished — or use
+"Compare with previous" for an instant now-vs-last-time answer. Free-space
+history is captured with every snapshot.
+
+Works headlessly too:
+
+    nexus disk scan /data                      # scan + save a snapshot
+    nexus disk scan /data --diff latest        # what changed since last scan?
+    nexus disk scan /data --diff 2026-07-01 --format json --top 20
+    nexus disk snapshots list
+
+Honesty notes, by design: sub-threshold files are aggregated (and every diff
+says so), renames appear as removed + added (no move detection), and name
+matching follows your platform's case rule — each diff header states the
+rules it applied.
+
 ### Alerts & Rules Engine
 - Define performance alerts with CPU/RAM thresholds
 - Create automation rules — automatically set priority, affinity, or terminate processes when conditions are met
