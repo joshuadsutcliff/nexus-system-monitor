@@ -156,9 +156,13 @@ public partial class DiskAnalyzerViewModel : ViewModelBase, IDisposable
     [ObservableProperty] private bool _hasDuplicates;
 
     // ── Empty state ───────────────────────────────────────────────────────────
-    public bool ShowEmptyState => !HasScanResult && !IsScanning;
-    partial void OnHasScanResultChanged(bool value) => OnPropertyChanged(nameof(ShowEmptyState));
-    partial void OnIsScanningChanged(bool value)    => OnPropertyChanged(nameof(ShowEmptyState));
+    // Snapshots mode has its own history view (not the pre-scan "Select a drive…"
+    // prompt), so it must never be masked by the empty state (review finding,
+    // 2026-07-19).
+    public bool ShowEmptyState => !HasScanResult && !IsScanning && !IsSnapshotViewActive;
+    partial void OnHasScanResultChanged(bool value)      => OnPropertyChanged(nameof(ShowEmptyState));
+    partial void OnIsScanningChanged(bool value)         => OnPropertyChanged(nameof(ShowEmptyState));
+    partial void OnIsSnapshotViewActiveChanged(bool value) => OnPropertyChanged(nameof(ShowEmptyState));
 
     partial void OnSelectedRowChanged(FolderTreeRow? value)
     {

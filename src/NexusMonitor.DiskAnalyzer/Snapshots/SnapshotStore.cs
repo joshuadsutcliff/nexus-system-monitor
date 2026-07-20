@@ -64,7 +64,15 @@ public sealed class SnapshotStore : ISnapshotStore
                 tx.Commit();
             }
 
-            ApplyRetention(options);
+            try
+            {
+                ApplyRetention(options);
+            }
+            catch
+            {
+                // Spec §8: retention is non-fatal and retried on the next write;
+                // the snapshot itself already committed above.
+            }
             return snapshotId;
         }
     }

@@ -31,6 +31,7 @@ public sealed class SnapshotDatabase : IDisposable
             // consensus 2026-07-19; mirrors the MetricsStore two-connection pattern).
             ReadConnection = new SqliteConnection($"Data Source={dbPath}");
             ReadConnection.Open();
+            ConfigureReadPragmas();
         }
         catch
         {
@@ -98,6 +99,19 @@ public sealed class SnapshotDatabase : IDisposable
             PRAGMA synchronous   = NORMAL;
             PRAGMA busy_timeout  = 5000;
             PRAGMA foreign_keys  = OFF;";
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>Pragmas are per-connection, not per-file: ReadConnection needs its
+    /// own busy_timeout so a UI read racing another process's VACUUM/write waits
+    /// instead of throwing instantly, plus query_only as a defense-in-depth guard
+    /// against accidental writes through the read handle (review finding, 2026-07-19).</summary>
+    private void ConfigureReadPragmas()
+    {
+        using var cmd = ReadConnection.CreateCommand();
+        cmd.CommandText = @"
+            PRAGMA busy_timeout = 5000;
+            PRAGMA query_only   = ON;";
         cmd.ExecuteNonQuery();
     }
 

@@ -125,4 +125,29 @@ public class SnapshotStoreTests : IDisposable
         _store.SweepIncomplete().Should().Be(1);
         _store.GetSnapshot(goodId).Should().NotBeNull();
     }
+
+    /// <summary>
+    /// Pin for spec §8: retention pruning failure must not fail the Save that
+    /// already committed. This is a smoke pin, not a throw-pin — these extreme
+    /// options (RetentionPerRoot: 0 clamped to 1, MaxDbSizeBytes: 1 forcing the
+    /// pass-2 delete/VACUUM loop) exercise the same code path a real retention
+    /// failure would run through, but they don't reliably make ApplyRetention
+    /// throw in a temp-dir test environment, so this test does not discriminate
+    /// between "the try/catch swallows the exception" and "no exception occurred."
+    /// The swallow itself (SnapshotStore.Save wrapping ApplyRetention in try/catch)
+    /// is verified by code review, not by this test. What this test does pin is
+    /// the contract: Save must still return a valid, readable snapshot id when
+    /// retention runs under maximally aggressive options.
+    /// </summary>
+    [Fact]
+    public void Save_ReturnsValidId_WhenRetentionRunsUnderExtremeOptions()
+    {
+        var extreme = new SnapshotOptions(ThresholdBytes: 1000, RetentionPerRoot: 0, MaxDbSizeBytes: 1);
+        var t = TestTrees.Dir("ScanRoot", TestTrees.File("a.bin", 5000));
+
+        var id = _store.Save(TestTrees.Result(t, ScanRoot), extreme);
+
+        id.Should().BeGreaterThan(0);
+        _store.GetSnapshot(id).Should().NotBeNull();
+    }
 }
