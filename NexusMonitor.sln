@@ -27,6 +27,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NexusMonitor.CLI", "src\Nex
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NexusMonitor.DiskAnalyzer.Tests", "tests\NexusMonitor.DiskAnalyzer.Tests\NexusMonitor.DiskAnalyzer.Tests.csproj", "{0588E872-5D57-4BAD-8DAD-5A9716F9944C}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NexusMonitor.UI.Tests", "tests\NexusMonitor.UI.Tests\NexusMonitor.UI.Tests.csproj", "{0440B2A1-C03F-4118-95B5-24D10D2327AB}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -76,6 +78,10 @@ Global
 		{0588E872-5D57-4BAD-8DAD-5A9716F9944C}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{0588E872-5D57-4BAD-8DAD-5A9716F9944C}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{0588E872-5D57-4BAD-8DAD-5A9716F9944C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0440B2A1-C03F-4118-95B5-24D10D2327AB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0440B2A1-C03F-4118-95B5-24D10D2327AB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0440B2A1-C03F-4118-95B5-24D10D2327AB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0440B2A1-C03F-4118-95B5-24D10D2327AB}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{E87E30BC-55C7-4590-B7D8-16E4D06BE05F} = {F81917BA-C407-4826-B36F-433A4AF34915}
@@ -88,5 +94,6 @@ Global
 		{D1A2B3C4-E5F6-7890-ABCD-EF1234567890} = {F81917BA-C407-4826-B36F-433A4AF34915}
 		{A1B2C3D4-E5F6-7890-ABCD-EF0987654321} = {F81917BA-C407-4826-B36F-433A4AF34915}
 		{0588E872-5D57-4BAD-8DAD-5A9716F9944C} = {A55BA839-58B9-4149-8E41-52996EAF43B9}
+		{0440B2A1-C03F-4118-95B5-24D10D2327AB} = {A55BA839-58B9-4149-8E41-52996EAF43B9}
 	EndGlobalSection
 EndGlobal

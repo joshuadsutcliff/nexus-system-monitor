@@ -307,6 +307,12 @@ public partial class DiskAnalyzerViewModel : ViewModelBase, IDisposable
         }
         catch (InvalidOperationException ex)
         {
+            // Fast-follow #4: a failed compare must never leave a PREVIOUS diff
+            // displayed next to the new error — the user would see stale rows that
+            // don't correspond to the pair they just tried (and failed) to compare.
+            HasDiff = false;
+            DiffRows.Clear();
+            DiffHeader = string.Empty;
             _notifications?.Show(new InAppNotification(
                 Title: "Cannot compare", Body: ex.Message,
                 Severity: InAppSeverity.Warning, AutoDismiss: TimeSpan.FromSeconds(6)));
