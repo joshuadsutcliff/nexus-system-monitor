@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using NexusMonitor.UI.ViewModels;
+using Serilog;
 
 namespace NexusMonitor.UI.Views;
 
@@ -27,7 +28,13 @@ public partial class ProcessesView : UserControl
     // OnLoaded/OnUnloaded — the same code-behind-subscribes-to-VM-events pattern this file
     // already uses for grid sorting (OnGridSorting) and multi-select (OnGridSelectionChanged)
     // below.
-    private static readonly Dictionary<string, string> _headerByColumnKey = new()
+    //
+    // Three sources of truth have to agree for this lookup to succeed: this dictionary's
+    // values, ProcessesViewModel._hideableColumns' headers, and the actual Header="..." literals
+    // in ProcessesView.axaml. internal (not private) + InternalsVisibleTo so
+    // ProcessesViewHeaderSyncTests can catch the three of them drifting apart at test time
+    // instead of a user hitting the crash below at runtime.
+    internal static readonly Dictionary<string, string> _headerByColumnKey = new()
     {
         ["pid"]      = "PID",
         ["cpu"]      = "CPU",
@@ -45,10 +52,37 @@ public partial class ProcessesView : UserControl
 
     private Dictionary<string, DataGridColumn>? _hideableColumnsByKey;
 
-    private Dictionary<string, DataGridColumn> HideableColumnsByKey => _hideableColumnsByKey ??=
-        _headerByColumnKey.ToDictionary(
-            kv => kv.Key,
-            kv => ProcessGrid.Columns.First(c => (c.Header as string) == kv.Value));
+    private Dictionary<string, DataGridColumn> HideableColumnsByKey => _hideableColumnsByKey ??= BuildHideableColumnsByKey();
+
+    /// <summary>
+    /// Resolves each <see cref="_headerByColumnKey"/> entry to its <see cref="DataGridColumn"/>
+    /// by Header text. Uses <c>FirstOrDefault</c> rather than <c>First</c> deliberately: if a
+    /// column's Header="..." literal in ProcessesView.axaml ever drifts from this dictionary
+    /// (e.g. someone renames it in the XAML only), the affected key is skipped instead of
+    /// throwing InvalidOperationException out of OnLoaded — that used to crash the whole
+    /// Processes view on tab load. A skipped key just means ApplyColumnVisibility's
+    /// TryGetValue lookup for it misses, so the toggle is a silent no-op for that one column
+    /// instead of taking down the view. Logged so the drift is still visible in the logs even
+    /// though nothing crashes.
+    /// </summary>
+    private Dictionary<string, DataGridColumn> BuildHideableColumnsByKey()
+    {
+        var result = new Dictionary<string, DataGridColumn>();
+        foreach (var (key, header) in _headerByColumnKey)
+        {
+            var column = ProcessGrid.Columns.FirstOrDefault(c => (c.Header as string) == header);
+            if (column is null)
+            {
+                Log.Warning(
+                    "Processes column {Key} (expected header {Header}) not found on ProcessGrid — " +
+                    "its show/hide toggle will be a no-op until the header text is fixed",
+                    key, header);
+                continue;
+            }
+            result[key] = column;
+        }
+        return result;
+    }
 
     public ProcessesView()
     {
