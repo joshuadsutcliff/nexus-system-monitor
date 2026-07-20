@@ -55,6 +55,12 @@ public class AppSettings
     public double        AutoBalanceCpuThreshold { get; set; } = 80.0;
     public List<string>  AutoBalanceExclusions   { get; set; } = new();
 
+    // Disk snapshots (Snapshot & Compare)
+    public bool SnapshotsEnabled        { get; set; } = true;
+    public long SnapshotThresholdBytes  { get; set; } = 1_048_576;
+    public int  SnapshotRetentionPerRoot { get; set; } = 26;
+    public int  SnapshotMaxDbSizeMb     { get; set; } = 500;
+
     // Rules
     public List<ProcessRule> Rules { get; set; } = new();
 

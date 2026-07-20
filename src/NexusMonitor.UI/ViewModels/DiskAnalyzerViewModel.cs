@@ -212,12 +212,10 @@ public partial class DiskAnalyzerViewModel : ViewModelBase, IDisposable
     private SnapshotOptions CurrentSnapshotOptions()
     {
         var s = _settings?.Current;
-        // TODO(Task 10): read from AppSettings Snapshot* props once they land; this is a
-        // three-line swap (s?.SnapshotThresholdBytes / SnapshotRetentionPerRoot / SnapshotMaxDbSizeMb).
         return new SnapshotOptions(
-            ThresholdBytes:   1_048_576,
-            RetentionPerRoot: 26,
-            MaxDbSizeBytes:   500 * 1024L * 1024L);
+            ThresholdBytes:   s?.SnapshotThresholdBytes ?? 1_048_576,
+            RetentionPerRoot: s?.SnapshotRetentionPerRoot ?? 26,
+            MaxDbSizeBytes:   (s?.SnapshotMaxDbSizeMb ?? 500) * 1024L * 1024L);
     }
 
     private async Task SaveSnapshotAsync(ScanResult result)
@@ -227,9 +225,7 @@ public partial class DiskAnalyzerViewModel : ViewModelBase, IDisposable
         try
         {
             if (_snapshotStore is null) return;
-            // TODO(Task 10): gate on `_settings?.Current is { SnapshotsEnabled: false }` once that
-            // AppSettings property lands (same three-line-swap category as CurrentSnapshotOptions
-            // above); snapshots are unconditionally enabled until then.
+            if (_settings?.Current is { SnapshotsEnabled: false }) return;
             Avalonia.Threading.Dispatcher.UIThread.Post(() => IsSavingSnapshot = true);
             await Task.Run(() => _snapshotStore.Save(result, CurrentSnapshotOptions(),
                 GetType().Assembly.GetName().Version?.ToString())).ConfigureAwait(false);
