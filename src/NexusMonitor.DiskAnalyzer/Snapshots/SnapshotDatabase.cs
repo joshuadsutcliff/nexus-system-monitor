@@ -3,6 +3,29 @@ using Microsoft.Data.Sqlite;
 namespace NexusMonitor.DiskAnalyzer.Snapshots;
 
 /// <summary>
+/// Thrown when an existing disk-snapshots.db reports a stored schema_version newer
+/// than this build's <see cref="SnapshotDatabase.SchemaVersion"/> — e.g. after a
+/// downgrade, or a file synced in from a machine on a newer install. This is
+/// deliberately NOT a <see cref="SqliteException"/>: <see cref="SnapshotDatabase.OpenOrRecover"/>
+/// only catches that type for genuine corruption, so a too-new (but perfectly valid)
+/// file is never destructively renamed aside — it is simply refused, honestly.
+/// </summary>
+public sealed class SnapshotSchemaTooNewException : Exception
+{
+    public int StoredVersion { get; }
+    public int SupportedVersion { get; }
+
+    public SnapshotSchemaTooNewException(int storedVersion, int supportedVersion)
+        : base($"Snapshot database schema version {storedVersion} is newer than this version of " +
+               $"Nexus supports (max {supportedVersion}). Update Nexus to read this snapshot " +
+               "history, or use a build that supports it — the existing file has been left untouched.")
+    {
+        StoredVersion = storedVersion;
+        SupportedVersion = supportedVersion;
+    }
+}
+
+/// <summary>
 /// Owns the disk-snapshots.db connection. Mirrors MetricsDatabase conventions
 /// (WAL, NORMAL sync, busy timeout, meta version table) but is a separate file
 /// by design — retention/vacuum/schema evolve independently and corruption here
@@ -31,6 +54,11 @@ public sealed class SnapshotDatabase : IDisposable
         try
         {
             ConfigurePragmas();
+            // Guard BEFORE InitSchema/any write: a stored schema newer than this
+            // build understands must never be touched by our (older) migrations or
+            // writes — that's how you'd actually corrupt a forward-compatible file.
+            // This is the guard that must exist before any future schema v2 ships.
+            EnsureSchemaVersionSupported();
             InitSchema();
             // Second connection for reads: WAL supports concurrent readers with one
             // writer, and SqliteConnection itself is NOT thread-safe — UI-thread reads
@@ -46,6 +74,29 @@ public sealed class SnapshotDatabase : IDisposable
             Connection.Dispose();
             throw;
         }
+    }
+
+    /// <summary>Reads meta.schema_version, if present, and throws
+    /// <see cref="SnapshotSchemaTooNewException"/> when it's newer than this build
+    /// supports. A no-op (not an error) on a brand-new file — InitSchema hasn't run
+    /// yet, so there is no meta table, which just means "current version, create it".</summary>
+    private void EnsureSchemaVersionSupported()
+    {
+        using (var check = Connection.CreateCommand())
+        {
+            check.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'meta'";
+            if (Convert.ToInt64(check.ExecuteScalar()) == 0) return; // brand-new file
+        }
+
+        using var cmd = Connection.CreateCommand();
+        cmd.CommandText = "SELECT value FROM meta WHERE key = 'schema_version'";
+        var raw = cmd.ExecuteScalar();
+        if (raw is null or DBNull) return; // meta exists but no version row yet — treat as current
+
+        if (!int.TryParse(Convert.ToString(raw), out var stored)) return; // unparseable: not this guard's problem
+
+        if (stored > SchemaVersion)
+            throw new SnapshotSchemaTooNewException(stored, SchemaVersion);
     }
 
     public SqliteConnection ReadConnection { get; private set; } = null!;

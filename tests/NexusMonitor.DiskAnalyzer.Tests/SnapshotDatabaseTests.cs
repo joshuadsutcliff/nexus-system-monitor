@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Data.Sqlite;
 using NexusMonitor.DiskAnalyzer.Snapshots;
 using Xunit;
 
@@ -127,4 +128,69 @@ public class SnapshotDatabaseTests : IDisposable
         recovered.Should().BeFalse();
     }
 
+    // ── Fast-follow #5: schema_version reader guard ─────────────────────────
+    // This is the guard that must exist BEFORE any future schema v2 ships: an
+    // older build opening a newer-schema disk-snapshots.db (e.g. after a
+    // downgrade, or a shared file synced from a machine on a newer install)
+    // must refuse with an honest, well-typed error — never silently proceed
+    // and risk corrupting a schema it doesn't understand, and never treat a
+    // valid-but-newer file as "corrupt" (which would destroy it via the
+    // rename-aside recovery path).
+
+    /// <summary>Hand-crafts a db file whose stored schema_version is newer than
+    /// this build's <see cref="SnapshotDatabase.SchemaVersion"/>.</summary>
+    private void BumpStoredSchemaVersion(int version)
+    {
+        new SnapshotDatabase(DbPath).Dispose();
+        using var conn = new SqliteConnection($"Data Source={DbPath};Pooling=False");
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE meta SET value = $v WHERE key = 'schema_version'";
+        cmd.Parameters.AddWithValue("$v", version.ToString());
+        cmd.ExecuteNonQuery();
+    }
+
+    [Fact]
+    public void Constructor_ThrowsSnapshotSchemaTooNew_WhenStoredVersionExceedsSupported()
+    {
+        BumpStoredSchemaVersion(SnapshotDatabase.SchemaVersion + 1);
+
+        var act = () => new SnapshotDatabase(DbPath);
+
+        var ex = act.Should().Throw<SnapshotSchemaTooNewException>().Which;
+        ex.StoredVersion.Should().Be(SnapshotDatabase.SchemaVersion + 1);
+        ex.SupportedVersion.Should().Be(SnapshotDatabase.SchemaVersion);
+    }
+
+    [Fact]
+    public void OpenOrRecover_PropagatesSchemaTooNew_AndDoesNotTreatFileAsCorrupt()
+    {
+        BumpStoredSchemaVersion(SnapshotDatabase.SchemaVersion + 1);
+
+        var act = () => SnapshotDatabase.OpenOrRecover(DbPath, out _);
+
+        // Must propagate as the specific, honest error — NOT be swallowed into the
+        // generic corrupt-DB recovery path (which only catches SqliteException).
+        act.Should().Throw<SnapshotSchemaTooNewException>();
+
+        // A valid newer-schema file must never be destructively renamed aside —
+        // that path is reserved for genuine corruption (spec §8). Losing a
+        // forward-compatible file just because THIS build can't read it yet would
+        // be exactly the kind of silent-corruption behavior this guard exists to
+        // prevent.
+        File.Exists(DbPath).Should().BeTrue("a valid newer-schema file must be left untouched, not moved aside");
+        Directory.GetFiles(_dir, "disk-snapshots.db.corrupt-*").Should().BeEmpty(
+            "schema-too-new is not corruption and must not trigger the rename-aside recovery path");
+    }
+
+    [Fact]
+    public void Constructor_OpensNormally_WhenStoredVersionEqualsSupported()
+    {
+        // Pin: the guard must not be so eager it rejects the CURRENT version too.
+        new SnapshotDatabase(DbPath).Dispose(); // writes SchemaVersion via InitSchema
+        using var db = new SnapshotDatabase(DbPath);
+        using var cmd = db.Connection.CreateCommand();
+        cmd.CommandText = "SELECT value FROM meta WHERE key = 'schema_version'";
+        Convert.ToInt32(cmd.ExecuteScalar()).Should().Be(SnapshotDatabase.SchemaVersion);
+    }
 }
