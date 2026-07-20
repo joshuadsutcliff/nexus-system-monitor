@@ -364,6 +364,43 @@ public sealed class MftScanner : IDiskScanner
 
     // ── Build DiskNode tree ───────────────────────────────────────────────────
 
+    /// <summary>The NTFS volume root is always MFT record 5.</summary>
+    private const ulong NTFS_ROOT_FRN = 5;
+
+    /// <summary>
+    /// Walks <paramref name="parts"/> (path components below the volume root) down the
+    /// MFT parent/child index. Returns false — with <paramref name="frn"/> reset to the
+    /// volume root — when ANY component is missing (or matches only a non-directory):
+    /// callers must treat that as "this scan cannot be served from the MFT" and fall
+    /// back to a directory walk, never scan the deepest ancestor that did resolve.
+    /// </summary>
+    internal static bool TryResolvePathFrn(
+        Dictionary<ulong, MftEntry> frnMap,
+        Dictionary<ulong, List<ulong>> childrenOf,
+        IReadOnlyList<string> parts,
+        out ulong frn)
+    {
+        frn = NTFS_ROOT_FRN;
+        foreach (var part in parts)
+        {
+            if (!childrenOf.TryGetValue(frn, out var kids)) { frn = NTFS_ROOT_FRN; return false; }
+            ulong? next = null;
+            foreach (var kid in kids)
+            {
+                if (frnMap.TryGetValue(kid, out var kEntry) &&
+                    kEntry.IsDirectory &&
+                    string.Equals(kEntry.Name, part, StringComparison.OrdinalIgnoreCase))
+                {
+                    next = kid;
+                    break;
+                }
+            }
+            if (next is null) { frn = NTFS_ROOT_FRN; return false; }
+            frn = next.Value;
+        }
+        return true;
+    }
+
     private static DiskNode BuildTree(
         List<MftEntry> entries,
         string requestedPath,
@@ -385,10 +422,12 @@ public sealed class MftScanner : IDiskScanner
             list.Add(e.Frn);
         }
 
-        // Find FRN of the requested path
-        // The NTFS volume root is always MFT record 5.
-        const ulong NTFS_ROOT_FRN = 5;
-
+        // Find FRN of the requested path. Every component must resolve — a partial
+        // resolution must NOT scan the deepest ancestor that did resolve (that
+        // silently returns volume-root-sized totals stamped with the requested
+        // path, e.g. when the MFT's on-disk state doesn't yet contain a freshly
+        // created directory). Throwing here lands in ScanAsync's catch, which
+        // falls back to RecursiveScanner and reports the reason via progress.
         ulong targetFrn = NTFS_ROOT_FRN;
         string relativePart = requestedPath;
         if (relativePart.StartsWith(driveRoot, StringComparison.OrdinalIgnoreCase))
@@ -400,26 +439,10 @@ public sealed class MftScanner : IDiskScanner
                 new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
                 StringSplitOptions.RemoveEmptyEntries);
 
-            ulong currentFrn = NTFS_ROOT_FRN;
-            foreach (var part in parts)
-            {
-                ct.ThrowIfCancellationRequested();
-                if (!childrenOf.TryGetValue(currentFrn, out var kids)) break;
-                ulong? next = null;
-                foreach (var kid in kids)
-                {
-                    if (frnMap.TryGetValue(kid, out var kEntry) &&
-                        kEntry.IsDirectory &&
-                        string.Equals(kEntry.Name, part, StringComparison.OrdinalIgnoreCase))
-                    {
-                        next = kid;
-                        break;
-                    }
-                }
-                if (next is null) break;
-                currentFrn = next.Value;
-            }
-            targetFrn = currentFrn;
+            ct.ThrowIfCancellationRequested();
+            if (!TryResolvePathFrn(frnMap, childrenOf, parts, out targetFrn))
+                throw new DirectoryNotFoundException(
+                    $"MFT index could not resolve '{requestedPath}' to a volume subtree.");
         }
 
         // ── Iterative DFS tree build — avoids stack overflow on deep hierarchies ──
@@ -554,7 +577,7 @@ public sealed class MftScanner : IDiskScanner
 
     // ── Internal record for a parsed MFT entry ────────────────────────────────
 
-    private readonly record struct MftEntry(
+    internal readonly record struct MftEntry(
         ulong    Frn,
         ulong    ParentFrn,
         string   Name,
