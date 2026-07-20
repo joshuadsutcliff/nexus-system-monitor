@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Text.Json;
 using NexusMonitor.DiskAnalyzer.Models;
 using NexusMonitor.DiskAnalyzer.Snapshots;
 using Spectre.Console;
@@ -32,7 +31,7 @@ internal sealed class DiskSnapshotsListCommand : Command<DiskSnapshotsListComman
 
         if (json)
         {
-            Console.Write(ToJson(snapshots));
+            Console.Write(SnapshotInfoJson.ToJson(snapshots));
             return 0;
         }
 
@@ -82,22 +81,5 @@ internal sealed class DiskSnapshotsListCommand : Command<DiskSnapshotsListComman
                 DiskNode.FormatSize(snap.ThresholdBytes));
         }
         return table;
-    }
-
-    private static string ToJson(IReadOnlyList<SnapshotInfo> snapshots)
-    {
-        var payload = snapshots.Select(s => new
-        {
-            id = s.Id,
-            rootPath = s.RootPath,
-            createdAt = s.CreatedAtUtc.ToString("o"),
-            totalSize = s.TotalSize,
-            totalFiles = s.TotalFiles,
-            thresholdBytes = s.ThresholdBytes,
-            fileSystem = s.FileSystem,
-            volumeTotal = s.VolumeTotal,
-            volumeFree = s.VolumeFree,
-        });
-        return JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
     }
 }
