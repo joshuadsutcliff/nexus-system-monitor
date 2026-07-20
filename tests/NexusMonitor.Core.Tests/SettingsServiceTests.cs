@@ -644,4 +644,50 @@ public class SettingsServiceTests : IDisposable
         svc2.Current.HasSeenFirstRunOrientation.Should().BeTrue(
             "dismissal must persist so the overlay never constructs again, even across restarts");
     }
+
+    // ── Process column customization (ProcessColumnsHidden, 2026-07-20) ────────────────────────
+    //
+    // Unlike the quiet-defaults / first-run guards above, this key needs no dedicated migration
+    // method: List<string> ProcessColumnsHidden = new() is exactly what Deserialize already
+    // produces when the key is absent from the JSON (System.Text.Json falls back to the C#
+    // initializer per-property, not per-object), and "no hidden columns" IS the correct default
+    // for both a genuinely fresh install and a settings.json that predates this feature. These
+    // tests pin that natural behavior so a future refactor (e.g. adding JSON attributes, or a
+    // custom converter) can't silently regress it.
+
+    [Fact]
+    public void ProcessColumnsHidden_KeyAbsentFromJson_DeserializesToEmptyList()
+    {
+        // Mimics a settings.json written before this feature existed — the key was never
+        // serialized. Migration guard: absent key must resolve to an empty list (all columns
+        // visible), not null and not a throw.
+        var json = """{"ThemeMode":"Dark","UpdateIntervalMs":2000}""";
+
+        WithSettings(json, svc =>
+        {
+            svc.Current.ProcessColumnsHidden.Should().NotBeNull();
+            svc.Current.ProcessColumnsHidden.Should().BeEmpty();
+        });
+    }
+
+    [Fact]
+    public void ProcessColumnsHidden_NoFileAtAll_DefaultsToEmptyList()
+    {
+        WithSettings(null, svc =>
+        {
+            svc.Current.ProcessColumnsHidden.Should().BeEmpty();
+        });
+    }
+
+    [Fact]
+    public void ProcessColumnsHidden_RoundTrip_PersistsAndLoadsBackInOrder()
+    {
+        var svc1 = CreateService();
+        svc1.Current.ProcessColumnsHidden.Add("pid");
+        svc1.Current.ProcessColumnsHidden.Add("handles");
+        svc1.Dispose(); // flushes synchronously
+
+        using var svc2 = CreateService();
+        svc2.Current.ProcessColumnsHidden.Should().Equal("pid", "handles");
+    }
 }

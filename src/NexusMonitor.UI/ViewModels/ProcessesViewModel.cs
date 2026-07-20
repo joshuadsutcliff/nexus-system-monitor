@@ -30,6 +30,7 @@ public partial class ProcessesViewModel : ViewModelBase, IActivatable, IDisposab
     private readonly ProcessPreferenceStore?     _preferenceStore;
     private readonly MemoryLeakDetectionService? _leakService;
     private readonly ProcessGroupStore?          _groupStore;
+    private readonly SettingsService?            _settingsService;
     private readonly CancellationTokenSource _cts = new();
     private readonly BatchProcessActions _batchActions;
 
@@ -198,23 +199,68 @@ public partial class ProcessesViewModel : ViewModelBase, IActivatable, IDisposab
 
     public ProcessGroupsViewModel? GroupsViewModel { get; }
 
+    // ── Column customization (Processes grid only, v1) ──────────────────────────────────────
+    // The 12 hideable columns, in the exact order and with the exact header text used by
+    // ProcessesView.axaml's DataGrid.Columns. Name is intentionally absent — it is never
+    // hideable. Key is the stable identifier persisted in AppSettings.ProcessColumnsHidden
+    // (never Header) so a future copy tweak can't silently strand a user's saved preference.
+    private static readonly (string Key, string Header)[] _hideableColumns =
+    {
+        ("pid",      "PID"),
+        ("cpu",      "CPU"),
+        ("memory",   "Memory"),
+        ("leak",     "Leak"),
+        ("io",       "I/O"),
+        ("impact",   "Impact"),
+        ("rules",    "Rules"),
+        ("group",    "Group"),
+        ("priority", "Priority"),
+        ("threads",  "Threads"),
+        ("handles",  "Handles"),
+        ("user",     "User"),
+    };
+
+    /// <summary>
+    /// Show/hide options for the Processes grid's hideable columns (Task 2 binds each option's
+    /// IsVisible to its DataGridColumn.IsVisible from a header context menu). Initialized once
+    /// from <see cref="AppSettings.ProcessColumnsHidden"/>; toggling an option here updates that
+    /// list and saves settings (see <see cref="OnColumnOptionVisibilityChanged"/>).
+    /// </summary>
+    public ObservableCollection<ProcessColumnOption> ColumnOptions { get; } = [];
+
+    // Set while ResetColumns() is bulk-flipping every option back to visible, so each
+    // individual flip's VisibilityChanged handler updates AppSettings.ProcessColumnsHidden
+    // (needed for UI binding correctness) without also firing a redundant Save() per column —
+    // ResetColumns() clears the list and saves exactly once at the end instead.
+    private bool _suppressColumnPersist;
+
     public ProcessesViewModel(IProcessProvider processProvider, AppSettings appSettings,
         IPlatformCapabilities? platformCapabilities = null,
         ProcessPreferenceStore? preferenceStore = null,
         MemoryLeakDetectionService? leakService = null,
         ProcessGroupStore? groupStore = null,
-        ProcessGroupsViewModel? groupsViewModel = null)
+        ProcessGroupsViewModel? groupsViewModel = null,
+        SettingsService? settingsService = null)
     {
         _processProvider  = processProvider;
         _appSettings      = appSettings;
         _preferenceStore  = preferenceStore;
         _leakService      = leakService;
         _groupStore       = groupStore;
+        _settingsService  = settingsService;
         _batchActions     = new BatchProcessActions(processProvider);
         GroupsViewModel   = groupsViewModel;
         Platform          = platformCapabilities ?? new MockPlatformCapabilities();
         Title = "Processes";
         StartMonitoring(_appSettings.UpdateIntervalMs);
+
+        foreach (var (key, header) in _hideableColumns)
+        {
+            var option = new ProcessColumnOption(key, header,
+                isVisible: !_appSettings.ProcessColumnsHidden.Contains(key));
+            option.VisibilityChanged += OnColumnOptionVisibilityChanged;
+            ColumnOptions.Add(option);
+        }
 
         WeakReferenceMessenger.Default.Register<NavigateToProcessMessage>(this, (_, msg) =>
             Dispatcher.UIThread.InvokeAsync(() =>
@@ -238,6 +284,45 @@ public partial class ProcessesViewModel : ViewModelBase, IActivatable, IDisposab
                 .ObserveOn(RxApp.MainThreadScheduler)
                 .Subscribe(UpdateLeakIndicators);
         }
+    }
+
+    /// <summary>
+    /// Fires whenever a <see cref="ProcessColumnOption.IsVisible"/> actually changes (the
+    /// CommunityToolkit-generated setter no-ops on an unchanged value, so this never fires for
+    /// the constructor's initial state or for ResetColumns() re-flipping already-visible
+    /// columns). Keeps AppSettings.ProcessColumnsHidden in sync and persists it — unless
+    /// <see cref="_suppressColumnPersist"/> is set, in which case ResetColumns() owns the save.
+    /// </summary>
+    private void OnColumnOptionVisibilityChanged(ProcessColumnOption option)
+    {
+        ApplyColumnVisibility(option);
+        if (!_suppressColumnPersist)
+            _settingsService?.Save();
+    }
+
+    private void ApplyColumnVisibility(ProcessColumnOption option)
+    {
+        var hidden = _appSettings.ProcessColumnsHidden;
+        if (option.IsVisible)
+            hidden.Remove(option.Key);
+        else if (!hidden.Contains(option.Key))
+            hidden.Add(option.Key);
+    }
+
+    /// <summary>Shows every hideable column again and clears the persisted hidden-column list.</summary>
+    [RelayCommand]
+    private void ResetColumns()
+    {
+        _suppressColumnPersist = true;
+        try
+        {
+            foreach (var option in ColumnOptions)
+                option.IsVisible = true;
+        }
+        finally { _suppressColumnPersist = false; }
+
+        _appSettings.ProcessColumnsHidden.Clear();
+        _settingsService?.Save();
     }
 
     private void OnThemeChanged(object? sender, EventArgs e)
@@ -922,10 +1007,45 @@ public partial class ProcessesViewModel : ViewModelBase, IActivatable, IDisposab
         _leakSubscription?.Dispose();
         (SelectedDetails as IDisposable)?.Dispose();
         _allRows.Clear();
+        foreach (var option in ColumnOptions)
+            option.VisibilityChanged -= OnColumnOptionVisibilityChanged;
         WeakReferenceMessenger.Default.UnregisterAll(this);
         if (Application.Current is { } app)
             app.ActualThemeVariantChanged -= OnThemeChanged;
     }
+}
+
+/// <summary>
+/// Show/hide state for one hideable column in the Processes grid. <see cref="Key"/> is the
+/// stable identifier persisted in <see cref="AppSettings.ProcessColumnsHidden"/> — never
+/// <see cref="Header"/>, so a future display-text change never breaks a user's saved
+/// preference. Owned by <see cref="ProcessesViewModel.ColumnOptions"/>; Task 2's header
+/// context menu binds each option's Header/IsVisible directly.
+/// </summary>
+public partial class ProcessColumnOption : ObservableObject
+{
+    public string Key    { get; }
+    public string Header { get; }
+
+    [ObservableProperty]
+    private bool _isVisible;
+
+    /// <summary>
+    /// Raised after <see cref="IsVisible"/> actually changes value — CommunityToolkit's
+    /// generated setter no-ops (and never raises this) when the new value equals the current
+    /// one, so this never fires from the constructor or from re-setting an already-matching
+    /// value. The owning <see cref="ProcessesViewModel"/> subscribes to persist the change.
+    /// </summary>
+    public event Action<ProcessColumnOption>? VisibilityChanged;
+
+    public ProcessColumnOption(string key, string header, bool isVisible)
+    {
+        Key = key;
+        Header = header;
+        _isVisible = isVisible;
+    }
+
+    partial void OnIsVisibleChanged(bool value) => VisibilityChanged?.Invoke(this);
 }
 
 public partial class ProcessRowViewModel : ObservableObject
