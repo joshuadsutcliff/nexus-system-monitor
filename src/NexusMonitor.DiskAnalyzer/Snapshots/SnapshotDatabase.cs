@@ -19,7 +19,14 @@ public sealed class SnapshotDatabase : IDisposable
     {
         _dbPath = dbPath;
         Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
-        Connection = new SqliteConnection($"Data Source={dbPath}");
+        // Pooling=False: this class holds both connections open for the app's
+        // lifetime, so connection pooling buys nothing — but Microsoft.Data.Sqlite's
+        // pool keeps the OS file handle open even after SqliteConnection.Dispose()
+        // returns it to the pool. POSIX advisory locking hides that (macOS/Linux
+        // stay green); Windows mandatory sharing throws IOException on any
+        // post-dispose file op (rename-aside recovery, File.ReadAllBytes in tests).
+        // Disabling pooling makes Dispose() actually release the handle.
+        Connection = new SqliteConnection($"Data Source={dbPath};Pooling=False");
         Connection.Open();
         try
         {
@@ -29,7 +36,7 @@ public sealed class SnapshotDatabase : IDisposable
             // writer, and SqliteConnection itself is NOT thread-safe — UI-thread reads
             // must never share the write connection with background saves (review
             // consensus 2026-07-19; mirrors the MetricsStore two-connection pattern).
-            ReadConnection = new SqliteConnection($"Data Source={dbPath}");
+            ReadConnection = new SqliteConnection($"Data Source={dbPath};Pooling=False");
             ReadConnection.Open();
             ConfigureReadPragmas();
         }
@@ -59,8 +66,12 @@ public sealed class SnapshotDatabase : IDisposable
         }
         catch (SqliteException)
         {
-            // Release only THIS file's handles. ClearAllPools() is process-wide and
-            // would disturb the metrics DB's pooling (review finding, 2026-07-19).
+            // Belt-and-suspenders: both connections above are opened with
+            // Pooling=False, so there's nothing in the pool to release for this
+            // file — this call is inert. Left in (rather than removed) in case a
+            // future edit reintroduces a pooled connection for this dbPath; scoped
+            // to THIS file only, since ClearAllPools() is process-wide and would
+            // disturb the metrics DB's pooling (review finding, 2026-07-19).
             db?.Dispose();
             SqliteConnection.ClearPool(new SqliteConnection($"Data Source={dbPath}"));
             var aside = $"{dbPath}.corrupt-{DateTime.UtcNow:yyyyMMdd-HHmmss}";
