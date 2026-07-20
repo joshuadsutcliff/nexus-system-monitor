@@ -179,6 +179,26 @@ rules it applied.
 
 ## Platform Support
 
+### Platform tiers
+
+Nexus is one app for three OSes, but not at uniform fidelity — the goal is to be upfront about the difference before you install, not let you find it by surprise. Support falls into three tiers:
+
+| Tier | Platform | What it means |
+|---|---|---|
+| **Primary** | **Windows** | The reference platform — every feature is implemented and tested here first, with the deepest hardware detail (WMI inventory, PDH counters, LibreHardwareMonitor sensors, registry/handle-level process internals). |
+| **First-class subset** | **macOS** | Every core monitoring, process, and automation feature reads real data through native OS APIs (sysctl, Mach, IOKit, launchctl). A defined, documented set of Windows-only capabilities (deep hardware inventory, registry viewer, memory/IO priority controls, CPU affinity) has no macOS equivalent and is reported as honestly absent rather than stubbed or faked. |
+| **Fully supported, community-assisted on exotic hardware** | **Linux** | Real data through native APIs (procfs, sysfs, multi-init) across common distros and sensor chips. Uncommon hardware/sensor combinations benefit from community bug reports — the maintainer can't own every distro/board pairing directly. |
+
+**In-app disclosure:** where a metric genuinely can't be read, Nexus shows nothing (an em dash) rather than estimate — and hovering that placeholder shows a tooltip explaining *why* it's unavailable (e.g. *"GPU temperature isn't reliably readable at idle on this Apple Silicon model — Nexus shows a value only when it's real"* or *"This GPU doesn't report a total memory figure — Nexus shows only what's actually measured"*).
+
+**Four honest boundaries behind today's macOS numbers**, most relevant on Apple Silicon:
+- **GPU temperature is unavailable at idle on the base M4** — the chip's GPU thermal sensor keys return physically-impossible readings (e.g. sub-freezing values) at idle and only settle into plausible readings under load, so Nexus withholds the value rather than show a fabricated one.
+- **No fabricated VRAM total on Apple Silicon.** Unified memory has no separate dedicated-VRAM pool to report a total for, so Nexus shows real driver-reported "in use" / allocated memory figures and honestly leaves total GPU memory unreported rather than inventing a number.
+- **CPU/GPU temperature key tables for M2, M3, M5, and Intel Macs are plausibility-filtered but not yet probe-verified on real hardware** — only the base-M4 table has been corrected against live sensor readings on physical hardware; the other generations are expected to work but unconfirmed on real machines.
+- **Some fallback sensor paths (e.g. the IOHID SoC-temperature route used when the primary sensor route reports nothing) are unit-tested only**, not yet confirmed against a real Mac that needed the fallback.
+
+See the [platform support matrix](#platform-support-matrix) below for the full feature-by-feature breakdown, and [TESTING.md](TESTING.md) if you want to help verify macOS or Linux behavior on your own hardware.
+
 | Platform | Status | Detail Level |
 |----------|--------|-------------|
 | **Windows** | ✅ Full | P/Invoke, PDH counters, WMI, Win32 APIs |
