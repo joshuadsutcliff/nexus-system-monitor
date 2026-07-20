@@ -24,13 +24,21 @@ public class SnapshotDatabaseTests : IDisposable
     [Fact]
     public void Constructor_CreatesSchemaAndFile()
     {
-        using var db = new SnapshotDatabase(DbPath);
-        File.Exists(DbPath).Should().BeTrue();
-        using var cmd = db.Connection.CreateCommand();
-        cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name";
+        // File-content/existence reads on DbPath must happen only after the live
+        // SnapshotDatabase (and its SQLite connections) is disposed — on Windows,
+        // SQLite holds the file with write access while open, and a File.* read
+        // requesting only read-share throws IOException (sharing violation).
+        // POSIX advisory locking doesn't block this, so the bug is Windows-only.
         var tables = new List<string>();
-        using var r = cmd.ExecuteReader();
-        while (r.Read()) tables.Add(r.GetString(0));
+        using (var db = new SnapshotDatabase(DbPath))
+        {
+            using var cmd = db.Connection.CreateCommand();
+            cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name";
+            using var r = cmd.ExecuteReader();
+            while (r.Read()) tables.Add(r.GetString(0));
+        }
+
+        File.Exists(DbPath).Should().BeTrue();
         tables.Should().Contain(new[] { "meta", "nodes", "snapshots" });
     }
 
@@ -76,8 +84,22 @@ public class SnapshotDatabaseTests : IDisposable
         File.WriteAllText(DbPath + "-shm", "junk-shm");
         File.WriteAllText(DbPath + "-journal", "junk-journal");
 
-        using var db = SnapshotDatabase.OpenOrRecover(DbPath, out var recovered);
-        recovered.Should().BeTrue();
+        // Everything below that needs the LIVE database (recovered flag, a fresh
+        // read against the recreated db) is scoped to this using block. All direct
+        // File.*/Directory.* reads on DbPath and its siblings run only after the
+        // block closes and the SQLite connections are disposed — on Windows, SQLite
+        // holds disk-snapshots.db with write access while open, and a File.* read
+        // requesting only read-share throws IOException (sharing violation). POSIX
+        // advisory locking doesn't block this, so the bug is Windows-only.
+        using (var db = SnapshotDatabase.OpenOrRecover(DbPath, out var recovered))
+        {
+            recovered.Should().BeTrue();
+
+            // New database should be healthy
+            using var cmd = db.Connection.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*) FROM snapshots";
+            Convert.ToInt64(cmd.ExecuteScalar()).Should().Be(0);
+        }
 
         // Corrupt file should be moved aside
         Directory.GetFiles(_dir, "disk-snapshots.db.corrupt-*").Where(p => !p.EndsWith("-wal") && !p.EndsWith("-shm") && !p.EndsWith("-journal")).Should().HaveCount(1);
@@ -88,11 +110,6 @@ public class SnapshotDatabaseTests : IDisposable
         asideJournal.Should().HaveCount(1);
         File.ReadAllText(asideJournal[0]).Should().Be("junk-journal");
         File.Exists(DbPath + "-journal").Should().BeFalse("the junk journal must not be left behind at the original path");
-
-        // New database should be healthy
-        using var cmd = db.Connection.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM snapshots";
-        Convert.ToInt64(cmd.ExecuteScalar()).Should().Be(0);
 
         File.Exists(DbPath).Should().BeTrue("new database file should exist");
         // Whether a fresh -wal exists at the original path depends on SQLite's
