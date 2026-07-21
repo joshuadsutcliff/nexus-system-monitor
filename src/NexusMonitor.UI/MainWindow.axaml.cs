@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Transformation;
 using Avalonia.Styling;
@@ -160,6 +161,16 @@ public partial class MainWindow : Window
                 ExtendClientAreaChromeHints = Avalonia.Platform.ExtendClientAreaChromeHints.SystemChrome;
                 // Avalonia's system chrome gives native resize grips; our overlay custom
                 // title bar stays on top via ZIndex so the native title bar is hidden.
+            }
+
+            // On Windows and Linux, the custom min/max/close buttons (WindowControls) sit at
+            // the titlebar's top-right — the same corner the logo/title default to (a macOS-only
+            // layout, tuned to sit opposite that OS's native top-LEFT traffic lights). Move the
+            // logo/title to the top-left here so it doesn't crowd WindowControls. macOS is
+            // unaffected (native traffic lights already own its top-left corner).
+            if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
+            {
+                ApplyLeftAlignedTitleBarLogo();
             }
         };
 
@@ -439,6 +450,25 @@ public partial class MainWindow : Window
         var controls = FindDescendant<StackPanel>(this, "WindowControls");
         if (controls is not null)
             controls.IsVisible = false;
+    }
+
+    // ── Windows/Linux: logo/title placed opposite the caption buttons ──────
+
+    /// <summary>
+    /// Moves the logo/title group from its default macOS position (Column 2, right of the
+    /// drag spacer, Top-aligned to clear the pixel-probed traffic-light center line) to
+    /// Column 0 (the titlebar's top-left, already padded by TitleBarGrid's own left Margin),
+    /// vertically centered in the 52px titlebar. WindowControls (Column 3) is untouched and
+    /// keeps anchoring the window's top-right on these platforms.
+    /// </summary>
+    private void ApplyLeftAlignedTitleBarLogo()
+    {
+        var logoGroup = FindDescendant<StackPanel>(this, "LogoGroup");
+        if (logoGroup is null)
+            return;
+
+        Grid.SetColumn(logoGroup, 0);
+        logoGroup.VerticalAlignment = VerticalAlignment.Center;
     }
 
     // ── Crystal Glass: pointer-tracked specular + prismatic shimmer ─────────

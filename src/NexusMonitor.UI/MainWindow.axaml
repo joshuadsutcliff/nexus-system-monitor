@@ -143,7 +143,22 @@
                changes, and only works by accident of the two children sharing one wrapper at all
                — the split-column shape removes the coupling entirely. -->
 
-          <StackPanel Grid.Column="2"
+          <!-- Windows/Linux logo placement fix (2026-07-21): the macOS-tuned position below
+               (Column 2, right of the drag spacer, Top-aligned to the pixel-probed traffic-light
+               center line) crowds the custom min/max/close buttons in WindowControls (Column 3)
+               on Windows and Linux, where those buttons occupy the SAME top-right corner as the
+               logo instead of the opposite corner macOS's native traffic lights do. Fixed in
+               code-behind (ApplyLeftAlignedTitleBarLogo, called for OperatingSystem.IsWindows()/
+               IsLinux() in the Loaded handler below) by moving this StackPanel to Grid.Column="0"
+               and switching VerticalAlignment to Center — mirroring the existing
+               ApplyMacOSTitleBarPadding idiom of a platform-conditional post-Loaded tweak rather
+               than a new mechanism. Column 0 already carries the Grid's own Margin="18,..." left
+               inset (the same value historically used as this Grid's symmetric padding — see the
+               Phase 8 Task 5 comment above), so the moved logo lands flush with that existing
+               inset instead of a newly-invented one. macOS keeps this default XAML position
+               (Column 2, Top-aligned) untouched. -->
+          <StackPanel x:Name="LogoGroup"
+                      Grid.Column="2"
                       Orientation="Horizontal"
                       Spacing="12"
                       VerticalAlignment="Top">
