@@ -192,7 +192,7 @@ public partial class AutomationViewModel : ViewModelBase
     }
 
     private static List<string> ParseList(string text) =>
-        text.Split([',', ';', '\n'], StringSplitOptions.RemoveEmptyEntries)
+        text.Split(new[] { ',', ';', '\n' }, StringSplitOptions.RemoveEmptyEntries)
             .Select(s => s.Trim())
             .Where(s => s.Length > 0)
             .ToList();
