@@ -84,7 +84,7 @@ public partial class AutoBalanceViewModel : ViewModelBase, IDisposable
 
     partial void OnExclusionsTextChanged(string value)
     {
-        var lines = value.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+        var lines = value.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
                          .Select(s => s.Trim())
                          .Where(s => s.Length > 0)
                          .ToList();
