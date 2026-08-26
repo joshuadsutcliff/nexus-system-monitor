@@ -532,6 +532,47 @@ public class App : Application
 
     // ── System-tray icon ────────────────────────────────────────────
 
+    /// <summary>
+    /// Restores the app's main window from the tray (single-click on the tray icon, or the
+    /// "Show Nexus Monitor" menu item). Both call sites used to duplicate this logic inline with
+    /// the wrong call order; see <see cref="WindowRestoreOperations"/> for exactly why the
+    /// Show -> Normal -> Activate order matters (issue #43, X11/XWayland iconic-window
+    /// activation is a no-op).
+    ///
+    /// This is internal rather than private because the single-instance guard added for issue
+    /// #38 needs to call this same restore path to bring an already-running instance's window
+    /// to the front when a second launch is redirected to it.
+    ///
+    /// Must run on the UI thread (Window/WindowState/Activate are all Avalonia UI-thread-affine
+    /// APIs). The issue #38 guard's activation signal will arrive off the UI thread (from the
+    /// IPC/pipe listener that detects a second launch attempt), so this dispatches via
+    /// <c>Dispatcher.UIThread.Post</c> rather than assuming the caller is already on it. Posting
+    /// (not a blocking Invoke) also means calling this FROM the UI thread never risks a
+    /// re-entrant deadlock — it just enqueues the restore as the next UI-thread callback.
+    /// </summary>
+    internal void RestoreMainWindow()
+    {
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            if (ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime { MainWindow: { } win })
+                return;
+
+            WindowRestoreOperations.Restore(new WindowRestoreTarget(win));
+            WeakReferenceMessenger.Default.Send(new WindowVisibilityChangedMessage(true));
+        });
+    }
+
+    /// <summary>Adapts a real Avalonia <see cref="Window"/> to <see cref="IWindowRestoreTarget"/>
+    /// so <see cref="WindowRestoreOperations.Restore"/> can drive it. See
+    /// <see cref="WindowRestoreOperations"/> for why the operation order is not applied inline
+    /// here directly.</summary>
+    private sealed class WindowRestoreTarget(Window window) : IWindowRestoreTarget
+    {
+        public void Show() => window.Show();
+        public void SetWindowStateNormal() => window.WindowState = WindowState.Normal;
+        public void Activate() => window.Activate();
+    }
+
     private void SetupTrayIcon(IClassicDesktopStyleApplicationLifetime desktop)
     {
         _trayIcon = new TrayIcon
@@ -541,29 +582,12 @@ public class App : Application
         };
 
         // Single-click -> restore main window
-        _trayIcon.Clicked += (_, _) =>
-        {
-            if (desktop.MainWindow is { } win)
-            {
-                win.Show();
-                win.Activate();
-                if (win.WindowState == WindowState.Minimized)
-                    win.WindowState = WindowState.Normal;
-                WeakReferenceMessenger.Default.Send(new WindowVisibilityChangedMessage(true));
-            }
-        };
+        _trayIcon.Clicked += (_, _) => RestoreMainWindow();
 
         var settingsVm = Services.GetRequiredService<SettingsViewModel>();
 
         var showItem = new NativeMenuItem("Show Nexus Monitor");
-        showItem.Click += (_, _) =>
-        {
-            desktop.MainWindow?.Show();
-            desktop.MainWindow?.Activate();
-            if (desktop.MainWindow?.WindowState == WindowState.Minimized)
-                desktop.MainWindow.WindowState = WindowState.Normal;
-            WeakReferenceMessenger.Default.Send(new WindowVisibilityChangedMessage(true));
-        };
+        showItem.Click += (_, _) => RestoreMainWindow();
 
         var widgetItem = new NativeMenuItem("Toggle Desktop Widget");
         widgetItem.Click += (_, _) =>
