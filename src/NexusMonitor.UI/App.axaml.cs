@@ -517,6 +517,25 @@ public class App : Application
             app.RequestExitCore();
     }
 
+    /// <summary>
+    /// Static entry point onto <see cref="RestoreMainWindow"/>, mirroring
+    /// <see cref="RequestAppExit"/>'s shape, so non-UI code can raise the window without holding
+    /// an <see cref="App"/> reference. The issue #38 single-instance guard lives in
+    /// NexusMonitor.Core and hands this in as its activation callback: when a second launch drops
+    /// an activation marker, the running instance calls through here.
+    ///
+    /// Deliberately a thin wrapper — the restore ORDER lives in one place only
+    /// (<see cref="WindowRestoreOperations"/>, via <see cref="RestoreMainWindow"/>) and is not
+    /// duplicated for the single-instance path. Safe to call before the Avalonia app exists
+    /// (<see cref="Current"/> is null then), and safe to call from any thread because
+    /// <see cref="RestoreMainWindow"/> posts to the dispatcher itself.
+    /// </summary>
+    public static void RequestWindowRestore()
+    {
+        if (Current is App app)
+            app.RestoreMainWindow();
+    }
+
     private void RequestExitCore()
     {
         if (_exitRequested) return;

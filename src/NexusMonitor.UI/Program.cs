@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Fonts.Inter;
 using Avalonia.ReactiveUI;
+using NexusMonitor.Core.Services;
 using ReactiveUI;
 using Serilog;
 using System.Reactive;
@@ -66,8 +67,48 @@ internal sealed class Program
         });
 
         // ── Wrap the entire Avalonia lifetime so startup failures are logged ─
+        SingleInstanceGuard? guard = null;
         try
         {
+            // ── Single-instance guard (issue #38) ───────────────────────────
+            // Runs BEFORE BuildAvaloniaApp() — the whole point is that a second launch never gets
+            // as far as creating a window. It runs INSIDE this try so the finally below still
+            // flushes Serilog on the early-exit path, and it exits via a plain `return` rather
+            // than Environment.Exit(1) or a throw, so the catch clause (and therefore crash.log)
+            // is never touched: a redirected second launch is normal behaviour, not a crash.
+            //
+            // The guard is held in a local disposed by the finally, which keeps its FileStream
+            // rooted for the whole application lifetime — letting it be collected would release
+            // the OS-level lock while the app is still running.
+            guard = SingleInstanceGuard.CreateDefault();
+            var instanceStatus = guard.TryAcquire();
+
+            if (instanceStatus == SingleInstanceStatus.AlreadyRunning)
+            {
+                var signalled = guard.RequestActivation();
+                Log.Information(
+                    "Another Nexus Monitor instance already holds {LockPath}; asked it to restore " +
+                    "its window (signalled={Signalled}) and exiting this launch cleanly",
+                    guard.LockFilePath, signalled);
+                return;   // exit code 0, nothing written to crash.log
+            }
+
+            if (instanceStatus == SingleInstanceStatus.Acquired)
+            {
+                // Only the owning instance watches for activation requests.
+                guard.StartActivationWatch(App.RequestWindowRestore);
+            }
+            else
+            {
+                // MayStart — the guard could not determine the instance state (unusable lock
+                // path, permissions, exotic filesystem). Fail open and start normally: a broken
+                // guard must never prevent the user from running the app.
+                Log.Warning(
+                    "Single-instance guard could not determine instance state for {LockPath}; " +
+                    "starting normally (fail-open)",
+                    guard.LockFilePath);
+            }
+
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
         }
         catch (Exception ex)
@@ -82,6 +123,9 @@ internal sealed class Program
         }
         finally
         {
+            // Releases the single-instance lock. Null-safe: on the early-exit path the guard is
+            // already non-null and disposing it simply drops the (unheld) stream.
+            guard?.Dispose();
             LoggingBootstrap.CloseAndFlush();
         }
     }
