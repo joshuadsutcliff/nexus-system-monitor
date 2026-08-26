@@ -138,6 +138,27 @@ public sealed class SingleInstanceGuardTests : IDisposable
     }
 
     [Fact]
+    public void Dispose_DoesNotDeleteTheLockFile_AndALaterGuardStillAcquires()
+    {
+        // Regression test for the exit-races-launch bug: Dispose() used to delete the lock file
+        // after releasing the FileStream. On Unix, unlinking a path another process still has
+        // open succeeds silently, so a launch racing the exit could keep a valid lock on a
+        // now-unlinked inode while a THIRD launch found nothing at the path and acquired a fresh
+        // one too -- issue #38's duplicate-instance bug, reintroduced on the exit path. The fix
+        // is to leave the lock file on disk; only the open handle (the actual lock) is released.
+        var first = new SingleInstanceGuard(_tempDirectory);
+        first.TryAcquire().Should().Be(SingleInstanceStatus.Acquired);
+        var lockPath = first.LockFilePath;
+
+        first.Dispose();
+
+        File.Exists(lockPath).Should().BeTrue();
+
+        using var second = new SingleInstanceGuard(_tempDirectory);
+        second.TryAcquire().Should().Be(SingleInstanceStatus.Acquired);
+    }
+
+    [Fact]
     public void TryAcquire_CalledTwiceOnTheSameGuard_IsIdempotent()
     {
         using var guard = new SingleInstanceGuard(_tempDirectory);

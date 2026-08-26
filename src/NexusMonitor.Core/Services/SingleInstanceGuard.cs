@@ -69,7 +69,9 @@ public enum SingleInstanceStatus
 ///
 /// The instance is <see cref="IDisposable"/>; the held <see cref="FileStream"/> lives in a field
 /// for the entire application lifetime so it can never be finalized out from under the process,
-/// and is released on dispose.
+/// and is released on dispose. The lock FILE itself is deliberately NOT deleted on dispose — see
+/// the comment on <see cref="Dispose"/> for the exit-races-launch scenario that unlinking would
+/// reopen.
 /// </summary>
 public sealed class SingleInstanceGuard : IDisposable
 {
@@ -411,8 +413,27 @@ public sealed class SingleInstanceGuard : IDisposable
     // ── Lifetime ────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Releases the lock. The file itself is deleted on a best-effort basis; if deletion fails the
-    /// next launch still recovers via the OS-level release plus the PID-staleness fallback.
+    /// Releases the lock by closing the held <see cref="FileStream"/>. Deliberately does NOT
+    /// delete the lock file. Do not "helpfully" add that delete back — it reopens issue #38 on
+    /// the exit path:
+    ///
+    ///   1. This instance (A) is exiting and releases its FileStream, which drops the OS-level
+    ///      lock. The lock FILE itself still exists on disk at this point.
+    ///   2. A second instance (B) launches in that window, opens the same path with
+    ///      FileShare.None, and acquires cleanly, stamping its own PID.
+    ///   3. If A then unlinks the path, that unlink succeeds on Unix even though B still holds it
+    ///      open — Unix lets you unlink a file another process has open; the inode just becomes
+    ///      unreachable by name while B's open file description (and its lock) stays perfectly
+    ///      valid.
+    ///   4. A third instance (C) launches, finds nothing at the path, creates a fresh file, and
+    ///      acquires. B and C are now both running: the exact duplicate-instance bug this guard
+    ///      exists to prevent, reintroduced by racing a launch against A's own teardown.
+    ///
+    /// The lock is owned by the OPEN HANDLE, not by the file's existence, so a leftover file is
+    /// not a held lock and deleting it buys nothing. The acquisition path already treats a
+    /// pre-existing file correctly: FileMode.OpenOrCreate opens it, and IsRecordedOwnerAlive
+    /// handles the case where it is genuinely stale. A persistent per-user lock file left behind
+    /// after clean exit is a normal, expected artifact, the same way a PID file is.
     /// </summary>
     public void Dispose()
     {
@@ -437,15 +458,6 @@ public sealed class SingleInstanceGuard : IDisposable
             finally
             {
                 _lockStream = null;
-            }
-
-            try
-            {
-                File.Delete(LockFilePath);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                // Leftover file is harmless — the next launch treats it as stale.
             }
         }
     }
