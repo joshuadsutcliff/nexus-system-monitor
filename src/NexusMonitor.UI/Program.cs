@@ -26,9 +26,24 @@ internal sealed class Program
         {
             if (e.ExceptionObject is Exception ex)
             {
-                Log.Fatal(ex, "Unhandled exception (IsTerminating={IsTerminating})", e.IsTerminating);
-                CrashLogger.Write(ex,
-                    $"AppDomain.UnhandledException (IsTerminating={e.IsTerminating})");
+                // Issue #42: on Linux/KDE, tray teardown's D-Bus continuation can lose the race
+                // against dispatcher shutdown and surface here as a TaskCanceledException /
+                // ObjectDisposedException on a background thread. A try/catch around the tray
+                // dispose call site can't catch this — it's raised on the D-Bus teardown's own
+                // continuation thread, not on the call stack that invoked Dispose(). Recognize
+                // and log it at a lower level instead of writing it to crash.log as a real crash.
+                if (CrashLogger.ShouldSuppress(ex, App.IsShuttingDown))
+                {
+                    Log.Information(ex,
+                        "Suppressed expected shutdown-teardown exception (IsTerminating={IsTerminating})",
+                        e.IsTerminating);
+                }
+                else
+                {
+                    Log.Fatal(ex, "Unhandled exception (IsTerminating={IsTerminating})", e.IsTerminating);
+                    CrashLogger.Write(ex,
+                        $"AppDomain.UnhandledException (IsTerminating={e.IsTerminating})");
+                }
             }
         };
 

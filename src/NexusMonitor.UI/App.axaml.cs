@@ -56,6 +56,16 @@ public class App : Application
     // posting a redundant TryShutdown() to the dispatcher.
     private bool _exitRequested;
 
+    // Issue #42: readable from Program.cs's AppDomain.UnhandledException handler so it can tell
+    // a genuine crash apart from expected teardown noise (see CrashLogger.ShouldSuppress). Set
+    // to true at the same points _shutdownHandled/_exitRequested are set, i.e. as soon as ANY
+    // exit path (window close, tray Exit, native OS quit) commits to shutting down — never
+    // cleared back to false, since the app never un-quits mid-lifetime. A plain static bool is
+    // sufficient here: it only ever transitions false -> true once, the write happens on the UI
+    // thread before any teardown work that could race a reader, and a torn read of a bool isn't
+    // possible on any .NET-supported architecture, so no volatile/Interlocked is needed.
+    public static bool IsShuttingDown { get; private set; }
+
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
@@ -250,6 +260,22 @@ public class App : Application
                 // the closing brace, must execute exactly once per app lifetime.
                 if (_shutdownHandled) return;
                 _shutdownHandled = true;
+                IsShuttingDown = true;
+
+                // Issue #42: dispose the tray icon FIRST, before anything else in this handler.
+                // On Linux/KDE the tray is backed by Avalonia.FreeDesktop's D-Bus
+                // StatusNotifierItem implementation, and its Dispose() posts a continuation
+                // (ReleaseNameAsync's D-Bus teardown) back onto the Avalonia dispatcher via
+                // AvaloniaSynchronizationContext.Send. That continuation must complete while the
+                // dispatcher is still alive and pumping — if tray disposal happens later in this
+                // handler (after the dispatcher has begun shutting down), the posted continuation
+                // gets cancelled and raises a TaskCanceledException on a background thread, which
+                // AppDomain.UnhandledException can't stop from reaching crash.log because it fires
+                // there specifically because no UI-thread try/catch was on the stack to catch it.
+                // Disposing here, before any of the dispatcher-shutdown-adjacent work below, gives
+                // the D-Bus teardown a live dispatcher to post back onto.
+                _trayIcon?.Dispose();
+                _trayIcon = null;
 
                 // Page engine Phase 6 shutdown-crash fix: persisting/closing pop-outs is wrapped
                 // in its own try/catch (log, don't rethrow) so this path can never crash shutdown —
@@ -271,10 +297,6 @@ public class App : Application
                 {
                     Log.Error(ex, "Error persisting/closing pop-out windows during shutdown");
                 }
-
-                // Remove tray icon immediately so it doesn't ghost after process exit
-                _trayIcon?.Dispose();
-                _trayIcon = null;
 
                 // Automation services (hold OS handles / modified process state)
                 foregroundBoostService?.Stop();
@@ -499,6 +521,7 @@ public class App : Application
     {
         if (_exitRequested) return;
         _exitRequested = true;
+        IsShuttingDown = true;
 
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {

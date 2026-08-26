@@ -19,6 +19,55 @@ internal static class CrashLogger
 
     // ── Public API ───────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Issue #42: on Linux/KDE, disposing the D-Bus StatusNotifierItem tray triggers a
+    /// continuation (Tmds.DBus's connection teardown) that gets posted to the Avalonia
+    /// dispatcher; if that continuation loses the race against dispatcher shutdown, it surfaces
+    /// as a <see cref="TaskCanceledException"/> or <see cref="ObjectDisposedException"/> on a
+    /// background thread, reaching <c>AppDomain.CurrentDomain.UnhandledException</c> and
+    /// polluting crash.log with expected-during-teardown noise that isn't a real crash.
+    /// </summary>
+    /// <param name="ex">The exception under evaluation. Null-safe: returns false for null.</param>
+    /// <param name="isShuttingDown">
+    /// Whether the app has already committed to exiting (<see cref="App.IsShuttingDown"/>).
+    /// </param>
+    /// <returns>
+    /// True only when ALL of: the app is shutting down; the exception (or, for an
+    /// <see cref="AggregateException"/>, one of its inner exceptions) is a
+    /// <see cref="TaskCanceledException"/> or <see cref="ObjectDisposedException"/>; and the
+    /// stack trace of that exception contains "Tmds.DBus". Deliberately narrow — this must never
+    /// mask a genuine crash, which is exactly what issue #42 complains about.
+    /// </returns>
+    public static bool ShouldSuppress(Exception? ex, bool isShuttingDown)
+    {
+        if (!isShuttingDown || ex is null) return false;
+        return ContainsSuppressibleCause(ex);
+    }
+
+    /// <summary>
+    /// Testable seam for <see cref="ShouldSuppress"/>: walks <paramref name="ex"/> (and, for an
+    /// <see cref="AggregateException"/>, each inner exception) looking for a suppressible
+    /// exception type whose own stack trace mentions "Tmds.DBus". Internal so unit tests can
+    /// exercise the matching logic directly without needing to fabricate the outer
+    /// <c>isShuttingDown</c>/AppDomain plumbing.
+    /// </summary>
+    internal static bool ContainsSuppressibleCause(Exception ex)
+    {
+        if (ex is AggregateException agg)
+        {
+            foreach (var inner in agg.InnerExceptions)
+            {
+                if (ContainsSuppressibleCause(inner)) return true;
+            }
+            return false;
+        }
+
+        bool isSuppressibleType = ex is TaskCanceledException or ObjectDisposedException;
+        if (!isSuppressibleType) return false;
+
+        return ex.StackTrace is { } stack && stack.Contains("Tmds.DBus", StringComparison.Ordinal);
+    }
+
     /// <summary>Appends a crash report for <paramref name="ex"/> to crash.log.</summary>
     /// <param name="ex">The exception that was thrown.</param>
     /// <param name="context">
