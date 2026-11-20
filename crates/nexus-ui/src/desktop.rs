@@ -8633,6 +8633,11 @@ impl ApplicationHandler<UserEvent> for GuiApp {
                         event_loop.set_control_flow(ControlFlow::Wait);
                     }
                 } else {
+                    let active_tiles = if self.page_edit.active {
+                        &self.page_edit.current.tiles
+                    } else {
+                        &self.app.page_engine.tiles
+                    };
                     let shaders_active =
                         !self.gaming_mode.visual_throttle().background_shaders_paused
                             && (self.screensaver_active
@@ -8640,7 +8645,7 @@ impl ApplicationHandler<UserEvent> for GuiApp {
                                     && self.disk_subtab == DiskSubTab::Visualizer)
                                 || (self.active_view == GuiView::Dest(Destination::Summary)
                                     && self.dashboard_mode >= 2
-                                    && self.page_edit.current.tiles.iter().any(|t| {
+                                    && active_tiles.iter().any(|t| {
                                         matches!(
                                             t.face,
                                             FaceKind::DiskOceanMetaballs

@@ -509,11 +509,20 @@ jobs:
           if [[ "${TAG_NAME}" != v* ]]; then
             TAG_NAME="v${{ github.event.inputs.version || '0.8.1' }}"
           fi
+          if [[ -f "CHANGELOG.md" ]] && awk "/^## \\[${TAG_NAME}\\]/{flag=1; next} /^## \\[v/{flag=0} flag" CHANGELOG.md | grep -q '[^[:space:]]'; then
+            awk "/^## \\[${TAG_NAME}\\]/{flag=1; next} /^## \\[v/{flag=0} flag" CHANGELOG.md > /tmp/release-notes.md
+            NOTES_ARGS=(--notes-file /tmp/release-notes.md)
+          else
+            NOTES_ARGS=(--generate-notes)
+          fi
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
             gh release upload "$TAG_NAME" release-assets/* --clobber
+            if [[ -f /tmp/release-notes.md ]]; then
+              gh release edit "$TAG_NAME" --title "Nexus System Monitor $TAG_NAME" --notes-file /tmp/release-notes.md
+            fi
           else
             gh release create "$TAG_NAME" \
               --title "Nexus System Monitor $TAG_NAME" \
-              --generate-notes \
+              "${NOTES_ARGS[@]}" \
               $(find release-assets -maxdepth 1 -type f | sort | tr '\n' ' ')
           fi
