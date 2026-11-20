@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# AppImage entry point — runs the nexus-monitor executable from $APPDIR
+exec "${APPDIR}/usr/bin/nexus-monitor" "$@"

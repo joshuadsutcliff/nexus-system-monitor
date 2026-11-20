@@ -8448,7 +8448,7 @@ impl ApplicationHandler<UserEvent> for GuiApp {
             return;
         }
         let attrs = Window::default_attributes()
-            .with_title("Nexus System Monitor (v0.1.0)")
+            .with_title("Nexus System Monitor (v0.8.0)")
             .with_inner_size(LogicalSize::new(1280.0, 820.0))
             .with_window_icon(load_winit_window_icon());
         let window = Arc::new(
