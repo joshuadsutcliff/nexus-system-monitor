@@ -6,633 +6,146 @@
 
 <p align="center">
   <a href="https://github.com/joshuadsutcliff/nexus-system-monitor/releases/latest"><img src="https://img.shields.io/github/v/release/joshuadsutcliff/nexus-system-monitor?label=latest" alt="Latest Release"></a>
-  <a href="https://github.com/joshuadsutcliff/nexus-system-monitor/releases/latest"><img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="Platforms"></a>
+  <a href="https://github.com/joshuadsutcliff/nexus-system-monitor/actions"><img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-0A84FF" alt="Platforms"></a>
+  <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/rust-2024%20edition-orange" alt="Rust 2024"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
 </p>
 
-**One tool. Every platform. Complete system visibility.**
+**One system monitor. Every desktop platform. Authoritative telemetry.**
 
-Your process tuner only runs on one OS. Your disk analyzer is a separate download. Your terminal monitor can't click. Nexus replaces the patchwork — real-time monitoring, deep process control, rules-based automation, and disk analysis in a single app for Windows, macOS, and Linux, with a dashboard you design yourself and one interface you learn once.
+Nexus System Monitor is a native Rust (`wgpu` + `egui` + `winit` + `ratatui`) system monitor, process controller, disk space analyzer, wireless & LAN radar, flight recorder, hardware benchmark suite, and skinnable desktop mini-monitor for **macOS**, **Linux**, and **Windows**.
 
-> **Testing on macOS or Linux?** → [TESTING.md](TESTING.md) — step-by-step setup, what to test, and how to report issues.
-
----
-
-## Screenshots
-
-*System Health Dashboard: overall health score, subsystem cards, and live bottleneck analysis*
-
-![System Health Dashboard](docs/screenshots/dashboard-dark.png)
-
-*Performance view: CPU, Memory, Disk I/O, and Network sparklines paired with a 16-core usage heatmap*
-
-![Performance](docs/screenshots/performance-dark.png)
-
-*Process Management: real-time per-process CPU, memory, impact score, priority, thread, and handle metrics*
-
-![Processes](docs/screenshots/processes-dark.png)
-
-*Services Manager: system service states, startup types, host PIDs, accounts, and binary paths*
-
-![Services](docs/screenshots/services-dark.png)
-
-*Disk Analyzer and Snapshot Compare: folder growth deltas and interactive space treemap*
-
-![Disk Snapshots](docs/screenshots/snapshots-dark.png)
-
-*Appearance and Theme Engine: theme presets, typography scaling, and custom accent color swatches*
-
-![Themes](docs/screenshots/themes-dark.png)
-
-See the [Releases](https://github.com/joshuadsutcliff/nexus-system-monitor/releases) page for download links.
+> **Testing or building from source?** Read [TESTING.md](TESTING.md) for platform prerequisites, build commands, and CLI/GUI verification harnesses.
 
 ---
 
-## Philosophy
+## Multi-Platform Screenshots
 
-Every operating system ships its own task manager, and power users inevitably turn to a patchwork of third-party tools — a process tuner on one platform, a menu-bar monitor on another, a terminal monitor over SSH, a separate deep-inspection utility for the hard problems. Each one has a different interface, different capabilities, and different learning curves.
+### macOS (`aarch64-apple-darwin` · Metal)
 
-Nexus System Monitor exists to end that fragmentation.
+*Dashboard: Composite health ring, plain-English workload diagnosis, 4 environment pillars, and customizable Pro telemetry tiles*
+![Dashboard on macOS](docs/screenshots/dashboard-macos.png)
 
-The goal is a **synonymous user experience across every desktop platform**. The same layout, the same depth of detail, the same workflows — regardless of whether you're sitting in front of a Windows workstation, a MacBook, or a Linux desktop. You learn the tool once, and it works everywhere.
+*Performance Telemetry Studio: Real-time Total/User/System CPU curves with 4-band non-linear time compression and per-core Efficiency/Performance sparklines*
+![Performance on macOS](docs/screenshots/performance-macos.png)
 
-This isn't a lowest-common-denominator approach. Nexus aims for the **union** of features found in the best system tools available today — real-time metrics, deep process control and inspection, rules-based automation, and full hardware detail — unified under a modern, visually consistent UI inspired by Apple's iOS 26, MacOS, Windows 11, and the freedom that is expected with Linux customization. Where an operating system doesn't expose a Windows concept, Nexus implements the platform's native equivalent rather than shipping a stub — that's an active engineering commitment, tracked feature by feature.
+*Processes & Applications: Human-readable impact badges, inline CPU sparklines, physical footprint bars, and double-verified ProcessKey safety*
+![Processes on macOS](docs/screenshots/processes-macos.png)
 
----
+*Storage & Disk Space Analyzer: Guided TCC Full Disk Access card, 3D WGSL Ocean Metaballs / 48x26 Defrag Blocks / Tempest Vector Tunnel, squarified treemap, 2-pass SHA-256 duplicate finder, and SQLite snapshot diffs*
+![Disk Space on macOS](docs/screenshots/disk-space-macos.png)
 
-## Features
+*System Information & Health: Hardware specification sheet, 5 subsystem VFD health cards, and SQLite health trend trajectory*
+![System Info on macOS](docs/screenshots/system-info-macos.png)
 
-### Real-Time Performance Monitoring
-- **CPU** — Overall utilization, per-core breakdown, frequency, temperature, cache info
-- **Memory** — Physical and paged usage, speed, slot configuration, committed bytes
-- **Disk** — Per-drive I/O rates, read/write throughput, queue depth, capacity and usage (NVMe/SSD/HDD detection)
-- **Network** — Per-adapter throughput, active NIC detection, IPv4/IPv6 addresses, link speed
-- **GPU** — Utilization, dedicated/shared memory, temperature, per-engine breakdown (3D, Copy, Video Decode/Encode)
-- Task Manager-style sidebar with device selection and sparkline history charts
+*Settings & Appearance: 20 curated themes, interactive HSV color wheel studio, quiet hours, watchdog automation, and ChaCha20-Poly1305 companion remote streaming*
+![Settings on macOS](docs/screenshots/settings-macos.png)
 
-### Process Management
-- Full process list with real-time CPU, memory, disk I/O, network, and GPU usage per process
-- Color-coded process categories (system, service, user app, .NET managed, GPU-accelerated, suspicious, suspended)
-- Set process priority (Idle through RealTime) and CPU affinity
-- Set I/O priority, memory priority, and efficiency mode
-- Kill, suspend, and resume processes
-- Kill entire process trees
-- Process dumps for debugging
-- Module (DLL) enumeration with version info
-- Thread enumeration with per-thread CPU times
-- Environment variable inspection
-- Open file location, search online, copy paths
+### Linux (`aarch64-unknown-linux-gnu` · Vulkan)
 
-### System Information
-- Detailed hardware inventory — CPU model, cores, cache hierarchy, virtualization support
-- Memory modules with speed, type, and slot info
-- GPU details and driver versions
-- Disk hardware identification
-- Network adapter configuration
-- Apple-style clean layout for at-a-glance system specs
+*Linux Dashboard & System Info (`/proc` + `/sys` + `statvfs` + `systemd`)*
+![Dashboard on Linux](docs/screenshots/dashboard-linux.png)
+![System Info on Linux](docs/screenshots/system-info-linux.png)
+![Processes on Linux](docs/screenshots/processes-linux.png)
 
-### Services Manager
-- Enumerate all system services with status and startup type
-- Start, stop, and restart services
-- Navigate directly to a service's host process
+### Windows (`x86_64-pc-windows-gnu` · Win32 + Vulkan)
 
-### Startup Items
-- View and manage programs that launch at startup
-- Enable and disable startup entries
-- Open file locations and registry keys
-
-### Network Connections
-- Active TCP/UDP connections with state badges
-- Local and remote endpoint details
-- Navigate to the owning process
-
-### Disk Analyzer
-- Visual disk space breakdown by folder
-- Multi-threaded directory scanning
-- Identify space-hogging directories at a glance
-
-### Snapshot & Compare
-
-Every completed disk scan is saved automatically as a compact snapshot
-(directories + files ≥ 1 MB; smaller files aggregated per folder — the
-threshold is configurable). Scan a root again later and compare any two
-snapshots to see exactly what grew, shrank, appeared, or vanished — or use
-"Compare with previous" for an instant now-vs-last-time answer. Free-space
-history is captured with every snapshot.
-
-Works headlessly too:
-
-    nexus disk scan /data                      # scan + save a snapshot
-    nexus disk scan /data --diff latest        # what changed since last scan?
-    nexus disk scan /data --diff 2026-07-01 --format json --top 20
-    nexus disk snapshots list
-
-Honesty notes, by design: sub-threshold files are aggregated (and every diff
-says so), renames appear as removed + added (no move detection), and name
-matching follows your platform's case rule — each diff header states the
-rules it applied.
-
-### Alerts & Rules Engine
-- Define performance alerts with CPU/RAM thresholds
-- Create automation rules — automatically set priority, affinity, or terminate processes when conditions are met
-- Watchdog monitoring with configurable duration triggers
-
-### Gaming Mode
-- One-click optimization profile for gaming sessions
-- Suppress background process interference
-- Prioritize game processes automatically
-
-### Auto-Balance
-- Automatic load balancing across running processes
-- Prevent any single process from monopolizing system resources
-
-### Optimization Recommendations
-- Smart analysis of running processes
-- Tiered impact ratings (Critical, High, Medium)
-- One-click actions to resolve resource hogs
-
-### Desktop Overlay Widget
-- Floating always-on-top widget showing CPU, RAM, network, and GPU at a glance
-- Draggable, transparent, and minimal (230 x 168 px)
-- Toggle on/off from settings
-
-### System Health Dashboard
-- Composite health score (0–100) across CPU, Memory, Disk, GPU, and Thermal
-- 4 subsystem cards with at-a-glance status and top-5 process consumers
-- Bottleneck Detection: identifies the performance-limiting component for Gaming, Streaming, Video Editing, 3D Rendering, and CAD workloads
-- Plain-English contextual recommendations
-- Ships as the default layout of the fully customizable dashboard below — every card here is an independent widget you can rearrange, resize, remove, or pop out
-
-### Customizable Dashboard
-- **Edit mode** — toggle the pencil button to drag widgets into place, resize by their edges, add or remove widgets, and undo any edit step-by-step; **Tidy** auto-compacts the grid to close gaps
-- **Widget gallery** — add any available widget to the layout: health score, subsystem cards, bottleneck detection, top consumers, recommendations, predictions, health trends, and more
-- **Workspace profiles** — save named bundles of layout *and* full theme (accent, surface colors, blur mode, everything under Appearance & Theming); switch profiles instantly from Settings
-- **Export / Import** — share a profile as a `.nexusprofile` file, with a theme-only export option for distributing just the look without the layout
-- **Pop-out windows** — pop any widget out into its own OS window; each pop-out's position and size persist per profile, up to 6 open at once
-
-### LAN Scanner
-- Nmap-based network scan for hosts, open ports, OS detection, and latency
-- Real-time scan progress with host tree and port detail sidebar
-
-### Appearance & Theming
-- Crystal Glass theme with opt-in backdrop blur (configurable blur modes)
-- 18 built-in theme presets (Nexus Default, Deep Dark, Neon, Dracula, Nord, Dark Sakura, and more)
-- Dynamic surface swatch palettes: 8 curated color swatches per UI surface, per preset
-- Custom accent and surface colors via color picker with live preview
-- Font size multiplier: 0.8–1.5× slider scales all UI text
-- Dark / Light / System theme mode (System follows OS preference at runtime)
-- Grouped sidebar navigation (Pinned / Monitor / Tools / System) with drag-reorder within groups
-- All theme changes apply instantly across the entire UI
+*Windows Dashboard, System Info, and Independent Native `.nexusskin` Desktop Popout Window*
+![Dashboard on Windows](docs/screenshots/dashboard-windows.png)
+![System Info on Windows](docs/screenshots/system-info-windows.png)
+![Winamp Popout on Windows](docs/screenshots/popout-winamp-windows.png)
 
 ---
 
-## Platform Support
+## Core Engineering Highlights
 
-### Platform tiers
+### 1. Honesty & Provenance Engine (`nexus-core`)
+Every metric in Nexus carries a typed `Metric<T>` envelope with `ValueState` (`Valid`, `Zero`, `NotYetAvailable`, `Stale`, `Unsupported`, `AccessDenied`, `TransientError`), `MetricQuality` (`Authoritative`, `Derived`, `Estimated`, `Unknown`), sampling window duration, and an interned `SourceId` (for example `darwin.mach.host_processor_info`, `darwin.ioreport.energy_model`, `linux.proc.stat`, or `windows.win32.system_times`). Nexus never fabricates zeros when a sensor requires elevated privileges or a warm delta window.
 
-Nexus is one app for three OSes, but not at uniform fidelity — the goal is to be upfront about the difference before you install, not let you find it by surprise. Support falls into three tiers:
+### 2. PID-Reuse-Safe `ProcessKey` & Double Verification (`nexus-automation`)
+Every process is identified by `ProcessKey { pid, creation_token_us, uid }`. Before `ActionCoordinator` dispatches any signal (`SIGTERM`, `SIGKILL`, `renice`, or `taskkill`), it re-queries the live OS kernel twice around the operation and aborts with `PidReusedOrExited` if the creation timestamp token changed.
 
-| Tier | Platform | What it means |
-|---|---|---|
-| **Primary** | **Windows** | The reference platform — every feature is implemented and tested here first, with the deepest hardware detail (WMI inventory, PDH counters, LibreHardwareMonitor sensors, registry/handle-level process internals). |
-| **First-class subset** | **macOS** | Every core monitoring, process, and automation feature reads real data through native OS APIs (sysctl, Mach, IOKit, launchctl). A defined, documented set of Windows-only capabilities (deep hardware inventory, registry viewer, memory/IO priority controls, CPU affinity) has no macOS equivalent and is reported as honestly absent rather than stubbed or faked. |
-| **Fully supported, community-assisted on exotic hardware** | **Linux** | Real data through native APIs (procfs, sysfs, multi-init) across common distros and sensor chips. Uncommon hardware/sensor combinations benefit from community bug reports — the maintainer can't own every distro/board pairing directly. |
+### 3. Independent Native `.nexusskin` Desktop Popout Window (`nexus-ui`)
+Launching the Popout Mini-Monitor creates an independent borderless `winit` desktop window sharing the primary `wgpu::Device` and `wgpu::Queue` (`WgpuSetup::Existing`). Users can drag the mini-monitor anywhere on the desktop, minimize or close the main window while the popout stays live at 60 Hz, switch between 5 bundled `.nexusskin` designs (`Console`, `Traces`, `Winamp`, `Windows Media Player`, `Windows 2000 Task Manager`), and pin window level (`TopMost`, `Normal`, `Desktop`).
 
-**In-app disclosure:** where a metric genuinely can't be read, Nexus shows nothing (an em dash) rather than estimate — and hovering that placeholder shows a tooltip explaining *why* it's unavailable (e.g. *"GPU temperature isn't reliably readable at idle on this Apple Silicon model — Nexus shows a value only when it's real"* or *"This GPU doesn't report a total memory figure — Nexus shows only what's actually measured"*).
-
-**Four honest boundaries behind today's macOS numbers**, most relevant on Apple Silicon:
-- **GPU temperature is unavailable at idle on the base M4** — the chip's GPU thermal sensor keys return physically-impossible readings (e.g. sub-freezing values) at idle and only settle into plausible readings under load, so Nexus withholds the value rather than show a fabricated one.
-- **No fabricated VRAM total on Apple Silicon.** Unified memory has no separate dedicated-VRAM pool to report a total for, so Nexus shows real driver-reported "in use" / allocated memory figures and honestly leaves total GPU memory unreported rather than inventing a number.
-- **CPU/GPU temperature key tables for M2, M3, M5, and Intel Macs are plausibility-filtered but not yet probe-verified on real hardware** — only the base-M4 table has been corrected against live sensor readings on physical hardware; the other generations are expected to work but unconfirmed on real machines.
-- **Some fallback sensor paths (e.g. the IOHID SoC-temperature route used when the primary sensor route reports nothing) are unit-tested only**, not yet confirmed against a real Mac that needed the fallback.
-
-See the [platform support matrix](#platform-support-matrix) below for the full feature-by-feature breakdown, and [TESTING.md](TESTING.md) if you want to help verify macOS or Linux behavior on your own hardware.
-
-| Platform | Status | Detail Level |
-|----------|--------|-------------|
-| **Windows** | ✅ Full | P/Invoke, PDH counters, WMI, Win32 APIs |
-| **macOS** | ✅ Full | sysctl, Mach APIs, ObjC runtime, launchctl, pmset |
-| **Linux** | ✅ Full | procfs, sysfs, multi-init (systemd/SysVinit/OpenRC) |
-
-All tabs show real data on all three platforms. Windows has the deepest detail level (WMI hardware info, PDH counters, GPU engines). macOS and Linux provide the same interface and equivalent data through native APIs.
-
-**Platform-specific notes:**
-- **System Info tab** shows full WMI hardware inventory on Windows; hostname, OS, architecture, uptime, and RAM on macOS/Linux
-- **Gaming Mode** power plan switching on macOS may require `sudo` (pmset restriction). Process throttling works without elevation.
-- **Auto-Balance** relies on foreground-window detection to decide which process the user is actively using. That detection is fully implemented on Windows today; on macOS and Linux it is part of the platform-symmetry roadmap, and until it lands Auto-Balance applies its restraint uniformly rather than favoring the foreground app.
-
-### Platform support matrix
-
-The table above is a summary; feature-level support varies more than "Full" implies. This matrix reflects what each platform provider actually does, not just what the tab looks like:
-
-| Feature group | Windows | Linux | macOS |
-|---|---|---|---|
-| Process kill / suspend-resume / priority | ✅ | ✅ | ✅ |
-| CPU affinity | ✅ | ✅ | ❌ |
-| CPU sets | ✅ | ❌ (no kernel equivalent) | ❌ (no equivalent) |
-| I/O priority | ✅ | ❌ stubbed no-op — `ioprio_set` not wired up (`LinuxProcessProvider.SetIoPriorityAsync`); the capability flag reports `true` but the call is inert | ❌ |
-| Memory priority / trim working set / Efficiency Mode (EcoQoS) | ✅ | ❌ | ❌ |
-| Handle enumeration / memory map viewer | ✅ | ❌ | ❌ |
-| Process dump (`CreateDump`) | ✅ | ❌ | ❌ |
-| Registry viewer / registry-key startup entries | ✅ | ❌ | ❌ |
-| DirectX version info | ✅ | ❌ | ❌ |
-| Services: list / start / stop / restart | ✅ (SCM) | ✅ (init-system backends: systemd, SysVinit, OpenRC, Dinit, Runit, S6) | ✅ (`launchctl`) |
-| Services: startup-type change | ✅ | ✅ | ❌ |
-| Power plans | ✅ (full) | ✅ (full, `powerprofilesctl` / `scaling_governor`) | ⚠️ Limited — `pmset` toggles Low Power Mode / sleep settings; may silently no-op without `sudo` |
-| Per-connection network throughput | ✅ (`GetPerTcpConnectionEStats`; auto-hides on NICs that error, e.g. TSO/RSC) | ❌ | ❌ |
-| Startup items: list | ✅ | ✅ | ✅ |
-| Startup items: enable / disable | ✅ | ✅ | ❌ (listing only — modifying LaunchAgent plists needs elevation, not yet implemented) |
-| Temperature / fan sensors | ✅ Strongest — LibreHardwareMonitor (CPU + GPU) | ✅ `hwmon` (coretemp/k10temp/zenpower) → `thermal_zone*` fallback | ✅ CPU via AppleSMC per-generation tables → IOHID fallback; GPU temperature shown when the hardware reports a plausible reading, marked unavailable otherwise (notably at idle on some Apple Silicon) |
-
-✅ = fully supported · ⚠️ = partial/limited · ❌ = not supported on this platform
+### 4. Apple Human Interface Guidelines (HIG) + Guided Permission Unlock Cards
+All 18 views follow an inset grouped card hierarchy (`Card Title` -> `1-line plain-English subtitle` -> `Visual Meter / Graph` -> `Action / Detail`). Whenever OS privacy boundaries restrict a feature (macOS Full Disk Access, Location Services for Wi-Fi SSIDs, App Management for safe Trash uninstall, Linux `CAP_NET_ADMIN` / `sudo`, or Windows Administrator elevation), Nexus renders a clear guidance card with one-click deep links to the exact System Settings pane.
 
 ---
 
-## Quick Start
+## Workspace Architecture (8 Rust Crates)
 
-**No .NET SDK required** — just download and run.
-
-1. Go to [**Releases**](https://github.com/joshuadsutcliff/nexus-system-monitor/releases/latest)
-2. Download the build for your platform (see table below)
-3. Unzip / mount / install and run
-
-| Platform | Download |
-|----------|----------|
-| **Windows x64** | `NexusMonitor-Windows-Installer-*.exe` (installer) or `NexusMonitor-Windows-Portable-*.zip` (portable) |
-| **Windows ARM64** | `NexusMonitor-Windows-ARM-Installer-*.exe` |
-| **macOS Apple Silicon** | `NexusMonitor-MacOS-*.dmg` |
-| **macOS Intel** | `NexusMonitor-MacOS-Intel-*.dmg` |
-| **Linux x64** | `NexusMonitor-Linux-*.AppImage` or `NexusMonitor-Linux-*.deb` |
-
-**Platform notes:**
-- **Windows:** SmartScreen may warn on first launch (the app is not yet code-signed). Click "More info" → "Run anyway."
-- **macOS:** Gatekeeper will block an unsigned binary. Right-click → **Open** to bypass, or run the command below. **macOS Tahoe (macOS 26) users:** the standard quarantine removal is not sufficient — use `xattr -cr` instead (see note in Pre-Built Releases below).
-- **Linux AppImage:** Requires FUSE. On Ubuntu 22.04+: `sudo apt install libfuse2`. Or run with `--appimage-extract-and-run`.
-- **Elevated access:** Some features (IO priority, certain service operations) need admin/root. On Windows, run as Administrator. On macOS/Linux, launch with `sudo` if specific features don't work.
+| Crate | Responsibility | Safety Policy |
+| :--- | :--- | :--- |
+| [`crates/nexus-core`](crates/nexus-core) | `SystemSnapshot`, `Metric<T>` honesty engine, `CadenceCoordinator`, `HealthScoring`, 4-suite benchmark math, Prometheus `/metrics`, Grafana/Telegraf generators, and RFC-verified ChaCha20-Poly1305 + X25519 companion remote protocol | `#![forbid(unsafe_code)]` |
+| [`crates/nexus-collectors-macos`](crates/nexus-collectors-macos) | Authoritative macOS collector (`mach_host_self`, `proc_pid_rusage`, `libIOReport.dylib` energy/residency, `AppleSMC`, `launchctl`, `diskutil`, `CoreWLAN` / `system_profiler`, `kmutil`) and cross-platform `system_ops` dispatch facade | OS FFI boundary |
+| [`crates/nexus-collectors-linux`](crates/nexus-collectors-linux) | Native Linux collector (`/proc/stat`, `/proc/meminfo`, `/proc/pressure/memory`, `/proc/diskstats`, `/proc/net/dev`, `/proc/[pid]/stat` + `io` + `fd` socket inode attribution, `/sys/class/thermal`, `systemctl`, XDG autostart) | OS FFI boundary |
+| [`crates/nexus-collectors-windows`](crates/nexus-collectors-windows) | Native Windows collector (`GetSystemTimes`, `NtQuerySystemInformation`, `GlobalMemoryStatusEx`, `GetTickCount64`, `GetDiskFreeSpaceExW`, `CreateToolhelp32Snapshot`, `GetProcessTimes`, `K32GetProcessMemoryInfo`, Registry SCM & Run keys) | OS FFI boundary |
+| [`crates/nexus-disk`](crates/nexus-disk) | Multi-threaded streaming disk scanner, 7-category file classifier, squarified treemap layout, 2-pass FIPS 180-4 SHA-256 duplicate finder, SQLite snapshot & telemetry stores, and `.nexustrace` flight recorder | `#![forbid(unsafe_code)]` |
+| [`crates/nexus-automation`](crates/nexus-automation) | `ActionCoordinator`, wildcard `RulesEngine`, `AutoBalanceService`, `IdleThrottleService`, crash-journaled `GamingModeService`, `QuietHoursService`, `SleepPreventionService`, and webhook `AlertsService` | `#![forbid(unsafe_code)]` |
+| [`crates/nexus-ui`](crates/nexus-ui) | Native `winit` + `wgpu` + `egui` desktop application (`nexus-monitor`), 3 custom WGSL shaders (`naga`-validated), VFD ballistics engine, 20 Crystal-Glass themes, HSV color wheel studio, and independent `.nexusskin` popout window | `#![forbid(unsafe_code)]` |
+| [`crates/nexus-cli`](crates/nexus-cli) | Unified `nexus` / `nexus-cli` command-line interface and full-screen 8-pane `ratatui` + `crossterm` terminal dashboard (`nexus tui`) | `#![forbid(unsafe_code)]` |
 
 ---
 
-## Running Nexus System Monitor
+## Building & Packaging
 
-### Prerequisites
-
-- [.NET 8 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/8.0)
-- **macOS:** macOS 12 Monterey or later (Intel or Apple Silicon)
-- **Linux:** Any modern distribution — systemd, SysVinit (Fedora, Debian, etc.), or OpenRC (Gentoo, Alpine) are all supported. X11 recommended for Auto-Balance; Wayland works with reduced foreground-window detection.
-
-### From Source
-
+### macOS (`aarch64-apple-darwin` / `x86_64-apple-darwin`)
 ```bash
-git clone https://github.com/joshuadsutcliff/nexus-system-monitor.git
-cd nexus-system-monitor
-dotnet build NexusMonitor.sln
+# Run test suite and lint checks
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+
+# Build and sign the native macOS application bundle
+./scripts/bundle-macos.sh
+open "target/release/bundle/Nexus System Monitor.app"
 ```
 
-#### Windows
-
+### Linux (`x86_64-unknown-linux-gnu` / `aarch64-unknown-linux-gnu`)
 ```bash
-dotnet run --project src/NexusMonitor.UI/NexusMonitor.UI.csproj --framework net8.0-windows10.0.17763.0
+# Ubuntu / Debian dependencies
+sudo apt-get install -y build-essential pkg-config libxkbcommon-dev libxkbcommon-x11-dev \
+    libxcb-xkb-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libvulkan-dev
+
+# Build portable Linux AppDir + tarball
+./scripts/package-linux.sh
 ```
 
-#### macOS
-
+### Windows (`x86_64-pc-windows-msvc` / `x86_64-pc-windows-gnu`)
 ```bash
-dotnet run --project src/NexusMonitor.UI/NexusMonitor.UI.csproj
-```
-
-> **Gatekeeper:** If macOS blocks an unsigned binary, right-click → Open, or run:
-> ```bash
-> xattr -d com.apple.quarantine path/to/NexusMonitor
-> ```
-> **macOS Tahoe (macOS 26):** The quarantine flag alone is not enough — Gatekeeper applies additional security checks on Tahoe that block unlaunched unsigned apps even after quarantine removal. Clear all extended attributes recursively instead:
-> ```bash
-> xattr -cr path/to/NexusMonitor.app
-> ```
-
-> **Gaming Mode / power plans:** Switching power profiles uses `pmset`, which may require `sudo` on some machines. Process throttling (Auto-Balance, Gaming Mode process priority) works without elevation.
-
-#### Linux
-
-```bash
-dotnet run --project src/NexusMonitor.UI/NexusMonitor.UI.csproj --framework net8.0
-```
-
-The app auto-detects your init system at startup:
-- **systemd** — uses `systemctl` (most distros)
-- **SysVinit** — uses `/etc/init.d/` scripts and `service` (pre-systemd Fedora, Debian, etc.)
-- **OpenRC** — uses `rc-status` and `rc-service` (Gentoo, Alpine, etc.)
-
-> **Power plans:** Install `power-profiles-daemon` for Gaming Mode power plan switching (`powerprofilesctl`). Falls back to `/sys/devices/system/cpu/*/cpufreq/scaling_governor` if unavailable.
-
-### Self-Contained Builds (for distribution)
-
-Produce a portable folder that includes the .NET runtime — no SDK required on the target machine.
-
-#### macOS (Apple Silicon)
-
-```bash
-dotnet publish src/NexusMonitor.UI /p:PublishProfile=osx-arm64
-# Output: src/NexusMonitor.UI/publish/osx-arm64/
-```
-
-#### macOS (Intel)
-
-```bash
-dotnet publish src/NexusMonitor.UI /p:PublishProfile=osx-x64
-# Output: src/NexusMonitor.UI/publish/osx-x64/
-```
-
-#### Linux x64
-
-```bash
-dotnet publish src/NexusMonitor.UI /p:PublishProfile=linux-x64
-# Output: src/NexusMonitor.UI/publish/linux-x64/
-# Distribute as a tarball:
-tar -czf NexusMonitor-linux-x64.tar.gz -C src/NexusMonitor.UI/publish/linux-x64 .
-```
-
-#### Linux ARM64
-
-```bash
-dotnet publish src/NexusMonitor.UI /p:PublishProfile=linux-arm64
-# Output: src/NexusMonitor.UI/publish/linux-arm64/
-```
-
-> **Cross-compiling from Windows:** All publish profiles work from a Windows host. The LINUX preprocessor define is set automatically by the publish profiles, so Linux-specific providers compile correctly even when building on Windows.
-
-### Pre-Built Releases
-
-Download the latest release for your platform from the [**Releases**](https://github.com/joshuadsutcliff/nexus-system-monitor/releases) page:
-
-| Platform | Installer / Package | Portable |
-|----------|---------------------|----------|
-| Windows x64 | `NexusMonitor-Windows-Installer-*.exe` | `NexusMonitor-Windows-Portable-*.zip` |
-| Windows ARM64 | `NexusMonitor-Windows-ARM-Installer-*.exe` | `NexusMonitor-Windows-ARM-Portable-*.zip` |
-| macOS Apple Silicon | `NexusMonitor-MacOS-*.dmg` | `NexusMonitor-MacOS-Portable-*.tar.gz` |
-| macOS Intel | `NexusMonitor-MacOS-Intel-*.dmg` | `NexusMonitor-MacOS-Intel-Portable-*.tar.gz` |
-| Linux x64 | `NexusMonitor-Linux-*.AppImage` / `NexusMonitor-Linux-*.deb` | `NexusMonitor-Linux-Portable-*.tar.gz` |
-| Linux ARM64 | — | `NexusMonitor-Linux-ARM-Portable-*.tar.gz` |
-
-> **macOS note:** The app is unsigned. On first launch, right-click → **Open** to bypass Gatekeeper, or run:
-> ```bash
-> xattr -d com.apple.quarantine NexusMonitor.app
-> ```
-> **macOS Tahoe (macOS 26) — additional step required:** Gatekeeper on Tahoe enforces stricter checks that quarantine removal alone does not satisfy. After dragging the app from the DMG to `/Applications`, run:
-> ```bash
-> xattr -cr /Applications/NexusMonitor.app
-> ```
-> This clears all extended attributes recursively from the app bundle. The app will then launch normally.
->
-> **Linux note:** AppImages require FUSE. If your distribution ships FUSE3 (Ubuntu 22.04+), install FUSE2:
-> ```bash
-> sudo apt install libfuse2
-> ```
-> Alternatively, run any AppImage without FUSE via `--appimage-extract-and-run`.
-
----
-
-## NexusCLI — Terminal Interface
-
-NexusCLI (`nexus`) is a headless companion to the GUI. It exposes the same monitoring engine as a terminal tool — useful for remote servers, SSH sessions, scripting, CI pipelines, or any situation where a graphical desktop isn't available or wanted.
-
-| | NexusCLI | GUI |
-|---|---|---|
-| Graphical window | ✗ | ✓ |
-| Real-time dashboard | ✓ (terminal) | ✓ |
-| Process list & control | ✓ | ✓ |
-| Services management | ✓ | ✓ |
-| System health score | ✓ | ✓ |
-| Alerts engine | ✓ | ✓ |
-| Rules engine | ✓ | ✓ |
-| Prometheus endpoint | ✓ | ✓ |
-| CSV / JSON export | ✓ | — |
-| Theming, overlays, LAN scanner | — | ✓ |
-| SSH / headless server use | ✓ | — |
-
-### Download
-
-Go to [**Releases**](https://github.com/joshuadsutcliff/nexus-system-monitor/releases/latest) and grab the CLI archive for your platform:
-
-| Platform | Archive |
-|----------|---------|
-| Windows x64 | `NexusCLI-Windows-*.zip` |
-| Windows ARM64 | `NexusCLI-Windows-ARM-*.zip` |
-| macOS Apple Silicon | `NexusCLI-MacOS-*.tar.gz` |
-| macOS Intel | `NexusCLI-MacOS-Intel-*.tar.gz` |
-| Linux x64 | `NexusCLI-Linux-*.tar.gz` |
-| Linux ARM64 | `NexusCLI-Linux-ARM-*.tar.gz` |
-
-Each archive is self-contained — no .NET installation required on the target machine.
-
-### Launching the CLI
-
-#### Windows
-
-1. Extract `NexusCLI-Windows-*.zip` to a folder (e.g. `C:\Tools\nexus\`).
-2. Open **PowerShell** or **Command Prompt** and navigate to that folder:
-
-```powershell
-cd C:\Tools\nexus
-.\nexus.exe --help
-```
-
-To use `nexus` from any directory, add the folder to your PATH:
-
-```powershell
-$env:PATH += ";C:\Tools\nexus"
-# Or permanently via System Properties → Environment Variables
-```
-
-> **SmartScreen:** Windows may warn on first run. Click **More info → Run anyway**. The binary is unsigned.
-
-#### macOS
-
-1. Extract the archive:
-
-```bash
-mkdir nexus && tar -xzf NexusCLI-MacOS-*.tar.gz -C nexus && cd nexus
-```
-
-2. Clear the Gatekeeper quarantine attribute (required for unsigned binaries downloaded from the internet):
-
-```bash
-xattr -d com.apple.quarantine nexus
-```
-
-3. Run:
-
-```bash
-./nexus --help
-```
-
-To make `nexus` available system-wide:
-
-```bash
-sudo mv nexus /usr/local/bin/nexus
-nexus --help
-```
-
-> **Apple Silicon vs Intel:** Download `NexusCLI-MacOS-*.tar.gz` for M1/M2/M3/M4 Macs and `NexusCLI-MacOS-Intel-*.tar.gz` for Intel Macs. Running the wrong architecture will produce an error on launch.
-
-#### Linux
-
-1. Extract the archive:
-
-```bash
-mkdir nexus && tar -xzf NexusCLI-Linux-*.tar.gz -C nexus && cd nexus
-```
-
-2. Ensure the binary is executable (it should be already, but confirm):
-
-```bash
-chmod +x nexus
-```
-
-3. Run:
-
-```bash
-./nexus --help
-```
-
-To install system-wide:
-
-```bash
-sudo mv nexus /usr/local/bin/nexus
-nexus --help
-```
-
-> **ARM64:** Use `NexusCLI-Linux-ARM-*.tar.gz` on Raspberry Pi 4/5, AWS Graviton, or any other 64-bit ARM board. The x64 build will not run on ARM.
-
-> **Elevated access:** Some operations (service control, process priority changes) require root. Prefix with `sudo` when needed, e.g. `sudo nexus services --interactive`.
-
-### Commands
-
-```
-nexus <command> [options]
-```
-
-| Command | Alias | Description |
-|---------|-------|-------------|
-| `dashboard` | — | Live-refreshing system dashboard (CPU, memory, disk, GPU, health, top processes). Press **Q** to exit. |
-| `processes` | `ps` | List processes. Supports `--sort cpu\|mem\|name`, `--filter <name>`, `--top <n>`, `--live` (auto-refresh), `--interactive` (pick and act). |
-| `services` | `svc` | List system services. Supports `--filter`, `--running`, `--stopped`, `--interactive`. |
-| `health` | — | One-shot system health snapshot — composite score, subsystem breakdown, top CPU consumers, bottleneck. |
-| `alerts list` | — | Show configured alert rules. |
-| `alerts status` | — | Show whether the alerts engine is running. |
-| `alerts watch` | — | Stream live alert events to the terminal. Press **Ctrl+C** to stop. |
-| `rules list` | — | Show configured process rules. |
-| `rules status` | — | Show rules engine status and rule count. |
-| `settings show` | — | Dump all current application settings. |
-| `settings get <key>` | — | Read a single setting value by property name. |
-| `settings set <key> <value>` | — | Write a setting value and save. |
-| `prometheus` | `prom` | Start a Prometheus `/metrics` HTTP endpoint. Supports `--port <n>`. Press **Ctrl+C** to stop. |
-| `export` | — | Export historical metrics to CSV or JSON. Supports `--format csv\|json`, `--last <Nh>` (e.g. `24h`), `--output <file>`. |
-
-**Examples:**
-
-```bash
-# Live dashboard
-nexus dashboard
-
-# Top 10 processes by memory
-nexus ps --sort mem --top 10
-
-# Filter running services and pick one interactively
-nexus svc --running --interactive
-
-# System health check (great for scripts / CI)
-nexus health
-
-# Export the last 24 hours of metrics to a file
-nexus export --format json --last 24h --output metrics.json
-
-# Prometheus endpoint on a custom port
-nexus prometheus --port 9091
-
-# Watch live alerts (leave running in a side terminal)
-nexus alerts watch
+# Native Windows build or cross-compilation via MinGW-w64
+./scripts/package-windows.sh
 ```
 
 ---
 
-## Performance
+## Unified CLI & Terminal UI (`nexus`)
 
-Nexus is a native .NET 8 / Avalonia application, not an Electron/Chromium shell — that's the honest baseline for comparison, and it's worth being precise about who it is and isn't lighter than.
+The `nexus` binary provides complete command-line and terminal access to every subsystem:
 
-Measured on a mid-range **Linux** desktop (AMD Ryzen 5, 16 GB RAM), single instance, default 1 s poll interval — Windows and macOS numbers vary with platform-specific providers (e.g. LibreHardwareMonitor on Windows) and haven't been separately profiled:
-
-| Metric | Idle | Active polling |
-|--------|------|---------------|
-| CPU usage | ~1–3% | 3–8% |
-| RAM footprint | ~100 MB | 100–150 MB |
-| Disk I/O | Negligible | Negligible |
-
-**Fair comparison:** Nexus is *not* lighter than your OS's built-in task manager — Windows Task Manager and macOS Activity Monitor typically idle around **40–80 MB**, and a cross-platform GUI with SQLite persistence, Rx pipelines, and live charting isn't going to beat a first-party OS component at its own game. The realistic comparison set is other **cross-platform, Electron/Chromium-class monitoring tools**, which commonly idle in the **200–500 MB** range — that's where Nexus's native .NET/Avalonia stack has a real, measurable advantage.
-
-**How it stays lean relative to that comparison set:**
-- Metrics are polled on configurable intervals (default 1 s), not continuously
-- SQLite WAL mode with tiered retention — hot metrics in memory, historical data batched to disk
-- Platform providers cache hardware-invariant data (CPU model, memory slots) at startup
-- UI rendering only updates changed values; sparklines use a ring buffer, not unbounded growth
-- Semaphore-guarded tick loops prevent re-entrant polling spikes under slow API calls
-
-> Baseline CPU was ~25% before the optimization pass (Phase 17). The current 3–8% figure reflects GC tuning, caching, and Rx subscription cleanup.
-
----
-
-## Tech Stack
-
-| Component | Technology |
-|-----------|-----------|
-| Language | C# 12 / .NET 8 |
-| UI Framework | [Avalonia UI](https://avaloniaui.net/) 11.2.3 |
-| MVVM | [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet) 8.3.2 |
-| Reactive | [ReactiveUI](https://www.reactiveui.net/) + System.Reactive 6.0.1 |
-| Charts | [LiveChartsCore](https://livecharts.dev/) 2.0.0-rc4 (SkiaSharp) |
-| Graphics | SkiaSharp 2.88.9 |
-| DI | Microsoft.Extensions.DependencyInjection 8.0.1 |
-
----
-
-## Architecture
-
+```bash
+nexus tui                                     # Interactive 8-pane ratatui terminal dashboard
+nexus status                                  # Live telemetry snapshot with provenance & quality tiers
+nexus processes --sort cpu -n 20              # Top processes with CreationToken & physical footprint
+nexus processes --terminate <PID> --dry-run   # Double ProcessKey-verified process action
+nexus services --running                      # OS services (launchd / systemd / Windows SCM)
+nexus startup                                 # Login items, LaunchAgents, XDG autostart, Registry Run keys
+nexus connections --protocol tcp4             # Active sockets with ProcessKey attribution
+nexus wireless                                # Wi-Fi RF spectrum + concurrent LAN subnet radar
+nexus disk-usage --path . --max-depth 4       # 7-category parallel disk scan + GPU shader blob prep
+nexus disk duplicates .                       # 2-pass SHA-256 exact duplicate finder
+nexus health                                  # Composite 0-100 system health score & bottleneck diagnosis
+nexus alerts status                           # Evaluate threshold alerts against live telemetry
+nexus rules status                            # Evaluate process watchdog & auto-balance rules
+nexus benchmark --suite all --duration-secs 5 # CPU, headless wgpu GPU, uncached Disk, and HTTP transfer suite
+nexus trace record --seconds 5                # Record portable .nexustrace flight capture
+nexus prometheus --port 9182                  # Serve honesty-preserving Prometheus /metrics endpoint
+nexus remote --port 51843                     # Run ChaCha20-Poly1305 encrypted companion remote server
+nexus doctor                                  # Full honesty, provenance, WGSL shader, and .nexusskin audit
 ```
-NexusMonitor.sln
-├── src/
-│   ├── NexusMonitor.Core/              # Abstractions, models, services (net8.0)
-│   ├── NexusMonitor.Hosting/           # DI wiring shared by GUI and CLI
-│   ├── NexusMonitor.UI/                # Avalonia desktop app (platform-conditional)
-│   ├── NexusMonitor.CLI/               # NexusCLI terminal app (Spectre.Console)
-│   ├── NexusMonitor.DiskAnalyzer/      # Disk analysis engine
-│   ├── NexusMonitor.Platform.Windows/  # Windows API implementations
-│   ├── NexusMonitor.Platform.MacOS/    # macOS implementations
-│   └── NexusMonitor.Platform.Linux/    # Linux implementations
-└── tests/
-    └── NexusMonitor.Core.Tests/        # Unit tests
-```
-
-All UI and business logic lives in the platform-agnostic `Core` and `UI` projects. Platform-specific code is isolated behind five core interfaces:
-
-- **ISystemMetricsProvider** — CPU, memory, disk, network, GPU metrics
-- **IProcessProvider** — Process enumeration and control
-- **INetworkConnectionsProvider** — TCP/UDP connection enumeration
-- **IServicesProvider** — System service management
-- **IStartupProvider** — Startup item management
-
-Adding support for a new platform means implementing these interfaces against native APIs — the rest of the application works unchanged.
-
----
-
-## Testing
-
-Early-access testing on macOS and Linux is open. See **[TESTING.md](TESTING.md)** for a step-by-step setup guide, a per-tab test checklist, known limitations, and instructions for filing issues.
-
-Report bugs and feedback at: https://github.com/joshuadsutcliff/nexus-system-monitor/issues
-
-For detailed project documentation — feature inventory, architecture, gap analysis, and roadmap — see [`docs/`](docs/index.md).
 
 ---
 
 ## License
 
-[MIT](LICENSE) — Copyright 2026 TheBlackSwordsman
+Released under the [MIT License](LICENSE).

@@ -1,0 +1,32 @@
+[package]
+name = "nexus-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+nexus-core.workspace = true
+nexus-collectors-macos.workspace = true
+nexus-disk.workspace = true
+nexus-automation.workspace = true
+nexus-ui.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+compact_str.workspace = true
+clap.workspace = true
+tokio.workspace = true
+ratatui.workspace = true
+crossterm.workspace = true
+
+[[bin]]
+name = "nexus"
+path = "src/bin/nexus.rs"
+
+[[bin]]
+name = "nexus-cli"
+path = "src/bin/nexus-cli.rs"

@@ -1,0 +1,16 @@
+[package]
+name = "nexus-collectors-linux"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+nexus-core.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+compact_str.workspace = true
+parking_lot.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc.workspace = true

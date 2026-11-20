@@ -5,33 +5,94 @@ on:
     branches: [main]
   pull_request:
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  build:
+  check-and-test:
+    name: Rust CI (${{ matrix.os }})
     strategy:
+      fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        os: [macos-latest, ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Setup .NET 8
-        uses: actions/setup-dotnet@v4
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libxcb-xkb-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libwayland-dev \
+            libx11-dev \
+            libxcursor-dev \
+            libxrandr-dev \
+            libxi-dev \
+            libgl1-mesa-dev \
+            libvulkan-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
-          dotnet-version: '8.0.x'
+          components: rustfmt, clippy
 
-      - name: Restore
-        run: dotnet restore NexusMonitor.sln
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
 
-      - name: Build
-        run: dotnet build NexusMonitor.sln --configuration Release
+      - name: Check formatting
+        run: cargo fmt --all -- --check
 
-      - name: Test
-        run: dotnet test NexusMonitor.sln --no-build --configuration Release --logger "trx;LogFileName=results.trx"
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: Upload test results
-        if: always()
+      - name: Run workspace unit tests
+        run: cargo test --workspace
+
+      - name: Build release binaries
+        run: cargo build --workspace --release
+
+      - name: Package macOS .app bundle
+        if: runner.os == 'macOS'
+        run: ./scripts/bundle-macos.sh
+
+      - name: Package Linux release tarball
+        if: runner.os == 'Linux'
+        run: ./scripts/package-linux.sh
+
+      - name: Upload macOS release bundle
+        if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
         with:
-          name: test-results-${{ matrix.os }}
-          path: '**/TestResults/*.trx'
+          name: nexus-system-monitor-macos
+          path: target/release/bundle/Nexus System Monitor.app
+
+      - name: Upload Linux release tarball
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-system-monitor-linux
+          path: target/release/bundle/*.tar.gz
+
+      - name: Upload Windows release binaries
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-system-monitor-windows
+          path: |
+            target/release/nexus-monitor.exe
+            target/release/nexus-gui.exe
+            target/release/nexus.exe
+            target/release/nexus-cli.exe
+            README.md
+            LICENSE

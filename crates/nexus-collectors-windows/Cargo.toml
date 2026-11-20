@@ -1,0 +1,13 @@
+[package]
+name = "nexus-collectors-windows"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+nexus-core.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+compact_str.workspace = true
+parking_lot.workspace = true
