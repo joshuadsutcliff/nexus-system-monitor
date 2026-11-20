@@ -27,7 +27,11 @@ const TUI_PANES: [&str; 8] = [
     "1:Summary",
     "2:Performance",
     "3:Processes",
-    "4:AppleSilicon",
+    if cfg!(target_os = "macos") {
+        "4:AppleSilicon"
+    } else {
+        "4:SoC&Thermals"
+    },
     "5:Svc&Startup",
     "6:Net&Radar",
     "7:Disk&Map",
@@ -347,7 +351,7 @@ pub fn draw_tui_frame(f: &mut Frame<'_>, state: &mut TuiState) {
             Block::default()
                 .borders(Borders::ALL)
                 .title(format!(
-                    " Nexus System Monitor v0.8.0 | Mode: {} | GamingMode: {} | Gen: {} ",
+                    " Nexus System Monitor v0.8.1 | Mode: {} | GamingMode: {} | Gen: {} ",
                     state.app.theme.display_mode.title(),
                     if state.gaming_mode.active {
                         "ON"
@@ -643,29 +647,66 @@ fn draw_processes_pane(f: &mut Frame<'_>, area: Rect, state: &mut TuiState, acce
 fn draw_apple_silicon_pane(f: &mut Frame<'_>, area: Rect, state: &mut TuiState, accent: Color) {
     let sp = &state.snapshot.hardware_telemetry.soc_power;
     let th = &state.snapshot.hardware_telemetry.thermals;
-    let mut lines = vec![
-        Line::from(format!(
+    let plat = nexus_core::HostPlatform::current();
+    let heading = if plat.is_macos() {
+        format!(
             "Apple Silicon Die Telemetry ({}):",
             state.snapshot.system.gpu_model
-        )),
+        )
+    } else {
+        format!(
+            "Processor, GPU & Thermal Telemetry ({}):",
+            state.snapshot.system.gpu_model
+        )
+    };
+    let mut lines = vec![
+        Line::from(heading),
+        if plat.is_macos() {
+            Line::from(format!(
+                "  P-Cluster Residency: {} | E-Cluster Residency: {} | ANE Residency: {}",
+                sp.p_cluster_active_residency_percent
+                    .format_with_unit(1, "%"),
+                sp.e_cluster_active_residency_percent
+                    .format_with_unit(1, "%"),
+                sp.ane_active_residency_percent.format_with_unit(1, "%")
+            ))
+        } else {
+            Line::from(format!(
+                "  CPU Active: {} | GPU Active: {} | GPU Clock: {}",
+                sp.p_cluster_active_residency_percent
+                    .format_with_unit(1, "%"),
+                state
+                    .snapshot
+                    .system
+                    .gpu_utilization_percent
+                    .format_with_unit(1, "%"),
+                sp.gpu_clock_mhz.format_with_unit(0, "MHz")
+            ))
+        },
+        if plat.is_macos() {
+            Line::from(format!(
+                "  Power: CPU={} | GPU={} | ANE={} | DRAM={} | Package={} | SystemIn={}",
+                sp.cpu_watts.format_with_unit(2, "W"),
+                sp.gpu_watts.format_with_unit(2, "W"),
+                sp.ane_watts.format_with_unit(2, "W"),
+                sp.dram_watts.format_with_unit(2, "W"),
+                sp.package_watts.format_with_unit(2, "W"),
+                sp.system_power_in_watts.format_with_unit(2, "W")
+            ))
+        } else {
+            Line::from(format!(
+                "  Power: CPU={} | GPU={} | DRAM={} | Package={} | Source={}",
+                sp.cpu_watts.format_with_unit(2, "W"),
+                sp.gpu_watts.format_with_unit(2, "W"),
+                sp.dram_watts.format_with_unit(2, "W"),
+                sp.package_watts.format_with_unit(2, "W"),
+                plat.power_telemetry_badge()
+            ))
+        },
         Line::from(format!(
-            "  P-Cluster Residency: {} | E-Cluster Residency: {} | ANE Residency: {}",
-            sp.p_cluster_active_residency_percent
-                .format_with_unit(1, "%"),
-            sp.e_cluster_active_residency_percent
-                .format_with_unit(1, "%"),
-            sp.ane_active_residency_percent.format_with_unit(1, "%")
+            "  {} Thermal Sensors:",
+            plat.thermal_source_badge()
         )),
-        Line::from(format!(
-            "  Power: CPU={} | GPU={} | ANE={} | DRAM={} | Package={} | SystemIn={}",
-            sp.cpu_watts.format_with_unit(2, "W"),
-            sp.gpu_watts.format_with_unit(2, "W"),
-            sp.ane_watts.format_with_unit(2, "W"),
-            sp.dram_watts.format_with_unit(2, "W"),
-            sp.package_watts.format_with_unit(2, "W"),
-            sp.system_power_in_watts.format_with_unit(2, "W")
-        )),
-        Line::from("  AppleSMC Die Sensors:"),
     ];
     for s in th.sensors.iter().take(8) {
         lines.push(Line::from(format!(
@@ -674,21 +715,40 @@ fn draw_apple_silicon_pane(f: &mut Frame<'_>, area: Rect, state: &mut TuiState, 
             s.celsius.format_with_unit(1, "C")
         )));
     }
+    let block_title = if plat.is_macos() {
+        " Apple Silicon & SMC Die Telemetry "
+    } else {
+        " Processor, GPU & Thermal Telemetry "
+    };
     let p = Paragraph::new(lines).block(
         Block::default()
             .borders(Borders::ALL)
-            .title(" Apple Silicon & SMC Die Telemetry ")
+            .title(block_title)
             .border_style(Style::default().fg(accent)),
     );
     f.render_widget(p, area);
 }
 
 fn draw_services_startup_pane(f: &mut Frame<'_>, area: Rect, state: &mut TuiState, accent: Color) {
-    let mut lines = vec![Line::from(format!(
-        "Services: {} launchd jobs | Startup Items: {} LaunchAgents/Daemons",
-        state.cached_services.len(),
-        state.cached_startup.len()
-    ))];
+    let plat = nexus_core::HostPlatform::current();
+    let svc_header = match plat {
+        nexus_core::HostPlatform::MacOs => format!(
+            "Services: {} launchd jobs | Startup Items: {} LaunchAgents/Daemons",
+            state.cached_services.len(),
+            state.cached_startup.len()
+        ),
+        nexus_core::HostPlatform::Windows => format!(
+            "Services: {} Win32 SCM services | Startup Items: {} Startup Tasks",
+            state.cached_services.len(),
+            state.cached_startup.len()
+        ),
+        nexus_core::HostPlatform::Linux => format!(
+            "Services: {} systemd units | Startup Items: {} Autostart Units",
+            state.cached_services.len(),
+            state.cached_startup.len()
+        ),
+    };
+    let mut lines = vec![Line::from(svc_header)];
     lines.push(Line::from("-- Sample Services --"));
     for s in state.cached_services.iter().take(6) {
         lines.push(Line::from(format!(

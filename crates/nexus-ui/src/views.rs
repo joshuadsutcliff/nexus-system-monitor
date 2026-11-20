@@ -1,5 +1,7 @@
 use compact_str::CompactString;
-use nexus_core::{MetricReading, ProcessKey, ProcessSnapshot, SystemSnapshot, constants};
+use nexus_core::{
+    HostPlatform, MetricReading, ProcessKey, ProcessSnapshot, SystemSnapshot, constants,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -70,6 +72,11 @@ impl Destination {
 
     #[inline]
     pub const fn title(self) -> &'static str {
+        self.title_for(HostPlatform::current())
+    }
+
+    #[inline]
+    pub const fn title_for(self, platform: HostPlatform) -> &'static str {
         match self {
             Self::Summary => "Summary",
             Self::Performance => "Performance",
@@ -79,13 +86,10 @@ impl Destination {
             Self::Users => "Users",
             Self::Services => "Services",
             Self::PowerAndFreq => "Power & Freq",
-            Self::AppleSilicon => {
-                if cfg!(target_os = "macos") {
-                    "Apple Silicon"
-                } else {
-                    "SoC & Thermals"
-                }
-            }
+            Self::AppleSilicon => match platform {
+                HostPlatform::MacOs => "Apple Silicon",
+                HostPlatform::Windows | HostPlatform::Linux => "SoC & Thermals",
+            },
             Self::FlightRecorder => "Flight Recorder",
             Self::Connections => "Connections",
             Self::InstalledApps => "Installed Apps",

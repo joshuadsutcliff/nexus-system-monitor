@@ -704,4 +704,243 @@ mod tests {
             out.textures_delta.clear();
         }
     }
+
+    fn collect_text_from_shape(shape: &egui::epaint::Shape, out: &mut Vec<String>) {
+        match shape {
+            egui::epaint::Shape::Text(text_shape) => {
+                out.push(text_shape.galley.job.text.clone());
+            }
+            egui::epaint::Shape::Vec(shapes) => {
+                for s in shapes {
+                    collect_text_from_shape(s, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn windows_and_linux_ui_views_and_labels_contain_zero_macos_strings() {
+        use nexus_core::{
+            ClusterClockMetric, CoreTelemetry, DriverKind, DriverScope, HostPlatform,
+            LogicalProcessorClass, MediaEngineBlockMetric, StartupItemType, SystemHardwareSummary,
+            ThermalSensorReading,
+        };
+
+        let forbidden_macos_substrings = [
+            "What Is Using My Mac",
+            "Apple Silicon",
+            "Apple GPU",
+            "Neural Engine",
+            "AppleSMC",
+            "libIOReport",
+            "Reveal in Finder",
+            "LaunchDaemon",
+            "LaunchAgent",
+            "Startup Disk",
+            "About This Mac",
+            "DriverKit",
+            ".kext",
+        ];
+
+        for platform in [HostPlatform::Windows, HostPlatform::Linux] {
+            // 1. Check all platform-aware label helpers and enum titles
+            let mut platform_strings = vec![
+                platform.what_is_using_my_host_title().to_string(),
+                platform.system_drive_title().to_string(),
+                platform.reveal_in_file_manager_label().to_string(),
+                platform.move_to_trash_label().to_string(),
+                platform.trash_noun().to_string(),
+                platform.hardware_architecture_heading().to_string(),
+                platform.thermal_source_badge().to_string(),
+                platform.power_telemetry_badge().to_string(),
+                StartupItemType::LaunchAgent
+                    .as_str_for(platform)
+                    .to_string(),
+                StartupItemType::LaunchDaemon
+                    .as_str_for(platform)
+                    .to_string(),
+                DriverKind::KernelExtension.as_str_for(platform).to_string(),
+                DriverKind::SystemExtension.as_str_for(platform).to_string(),
+                DriverScope::AppleSystem.as_str_for(platform).to_string(),
+            ];
+            for dest in Destination::ALL {
+                platform_strings.push(dest.title_for(platform).to_string());
+            }
+            let joined_labels = platform_strings.join(" | ");
+            for forbidden in forbidden_macos_substrings {
+                assert!(
+                    !joined_labels.contains(forbidden),
+                    "Forbidden macOS string '{forbidden}' found in {platform:?} labels: {joined_labels}"
+                );
+            }
+
+            // 2. Build a realistic Windows / Linux SystemSnapshot and render the Hardware Architecture & Thermals view
+            let mut snap = SystemSnapshot::new_empty(7, 7_000_000_000);
+            let gpu_src = if matches!(platform, HostPlatform::Windows) {
+                snap.intern_source("windows.nvml.gpu")
+            } else {
+                snap.intern_source("linux.sysfs.drm")
+            };
+            let th_src = if matches!(platform, HostPlatform::Windows) {
+                snap.intern_source("windows.wmi.thermal")
+            } else {
+                snap.intern_source("linux.sysfs.hwmon")
+            };
+            let prov_pct = MetricProvenance {
+                source: gpu_src,
+                unit_tag: Some(UnitTag::PERCENT),
+                sampled_at_ns: 7_000_000_000,
+                window_ns: 500_000_000,
+                quality: MetricQuality::Authoritative,
+                contributed_by_stale: false,
+            };
+            let prov_bytes = MetricProvenance {
+                unit_tag: Some(UnitTag::BYTES),
+                ..prov_pct
+            };
+            let prov_watts = MetricProvenance {
+                unit_tag: Some(UnitTag::WATTS),
+                ..prov_pct
+            };
+            let prov_mhz = MetricProvenance {
+                unit_tag: Some(UnitTag::MEGAHERTZ),
+                ..prov_pct
+            };
+            let prov_temp = MetricProvenance {
+                source: th_src,
+                unit_tag: Some(UnitTag::CELSIUS),
+                ..prov_pct
+            };
+
+            snap.system.gpu_model = CompactString::const_new("NVIDIA GeForce RTX 4070 Ti SUPER");
+            snap.system.cpu_percent = Metric::measured(18.4, prov_pct);
+            snap.system.gpu_utilization_percent = Metric::measured(42.0, prov_pct);
+            snap.system.gpu_in_use_memory_bytes =
+                Metric::measured(6.5 * 1024.0 * 1024.0 * 1024.0, prov_bytes);
+            snap.system.gpu_alloc_memory_bytes =
+                Metric::measured(16.0 * 1024.0 * 1024.0 * 1024.0, prov_bytes);
+            snap.system.performance_core_count = 8;
+            snap.system.efficiency_core_count = 0;
+            for idx in 0..16 {
+                snap.system.cores.push(CoreTelemetry {
+                    core_index: idx,
+                    class: LogicalProcessorClass::Performance,
+                    user_percent: Metric::measured(12.0, prov_pct),
+                    system_percent: Metric::measured(4.0, prov_pct),
+                    idle_percent: Metric::measured(84.0, prov_pct),
+                    total_percent: Metric::measured(16.0, prov_pct),
+                });
+            }
+            snap.hardware_telemetry.soc_power.gpu_watts = Metric::measured(148.5, prov_watts);
+            snap.hardware_telemetry.soc_power.package_watts = Metric::measured(148.5, prov_watts);
+            snap.hardware_telemetry.soc_power.p_cluster_mhz = Metric::measured(4050.0, prov_mhz);
+            snap.hardware_telemetry.soc_power.gpu_clock_mhz = Metric::measured(2610.0, prov_mhz);
+            snap.hardware_telemetry
+                .soc_power
+                .cluster_clocks
+                .push(ClusterClockMetric {
+                    cluster_name: CompactString::const_new("GPU Graphics Clock"),
+                    is_performance: true,
+                    effective_mhz: Metric::measured(2610.0, prov_mhz),
+                    active_residency_percent: Metric::measured(42.0, prov_pct),
+                });
+            snap.hardware_telemetry
+                .soc_power
+                .media_blocks
+                .push(MediaEngineBlockMetric {
+                    id: CompactString::const_new("gpu_3d"),
+                    label: CompactString::const_new("GPU 3D / Compute Core"),
+                    active_residency_percent: Metric::measured(42.0, prov_pct),
+                });
+            snap.hardware_telemetry
+                .soc_power
+                .media_blocks
+                .push(MediaEngineBlockMetric {
+                    id: CompactString::const_new("gpu_fan"),
+                    label: CompactString::const_new("GPU Cooling Fan Speed"),
+                    active_residency_percent: Metric::measured(35.0, prov_pct),
+                });
+            snap.hardware_telemetry.thermals.max_die_celsius = Metric::measured(58.0, prov_temp);
+            snap.hardware_telemetry.thermals.warning_level = Metric::measured(0.0, prov_temp);
+            snap.hardware_telemetry
+                .thermals
+                .sensors
+                .push(ThermalSensorReading {
+                    name: CompactString::const_new("GPU Core (NVML)"),
+                    celsius: Metric::measured(58.0, prov_temp),
+                });
+
+            let hw = SystemHardwareSummary {
+                hostname: CompactString::const_new("RYZEN-5700X3D"),
+                os_name: CompactString::const_new(if matches!(platform, HostPlatform::Windows) {
+                    "Windows"
+                } else {
+                    "Linux"
+                }),
+                os_version: CompactString::const_new("11 Pro 24H2"),
+                architecture: CompactString::const_new("x86_64"),
+                chip_model: CompactString::const_new("AMD Ryzen 7 5700X3D 8-Core Processor"),
+                physical_cores: 8,
+                logical_cores: 16,
+                p_cores: 8,
+                e_cores: 0,
+                l2_cache_kb: 4096,
+                l3_cache_kb: 98304,
+                total_ram_bytes: 32 * 1024 * 1024 * 1024,
+                gpu_model: CompactString::const_new("NVIDIA GeForce RTX 4070 Ti SUPER"),
+                gpu_cores: None,
+                firmware_version: CompactString::const_new("UEFI"),
+            };
+
+            let ctx = egui::Context::default();
+            let mut full_output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                crate::desktop::render_hardware_architecture_view_for_platform(
+                    ui,
+                    &snap,
+                    Some(&hw),
+                    platform,
+                    egui::Color32::from_rgb(56, 166, 255),
+                );
+            });
+            full_output.textures_delta.clear();
+
+            let mut rendered_texts = Vec::new();
+            for clipped in &full_output.shapes {
+                collect_text_from_shape(&clipped.shape, &mut rendered_texts);
+            }
+            let all_rendered = rendered_texts.join("\n");
+            assert!(
+                all_rendered.contains("Processor, GPU & Thermal Architecture"),
+                "Expected cross-platform heading in rendered UI, got:\n{all_rendered}"
+            );
+            assert!(
+                all_rendered.contains("CPU Core & Thread Topology"),
+                "Expected CPU Core & Thread Topology card in rendered UI"
+            );
+            assert!(
+                all_rendered.contains("Dedicated & Integrated GPU Telemetry"),
+                "Expected Dedicated & Integrated GPU Telemetry card in rendered UI"
+            );
+            assert!(
+                all_rendered.contains("Compute & Media Engines"),
+                "Expected Compute & Media Engines card in rendered UI"
+            );
+            assert!(
+                all_rendered.contains("Hardware Thermal Sensors"),
+                "Expected Hardware Thermal Sensors card in rendered UI"
+            );
+            assert!(
+                all_rendered.contains("NVIDIA GeForce RTX 4070 Ti SUPER"),
+                "Expected GPU model name in rendered UI"
+            );
+
+            for forbidden in forbidden_macos_substrings {
+                assert!(
+                    !all_rendered.contains(forbidden),
+                    "Forbidden macOS string '{forbidden}' rendered on {platform:?}:\n{all_rendered}"
+                );
+            }
+        }
+    }
 }

@@ -2,6 +2,113 @@ use crate::{Metric, ProcessKey};
 use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
 
+/// Target host operating system used for platform-aware UI, CLI, and TUI terminology.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum HostPlatform {
+    MacOs,
+    Windows,
+    Linux,
+}
+
+impl HostPlatform {
+    #[inline]
+    pub const fn current() -> Self {
+        if cfg!(target_os = "windows") {
+            Self::Windows
+        } else if cfg!(target_os = "linux") {
+            Self::Linux
+        } else {
+            Self::MacOs
+        }
+    }
+
+    #[inline]
+    pub const fn is_macos(self) -> bool {
+        matches!(self, Self::MacOs)
+    }
+
+    #[inline]
+    pub const fn is_windows(self) -> bool {
+        matches!(self, Self::Windows)
+    }
+
+    #[inline]
+    pub const fn is_linux(self) -> bool {
+        matches!(self, Self::Linux)
+    }
+
+    #[inline]
+    pub const fn what_is_using_my_host_title(self) -> &'static str {
+        match self {
+            Self::MacOs => "What Is Using My Mac Right Now",
+            Self::Windows => "What Is Using My Windows PC Right Now",
+            Self::Linux => "What Is Using My Linux Host Right Now",
+        }
+    }
+
+    #[inline]
+    pub const fn system_drive_title(self) -> &'static str {
+        match self {
+            Self::MacOs => "Startup Disk",
+            Self::Windows => "System Drive (C:)",
+            Self::Linux => "Root Filesystem (/)",
+        }
+    }
+
+    #[inline]
+    pub const fn reveal_in_file_manager_label(self) -> &'static str {
+        match self {
+            Self::MacOs => "Reveal in Finder",
+            Self::Windows => "Show in Explorer",
+            Self::Linux => "Show in File Manager",
+        }
+    }
+
+    #[inline]
+    pub const fn move_to_trash_label(self) -> &'static str {
+        match self {
+            Self::MacOs => "Move to Trash",
+            Self::Windows => "Move to Recycle Bin",
+            Self::Linux => "Move to Trash",
+        }
+    }
+
+    #[inline]
+    pub const fn trash_noun(self) -> &'static str {
+        match self {
+            Self::MacOs => "Trash",
+            Self::Windows => "Recycle Bin",
+            Self::Linux => "Trash",
+        }
+    }
+
+    #[inline]
+    pub const fn hardware_architecture_heading(self) -> &'static str {
+        match self {
+            Self::MacOs => "Apple Silicon Architecture & Thermals",
+            Self::Windows | Self::Linux => "Processor, GPU & Thermal Architecture",
+        }
+    }
+
+    #[inline]
+    pub const fn thermal_source_badge(self) -> &'static str {
+        match self {
+            Self::MacOs => "AppleSMC",
+            Self::Windows => "NVML / Win32 Thermal",
+            Self::Linux => "Linux hwmon",
+        }
+    }
+
+    #[inline]
+    pub const fn power_telemetry_badge(self) -> &'static str {
+        match self {
+            Self::MacOs => "libIOReport / AppleSMC",
+            Self::Windows => "NVML / Win32 Power",
+            Self::Linux => "Linux hwmon / sysfs",
+        }
+    }
+}
+
 /// Volume space summary preserving `Metric<f64>` provenance and avoiding fabricated 100% usage.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VolumeSpaceSummary {
@@ -98,12 +205,21 @@ pub enum StartupItemType {
 impl StartupItemType {
     #[inline]
     pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::LaunchAgent => "LaunchAgent",
-            Self::LaunchDaemon => "LaunchDaemon",
-            Self::XdgAutostart => "XDG Autostart",
-            Self::WindowsRegistryRun => "Registry Run",
-            Self::StartupFolder => "Startup Folder",
+        self.as_str_for(HostPlatform::current())
+    }
+
+    #[inline]
+    pub const fn as_str_for(self, platform: HostPlatform) -> &'static str {
+        match (self, platform) {
+            (Self::LaunchAgent, HostPlatform::MacOs) => "LaunchAgent",
+            (Self::LaunchAgent, HostPlatform::Windows) => "User Startup Task",
+            (Self::LaunchAgent, HostPlatform::Linux) => "User Autostart Unit",
+            (Self::LaunchDaemon, HostPlatform::MacOs) => "LaunchDaemon",
+            (Self::LaunchDaemon, HostPlatform::Windows) => "System Startup Task",
+            (Self::LaunchDaemon, HostPlatform::Linux) => "System Autostart Unit",
+            (Self::XdgAutostart, _) => "XDG Autostart",
+            (Self::WindowsRegistryRun, _) => "Registry Run",
+            (Self::StartupFolder, _) => "Startup Folder",
         }
     }
 }
@@ -320,14 +436,22 @@ pub enum DriverKind {
 
 impl DriverKind {
     pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::KernelExtension => "Kernel (.kext)",
-            Self::SystemExtension => "DriverKit (.dext)",
+        self.as_str_for(HostPlatform::current())
+    }
+
+    pub const fn as_str_for(self, platform: HostPlatform) -> &'static str {
+        match (self, platform) {
+            (Self::KernelExtension, HostPlatform::MacOs) => "Kernel (.kext)",
+            (Self::KernelExtension, HostPlatform::Windows) => "Kernel Driver (.sys)",
+            (Self::KernelExtension, HostPlatform::Linux) => "Kernel Module (.ko)",
+            (Self::SystemExtension, HostPlatform::MacOs) => "DriverKit (.dext)",
+            (Self::SystemExtension, HostPlatform::Windows) => "User-Mode Driver (UMDF)",
+            (Self::SystemExtension, HostPlatform::Linux) => "User-Space Driver",
         }
     }
 }
 
-/// Driver ownership scope (`com.apple.*` vs third-party).
+/// Driver ownership scope (`com.apple.*` / OS built-in vs third-party).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DriverScope {
     AppleSystem,
@@ -336,9 +460,15 @@ pub enum DriverScope {
 
 impl DriverScope {
     pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::AppleSystem => "Apple System",
-            Self::ThirdParty => "Third-Party",
+        self.as_str_for(HostPlatform::current())
+    }
+
+    pub const fn as_str_for(self, platform: HostPlatform) -> &'static str {
+        match (self, platform) {
+            (Self::AppleSystem, HostPlatform::MacOs) => "Apple System",
+            (Self::AppleSystem, HostPlatform::Windows) => "Windows System",
+            (Self::AppleSystem, HostPlatform::Linux) => "Kernel Built-In",
+            (Self::ThirdParty, _) => "Third-Party",
         }
     }
 }

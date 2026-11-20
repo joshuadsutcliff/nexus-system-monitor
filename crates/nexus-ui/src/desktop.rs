@@ -49,10 +49,11 @@ use nexus_collectors_macos::system_ops::{
 };
 use nexus_core::{
     CadenceCoordinator, CadenceLease, DEFAULT_BENCHMARK_DURATION_SECS, DEFAULT_NEXUS_BASELINE,
-    DisplayMode, DomainMask, HealthLevel, HealthScoring, LanRadarReport, LogicalProcessorClass,
-    Metric, MetricQuality, MetricReading, PopoutMode, ProcessKey, RemoteServerHandle, SnapshotHub,
-    SystemSnapshot, ValueState, VfdTextColor, WirelessScanReport, benchmark_ratios, nexus_score,
-    run_cpu_suite, six_character_ratio,
+    DisplayMode, DomainMask, HealthLevel, HealthScoring, HostPlatform, LanRadarReport,
+    LogicalProcessorClass, Metric, MetricQuality, MetricReading, PopoutMode, ProcessKey,
+    RemoteServerHandle, SnapshotHub, SystemHardwareSummary, SystemSnapshot, ValueState,
+    VfdTextColor, WirelessScanReport, benchmark_ratios, nexus_score, run_cpu_suite,
+    six_character_ratio,
 };
 use nexus_disk::{
     BenchmarkCategory, BenchmarkHistoryStore, CategoryTotal, DiskCategory, DiskNode,
@@ -615,6 +616,7 @@ struct GuiApp {
     disk_scan_rx: Option<std::sync::mpsc::Receiver<DiskScanUpdate>>,
     disk_scan_cancel: Arc<AtomicBool>,
     disk_scanning: bool,
+    disk_scan_started: bool,
     disk_scan_progress: f32,
     disk_scan_completion: f32,
     disk_scan_completed_at: Option<Instant>,
@@ -870,13 +872,18 @@ impl GuiApp {
         );
 
         let default_scan_dir = Path::new("/Users/josh/Github/nexus-system-monitor-rs");
-        let fallback_dir = std::env::current_dir().unwrap_or_else(|_| {
-            if cfg!(windows) {
-                PathBuf::from("C:\\")
-            } else {
-                PathBuf::from("/")
-            }
-        });
+        let fallback_dir = std::env::var_os("USERPROFILE")
+            .or_else(|| std::env::var_os("HOME"))
+            .map(PathBuf::from)
+            .filter(|p| p.exists())
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_else(|| {
+                if cfg!(windows) {
+                    PathBuf::from("C:\\")
+                } else {
+                    PathBuf::from("/")
+                }
+            });
         let scan_target = if default_scan_dir.exists() {
             default_scan_dir.to_path_buf()
         } else {
@@ -1082,6 +1089,7 @@ impl GuiApp {
             disk_scan_rx: None,
             disk_scan_cancel: Arc::new(AtomicBool::new(false)),
             disk_scanning: false,
+            disk_scan_started: false,
             disk_scan_progress: 0.0,
             disk_scan_completion: 0.0,
             disk_scan_completed_at: None,
@@ -1113,11 +1121,14 @@ impl GuiApp {
         };
         app_obj.record_all_histories_from_snapshot(&Arc::clone(&app_obj.snapshot), true);
         app_obj.update_live_process_and_health_caches(&Arc::clone(&app_obj.snapshot));
-        app_obj.start_disk_scan(scan_target);
+        if initial_view == GuiView::Dest(Destination::DiskSpace) {
+            app_obj.start_disk_scan(scan_target);
+        }
         app_obj
     }
 
     fn start_disk_scan(&mut self, root: PathBuf) {
+        self.disk_scan_started = true;
         self.disk_scan_cancel.store(true, AtomicOrdering::Relaxed);
         let cancel = Arc::new(AtomicBool::new(false));
         self.disk_scan_cancel = Arc::clone(&cancel);
@@ -1865,7 +1876,11 @@ impl GuiApp {
         self.last_frame_instant = now;
 
         self.platform_cache.poll_async_workers();
-        self.platform_cache.update_app_live_usage(&self.snapshot);
+        if self.platform_cache.app_live_usage.is_empty()
+            && !self.platform_cache.installed_apps.is_empty()
+        {
+            self.platform_cache.update_app_live_usage(&self.snapshot);
+        }
         self.app.theme.luminance_analyzer.step(dt_s);
         self.app.step_meters(&self.snapshot, dt_s);
         let accent = self.active_accent_color32();
@@ -3316,11 +3331,18 @@ impl GuiApp {
                                 self.command_palette_open = false;
                             }
                         }
+                        let sleep_lbl = match HostPlatform::current() {
+                            HostPlatform::MacOs => "Action: Toggle Prevent Sleep (caffeinate -di)",
+                            HostPlatform::Windows => {
+                                "Action: Toggle Prevent Sleep (SetThreadExecutionState)"
+                            }
+                            HostPlatform::Linux => "Action: Toggle Prevent Sleep (systemd-inhibit)",
+                        };
                         let actions: [(&str, u8); 5] = [
                             ("Action: Toggle Gaming Mode", 0),
                             ("Action: Toggle Popout Mini-Monitor Window", 1),
                             ("Action: Toggle Edit Pro Tiles Mode", 2),
-                            ("Action: Toggle Prevent Sleep (caffeinate -di)", 3),
+                            (sleep_lbl, 3),
                             ("Action: Launch F12 Tempest Tunnel Screensaver", 4),
                         ];
                         for (lbl, code) in actions {
@@ -4383,11 +4405,29 @@ impl GuiApp {
                                 },
                             );
                         });
-                        ui.label(
-                            RichText::new("Apple GPU activity, package power draw, and max die thermal state.")
-                                .font(FontId::proportional(13.0))
-                                .color(ui.visuals().weak_text_color()),
-                        );
+                            let gpu_sub = if HostPlatform::current().is_macos() {
+                                "Apple GPU activity, package power draw, and max die thermal state."
+                                    .to_string()
+                            } else if !self.snapshot.system.gpu_model.is_empty()
+                                && !self
+                                    .snapshot
+                                    .system
+                                    .gpu_model
+                                    .eq_ignore_ascii_case("unknown")
+                            {
+                                format!(
+                                    "{} activity, board power draw, and GPU/CPU thermal state.",
+                                    self.snapshot.system.gpu_model
+                                )
+                            } else {
+                                "Dedicated & integrated GPU activity, board power draw, and thermal state."
+                                    .to_string()
+                            };
+                            ui.label(
+                                RichText::new(gpu_sub)
+                                    .font(FontId::proportional(13.0))
+                                    .color(ui.visuals().weak_text_color()),
+                            );
                         ui.add_space(6.0);
                         ui.horizontal_wrapped(|ui| {
                             let (temp_lbl, temp_col) = match die_c {
@@ -4441,12 +4481,17 @@ impl GuiApp {
                         ui.add_space(4.0);
                         let gpu_explain = match (gpu_pct, pkg_w) {
                             (Some(g), Some(w)) => format!(
-                                "{} is at {g:.1}% utilization while the SoC draws {w:.1} W.",
+                                "{} is at {g:.1}% utilization while drawing {w:.1} W.",
                                 self.snapshot.system.gpu_model
                             ),
                             _ => format!(
-                                "Live telemetry for {} and Apple Silicon power rails.",
-                                self.snapshot.system.gpu_model
+                                "Live telemetry for {} and {} power rails.",
+                                self.snapshot.system.gpu_model,
+                                if HostPlatform::current().is_macos() {
+                                    "Apple Silicon"
+                                } else {
+                                    "processor & GPU"
+                                }
                             ),
                         };
                         ui.label(
@@ -4512,7 +4557,8 @@ impl GuiApp {
                         };
                         ui.label(
                             RichText::new(format!(
-                                "Startup Disk: {} used of {} ({} free)",
+                                "{}: {} used of {} ({} free)",
+                                HostPlatform::current().system_drive_title(),
                                 format_bytes(vol_used_b),
                                 format_bytes(vol_total_b),
                                 format_bytes(vol_avail_b)
@@ -4584,12 +4630,12 @@ impl GuiApp {
 
                 ui.add_space(10.0);
 
-                // Section 3: What Is Using My Mac Right Now (Top 5 Active Processes)
+                // Section 3: What Is Using My Host Right Now (Top 5 Active Processes)
                 hig_card(ui, |ui| {
                     ui.set_min_width(ui.available_width());
                     ui.horizontal(|ui| {
                         ui.label(
-                            RichText::new("What Is Using My Mac Right Now")
+                            RichText::new(HostPlatform::current().what_is_using_my_host_title())
                                 .font(FontId::proportional(15.5))
                                 .strong()
                                 .color(ui.visuals().strong_text_color()),
@@ -5707,7 +5753,11 @@ impl GuiApp {
                     ui.set_min_width(ui.available_width());
                     hig_card_header(
                         ui,
-                        "Unified Memory & Swap Pressure",
+                        if HostPlatform::current().is_macos() {
+                            "Unified Memory & Swap Pressure"
+                        } else {
+                            "Physical Memory & Swap Pressure"
+                        },
                         "Physical RAM allocation across apps, kernel wired memory, compression, and disk swap.",
                         accent,
                     );
@@ -5796,10 +5846,19 @@ impl GuiApp {
                 ui.columns(2, |cols| {
                     hig_card(&mut cols[0], |ui| {
                         ui.set_min_width(ui.available_width());
+                        let gfx_sub = if HostPlatform::current().is_macos() {
+                            "Live Apple GPU utilization, SoC package power draw, Neural Engine, and die thermals."
+                                .to_string()
+                        } else {
+                            format!(
+                                "Live {} utilization, board power draw, and hardware thermal state.",
+                                self.snapshot.system.gpu_model
+                            )
+                        };
                         hig_card_header(
                             ui,
                             "Graphics & Package Power",
-                            "Live Apple GPU utilization, SoC package power draw, Neural Engine, and die thermals.",
+                            &gfx_sub,
                             accent,
                         );
                         ui.horizontal_wrapped(|ui| {
@@ -5808,14 +5867,25 @@ impl GuiApp {
                                 &format!("GPU Clock: {}", sp.gpu_clock_mhz.format_with_unit(0, "MHz")),
                                 hig_green(ui),
                             );
-                            hig_status_pill(
-                                ui,
-                                &format!(
-                                    "ANE Residency: {}",
-                                    sp.ane_active_residency_percent.format_with_unit(1, "%")
-                                ),
-                                hig_blue(ui),
-                            );
+                            if HostPlatform::current().is_macos() {
+                                hig_status_pill(
+                                    ui,
+                                    &format!(
+                                        "ANE Residency: {}",
+                                        sp.ane_active_residency_percent.format_with_unit(1, "%")
+                                    ),
+                                    hig_blue(ui),
+                                );
+                            } else {
+                                hig_status_pill(
+                                    ui,
+                                    &format!(
+                                        "GPU Power: {}",
+                                        sp.gpu_watts.format_with_unit(1, "W")
+                                    ),
+                                    hig_blue(ui),
+                                );
+                            }
                             let die_col = match measured_opt(&th.max_die_celsius) {
                                 Some(t) if t > 85.0 => hig_red(ui),
                                 Some(t) if t >= 65.0 => hig_amber(ui),
@@ -6298,370 +6368,22 @@ impl GuiApp {
     }
 
     fn draw_apple_silicon_view(&mut self, ui: &mut egui::Ui, accent: Color32) {
-        let sp = &self.snapshot.hardware_telemetry.soc_power;
-        let th = &self.snapshot.hardware_telemetry.thermals;
-        let chip_name = self
-            .platform_cache
-            .hardware
-            .map(|h| h.chip_model.as_str())
-            .unwrap_or_else(|| self.snapshot.system.gpu_model.as_str());
-
-        let (soc_title, soc_sub) = if cfg!(target_os = "macos") {
-            (
-                "Apple Silicon Architecture & Thermals",
-                "Authoritative libIOReport cluster residency, Neural Engine, Media Engine, and AppleSMC die temperatures.",
-            )
-        } else if cfg!(target_os = "linux") {
-            (
-                "Processor Architecture & Thermals",
-                "Linux CPU cluster topology, cpufreq scaling telemetry, and sysfs thermal zone sensors.",
-            )
-        } else {
-            (
-                "Processor Architecture & Thermals",
-                "Windows processor topology, power domains, and hardware thermal sensors.",
-            )
-        };
-        hig_view_header(ui, soc_title, soc_sub, accent);
-
-        let die_c = measured_opt(&th.max_die_celsius);
-        let (temp_badge, temp_col) = match die_c {
-            Some(t) if t > 85.0 => (format!("Hot · {t:.1} C"), hig_red(ui)),
-            Some(t) if t >= 65.0 => (format!("Warm · {t:.1} C"), hig_amber(ui)),
-            Some(t) => (format!("Cool · {t:.1} C"), hig_green(ui)),
-            None => ("Temp Unavailable".to_string(), hig_gray(ui)),
-        };
-
-        egui::ScrollArea::vertical()
-            .id_salt("apple_silicon_scroll")
-            .max_height((ui.available_height() - 4.0).max(200.0))
-            .show(ui, |ui| {
-                // Top Summary Strip
-                hig_card(ui, |ui| {
-                    ui.set_min_width(ui.available_width());
-                    ui.horizontal_wrapped(|ui| {
-                        hig_status_pill(ui, &format!("Chip: {chip_name}"), accent);
-                        hig_status_pill(
-                            ui,
-                            &format!(
-                                "Package Power: {}",
-                                sp.package_watts.format_with_unit(2, "W")
-                            ),
-                            hig_amber(ui),
-                        );
-                        hig_status_pill(
-                            ui,
-                            &format!(
-                                "System Power In: {}",
-                                sp.system_power_in_watts.format_with_unit(2, "W")
-                            ),
-                            hig_blue(ui),
-                        );
-                        hig_status_pill(ui, &temp_badge, temp_col);
-                    });
-                });
-
-                ui.add_space(10.0);
-
-                // Row 1: Efficiency Cluster & Performance Cluster
-                ui.columns(2, |cols| {
-                    hig_card(&mut cols[0], |ui| {
-                        ui.set_min_width(ui.available_width());
-                        hig_card_header(
-                            ui,
-                            "Efficiency Cluster",
-                            "Background tasks and low-power background threads run on E-cores to save battery.",
-                            accent,
-                        );
-                        let e_res = measured_opt(&sp.e_cluster_active_residency_percent);
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                RichText::new(
-                                    sp.e_cluster_active_residency_percent.format_with_unit(1, "%"),
-                                )
-                                .font(FontId::proportional(20.0))
-                                .strong()
-                                .color(hig_green(ui)),
-                            );
-                            let e_mhz_suffix = measured_opt(&sp.e_cluster_mhz)
-                                .map_or_else(String::new, |m| format!(" · {m:.0} MHz"));
-                            hig_status_pill(
-                                ui,
-                                &format!(
-                                    "{} cores{e_mhz_suffix}",
-                                    self.snapshot.system.efficiency_core_count
-                                ),
-                                hig_green(ui),
-                            );
-                        });
-                        ui.add_space(4.0);
-                        draw_hig_progress_bar(
-                            ui,
-                            ui.available_width(),
-                            10.0,
-                            (e_res.unwrap_or(0.0) / 100.0) as f32,
-                            hig_green(ui),
-                        );
-                    });
-
-                    hig_card(&mut cols[1], |ui| {
-                        ui.set_min_width(ui.available_width());
-                        hig_card_header(
-                            ui,
-                            "Performance Cluster",
-                            "Interactive applications, builds, and heavy compute run on high-clock P-cores.",
-                            accent,
-                        );
-                        let p_res = measured_opt(&sp.p_cluster_active_residency_percent);
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                RichText::new(
-                                    sp.p_cluster_active_residency_percent.format_with_unit(1, "%"),
-                                )
-                                .font(FontId::proportional(20.0))
-                                .strong()
-                                .color(hig_blue(ui)),
-                            );
-                            let p_mhz_suffix = measured_opt(&sp.p_cluster_mhz)
-                                .map_or_else(String::new, |m| format!(" · {m:.0} MHz"));
-                            hig_status_pill(
-                                ui,
-                                &format!(
-                                    "{} cores{p_mhz_suffix}",
-                                    self.snapshot.system.performance_core_count
-                                ),
-                                hig_blue(ui),
-                            );
-                        });
-                        ui.add_space(4.0);
-                        draw_hig_progress_bar(
-                            ui,
-                            ui.available_width(),
-                            10.0,
-                            (p_res.unwrap_or(0.0) / 100.0) as f32,
-                            hig_blue(ui),
-                        );
-                    });
-                });
-
-                ui.add_space(10.0);
-
-                // Row 2: Apple GPU & Neural Engine (ANE)
-                ui.columns(2, |cols| {
-                    hig_card(&mut cols[0], |ui| {
-                        ui.set_min_width(ui.available_width());
-                        hig_card_header(
-                            ui,
-                            "Apple GPU",
-                            "Unified-memory Metal graphics and compute cores.",
-                            accent,
-                        );
-                        let gpu_pct = measured_opt(&self.snapshot.system.gpu_utilization_percent);
-                        ui.horizontal_wrapped(|ui| {
-                            ui.label(
-                                RichText::new(
-                                    self.snapshot
-                                        .system
-                                        .gpu_utilization_percent
-                                        .format_with_unit(1, "%"),
-                                )
-                                .font(FontId::proportional(20.0))
-                                .strong()
-                                .color(accent),
-                            );
-                            let gpu_badge = match measured_opt(&sp.gpu_clock_mhz) {
-                                Some(mhz) => format!(
-                                    "{mhz:.0} MHz · {}",
-                                    sp.gpu_watts.format_with_unit(2, "W")
-                                ),
-                                None => format!("Power: {}", sp.gpu_watts.format_with_unit(2, "W")),
-                            };
-                            hig_status_pill(ui, &gpu_badge, accent);
-                        });
-                        ui.add_space(4.0);
-                        draw_hig_progress_bar(
-                            ui,
-                            ui.available_width(),
-                            10.0,
-                            (gpu_pct.unwrap_or(0.0) / 100.0) as f32,
-                            accent,
-                        );
-                        ui.add_space(4.0);
-                        ui.label(
-                            RichText::new(format!(
-                                "Memory In-Use: {} · Allocated: {}",
-                                format_metric_bytes(&self.snapshot.system.gpu_in_use_memory_bytes),
-                                format_metric_bytes(&self.snapshot.system.gpu_alloc_memory_bytes),
-                            ))
-                            .font(FontId::proportional(11.5))
-                            .color(ui.visuals().weak_text_color()),
-                        );
-                    });
-
-                    hig_card(&mut cols[1], |ui| {
-                        ui.set_min_width(ui.available_width());
-                        hig_card_header(
-                            ui,
-                            "Neural Engine (ANE)",
-                            "Dedicated machine-learning matrix accelerators for CoreML and on-device AI.",
-                            accent,
-                        );
-                        let ane_res = measured_opt(&sp.ane_active_residency_percent);
-                        let ane_watts = measured_opt(&sp.ane_watts);
-                        let ane_headline = if ane_res.is_some() {
-                            sp.ane_active_residency_percent.format_with_unit(1, "%")
-                        } else if let Some(w) = ane_watts {
-                            if w <= 0.005 {
-                                "Idle (0.00 W)".to_string()
-                            } else {
-                                format!("Active ({w:.2} W)")
-                            }
-                        } else {
-                            sp.ane_active_residency_percent.format_with_unit(1, "%")
-                        };
-                        ui.horizontal_wrapped(|ui| {
-                            ui.label(
-                                RichText::new(ane_headline)
-                                    .font(FontId::proportional(20.0))
-                                    .strong()
-                                    .color(hig_purple(ui)),
-                            );
-                            hig_status_pill(
-                                ui,
-                                &format!(
-                                    "ANE Power: {} · SoC Floor: {}",
-                                    sp.ane_watts.format_with_unit(2, "W"),
-                                    sp.soc_floor_residency_percent.format_with_unit(1, "%")
-                                ),
-                                hig_purple(ui),
-                            );
-                        });
-                        ui.add_space(4.0);
-                        draw_hig_progress_bar(
-                            ui,
-                            ui.available_width(),
-                            10.0,
-                            (ane_res.unwrap_or(0.0) / 100.0) as f32,
-                            hig_purple(ui),
-                        );
-                        ui.add_space(4.0);
-                        ui.label(
-                            RichText::new(format!(
-                                "PMP / Auxiliary SoC Power: {}",
-                                sp.pmp_power_watts.format_with_unit(2, "W")
-                            ))
-                            .font(FontId::proportional(11.5))
-                            .color(ui.visuals().weak_text_color()),
-                        );
-                    });
-                });
-
-                ui.add_space(10.0);
-
-                // Row 3: Media Engine Blocks & Thermal Sensors
-                ui.columns(2, |cols| {
-                    hig_card(&mut cols[0], |ui| {
-                        ui.set_min_width(ui.available_width());
-                        hig_card_header(
-                            ui,
-                            "Media Engine Blocks",
-                            "Dedicated hardware video encoders, decoders, and ProRes pipelines.",
-                            accent,
-                        );
-                        if sp.media_blocks.is_empty() {
-                            ui.label(
-                                RichText::new("No active media engine residency counters reported.")
-                                    .color(ui.visuals().weak_text_color()),
-                            );
-                        } else {
-                            for block in &sp.media_blocks {
-                                let v = measured_opt(&block.active_residency_percent).unwrap_or(0.0);
-                                ui.horizontal(|ui| {
-                                    ui.add_sized(
-                                        [140.0, 18.0],
-                                        egui::Label::new(RichText::new(block.label.as_str()).strong()),
-                                    );
-                                    draw_hig_progress_bar(
-                                        ui,
-                                        120.0,
-                                        8.0,
-                                        (v / 100.0).clamp(0.0, 1.0) as f32,
-                                        hig_blue(ui),
-                                    );
-                                    ui.label(block.active_residency_percent.format_with_unit(1, "%"));
-                                });
-                            }
-                        }
-                    });
-
-                    hig_card(&mut cols[1], |ui| {
-                        ui.set_min_width(ui.available_width());
-                        hig_card_header(
-                            ui,
-                            "Thermal Sensors (AppleSMC)",
-                            "Selector 2 die temperature sensors and macOS thermal warning state.",
-                            accent,
-                        );
-                        ui.horizontal_wrapped(|ui| {
-                            hig_status_pill(ui, &temp_badge, temp_col);
-                            hig_status_pill(
-                                ui,
-                                &format!(
-                                    "Warning Level: {}",
-                                    th.warning_level.format_with_unit(0, "")
-                                ),
-                                if measured_zero(&th.warning_level) > 0.0 {
-                                    hig_amber(ui)
-                                } else {
-                                    hig_green(ui)
-                                },
-                            );
-                        });
-                        ui.add_space(6.0);
-                        if th.sensors.is_empty() {
-                            ui.label(
-                                RichText::new("No individual SMC die sensors available.")
-                                    .color(ui.visuals().weak_text_color()),
-                            );
-                        } else {
-                            egui::ScrollArea::vertical()
-                                .id_salt("smc_thermals_scroll")
-                                .max_height(210.0)
-                                .show(ui, |ui| {
-                                    for s in &th.sensors {
-                                        let tc = measured_opt(&s.celsius);
-                                        let col = match tc {
-                                            Some(t) if t > 85.0 => hig_red(ui),
-                                            Some(t) if t >= 65.0 => hig_amber(ui),
-                                            Some(_) => hig_green(ui),
-                                            None => hig_gray(ui),
-                                        };
-                                        ui.horizontal(|ui| {
-                                            ui.add_sized(
-                                                [155.0, 18.0],
-                                                egui::Label::new(s.name.as_str()).truncate(),
-                                            );
-                                            draw_hig_progress_bar(
-                                                ui,
-                                                105.0,
-                                                7.0,
-                                                (tc.unwrap_or(0.0) / 110.0).clamp(0.0, 1.0) as f32,
-                                                col,
-                                            );
-                                            ui.label(
-                                                RichText::new(s.celsius.format_with_unit(1, "C"))
-                                                    .color(col),
-                                            );
-                                        });
-                                    }
-                                });
-                        }
-                    });
-                });
-            });
+        render_hardware_architecture_view_for_platform(
+            ui,
+            &self.snapshot,
+            self.platform_cache.hardware,
+            HostPlatform::current(),
+            accent,
+        );
     }
 
     fn draw_disk_space_view(&mut self, ui: &mut egui::Ui, accent: Color32) {
+        if !self.disk_scan_started && !self.disk_scanning {
+            let target = PathBuf::from(self.disk_scan_path_input.trim());
+            if target.exists() {
+                self.start_disk_scan(target);
+            }
+        }
         if self.platform_cache.volumes.is_empty() {
             self.platform_cache.volumes = collect_mounted_volumes();
         }
@@ -7139,10 +6861,24 @@ impl GuiApp {
                         ui.set_min_width(ui.available_width());
                         ui.horizontal(|ui| {
                             ui.vertical(|ui| {
+                                let (insp_title, insp_sub) = match HostPlatform::current() {
+                                    HostPlatform::MacOs => (
+                                        "Physical Storage Inspector (diskutil)",
+                                        "Hardware disk models, bus protocol, SMART status, and quick Finder actions.",
+                                    ),
+                                    HostPlatform::Windows => (
+                                        "Physical Storage Inspector",
+                                        "Mounted drives, filesystem type, capacity, and quick File Explorer actions.",
+                                    ),
+                                    HostPlatform::Linux => (
+                                        "Physical Storage Inspector",
+                                        "Block devices, filesystem type, SMART health, and quick file manager actions.",
+                                    ),
+                                };
                                 hig_card_header(
                                     ui,
-                                    "Physical Storage Inspector (diskutil)",
-                                    "Hardware disk models, bus protocol, SMART status, and quick Finder actions.",
+                                    insp_title,
+                                    insp_sub,
                                     accent,
                                 );
                             });
@@ -7192,10 +6928,25 @@ impl GuiApp {
                                     mount_str
                                 ));
                                 if let Some(m) = &dev.mount_point {
-                                    if ui.small_button("Reveal").clicked() {
-                                        let _ = std::process::Command::new("/usr/bin/open")
-                                            .args(["-R", m.as_str()])
-                                            .spawn();
+                                    if ui
+                                        .small_button(
+                                            HostPlatform::current().reveal_in_file_manager_label(),
+                                        )
+                                        .clicked()
+                                    {
+                                        if cfg!(target_os = "macos") {
+                                            let _ = std::process::Command::new("/usr/bin/open")
+                                                .args(["-R", m.as_str()])
+                                                .spawn();
+                                        } else if cfg!(target_os = "windows") {
+                                            let _ = std::process::Command::new("explorer")
+                                                .arg(m.as_str())
+                                                .spawn();
+                                        } else {
+                                            let _ = std::process::Command::new("xdg-open")
+                                                .arg(m.as_str())
+                                                .spawn();
+                                        }
                                     }
                                     if dev.is_ejectable && ui.small_button("Eject").clicked() {
                                         let _ = std::process::Command::new("/usr/sbin/diskutil")
@@ -7974,15 +7725,37 @@ impl GuiApp {
     }
 
     fn draw_honesty_view(&mut self, ui: &mut egui::Ui, accent: Color32) {
+        let plat = HostPlatform::current();
+        let honesty_sub = match plat {
+            HostPlatform::MacOs => {
+                "Audit which hardware and operating system sensors are directly measured, derived via fallback, or unavailable on this Mac."
+            }
+            HostPlatform::Windows => {
+                "Audit which hardware and operating system sensors are directly measured, derived via fallback, or unavailable on this Windows PC."
+            }
+            HostPlatform::Linux => {
+                "Audit which hardware and operating system sensors are directly measured, derived via fallback, or unavailable on this Linux host."
+            }
+        };
         hig_view_header(
             ui,
             "Measurement Honesty & Sensor Provenance",
-            "Audit which hardware and operating system sensors are directly measured, derived via fallback, or unavailable on this Mac.",
+            honesty_sub,
             accent,
         );
 
         let sp = &self.snapshot.hardware_telemetry.soc_power;
         let th = &self.snapshot.hardware_telemetry.thermals;
+        let gpu_desc = if plat.is_macos() {
+            "Apple Silicon GPU utilization"
+        } else {
+            "Dedicated / integrated GPU utilization"
+        };
+        let warn_desc = match plat {
+            HostPlatform::MacOs => "macOS thermal pressure level",
+            HostPlatform::Windows => "Windows thermal warning state",
+            HostPlatform::Linux => "Linux thermal throttling warning state",
+        };
         let items: [(&str, &str, &Metric<f64>, &str); 10] = [
             (
                 "system.cpu_percent",
@@ -7998,13 +7771,13 @@ impl GuiApp {
             ),
             (
                 "system.gpu_utilization_percent",
-                "Apple Silicon GPU utilization",
+                gpu_desc,
                 &self.snapshot.system.gpu_utilization_percent,
                 "%",
             ),
             (
                 "soc.package_watts",
-                "Total SoC package power",
+                "Total processor / GPU package power",
                 &sp.package_watts,
                 "W",
             ),
@@ -8028,19 +7801,14 @@ impl GuiApp {
             ),
             (
                 "thermal.max_die_celsius",
-                "Peak SoC die temperature",
+                "Peak CPU / GPU thermal sensor",
                 &th.max_die_celsius,
                 "C",
             ),
-            (
-                "thermal.warning_level",
-                "macOS thermal pressure level",
-                &th.warning_level,
-                "",
-            ),
+            ("thermal.warning_level", warn_desc, &th.warning_level, ""),
             (
                 "system.load_avg_1m",
-                "POSIX 1-minute load average",
+                "1-minute processor load average",
                 &self.snapshot.system.load_avg_1m,
                 "",
             ),
@@ -8440,6 +8208,15 @@ impl ApplicationHandler<UserEvent> for GuiApp {
     fn new_events(&mut self, _event_loop: &ActiveEventLoop, cause: StartCause) {
         if cause == StartCause::Init {
             self.init_tray_if_needed();
+        } else if matches!(cause, StartCause::ResumeTimeReached { .. }) {
+            if self.window_visible
+                && let Some(w) = &self.window
+            {
+                w.request_redraw();
+            }
+            if let Some(pop_win) = &self.popout_window {
+                pop_win.request_redraw();
+            }
         }
     }
 
@@ -8448,7 +8225,7 @@ impl ApplicationHandler<UserEvent> for GuiApp {
             return;
         }
         let attrs = Window::default_attributes()
-            .with_title("Nexus System Monitor (v0.8.0)")
+            .with_title("Nexus System Monitor (v0.8.1)")
             .with_inner_size(LogicalSize::new(1280.0, 820.0))
             .with_window_icon(load_winit_window_icon());
         let window = Arc::new(
@@ -8637,15 +8414,18 @@ impl ApplicationHandler<UserEvent> for GuiApp {
                         && self.gaming_mode.visual_throttle().visual_frame_rate != 0;
                     if !main_animating && self.gaming_mode.visual_throttle().visual_frame_rate != 0
                     {
-                        let pace_ms = if self.app.theme.high_frequency_visuals {
-                            16
+                        if self.popout_screenshot_mode && !self.screenshot_saved {
+                            pop_win.request_redraw();
+                            event_loop.set_control_flow(ControlFlow::WaitUntil(
+                                Instant::now() + Duration::from_millis(16),
+                            ));
                         } else {
-                            50
-                        };
-                        pop_win.request_redraw();
-                        event_loop.set_control_flow(ControlFlow::WaitUntil(
-                            Instant::now() + Duration::from_millis(pace_ms),
-                        ));
+                            let refresh_wait =
+                                Duration::from_millis(self.preferred_interval_ms.max(250));
+                            event_loop.set_control_flow(ControlFlow::WaitUntil(
+                                Instant::now() + refresh_wait,
+                            ));
+                        }
                     }
                 }
                 _ => {}
@@ -8796,8 +8576,10 @@ impl ApplicationHandler<UserEvent> for GuiApp {
                 }
 
                 let mut screenshot_callbacks = Vec::new();
+                let mut root_repaint_delay = Duration::MAX;
                 for (vp_id, vp_output) in full_output.viewport_output {
                     if vp_id == ViewportId::ROOT {
+                        root_repaint_delay = vp_output.repaint_delay;
                         for cmd in vp_output.commands {
                             if let egui::ViewportCommand::Screenshot(cb) = cmd {
                                 screenshot_callbacks.push(cb);
@@ -8851,18 +8633,51 @@ impl ApplicationHandler<UserEvent> for GuiApp {
                         event_loop.set_control_flow(ControlFlow::Wait);
                     }
                 } else {
-                    let pace_ms = if self.app.theme.high_frequency_visuals {
-                        16
+                    let shaders_active =
+                        !self.gaming_mode.visual_throttle().background_shaders_paused
+                            && (self.screensaver_active
+                                || (self.active_view == GuiView::Dest(Destination::DiskSpace)
+                                    && self.disk_subtab == DiskSubTab::Visualizer)
+                                || (self.active_view == GuiView::Dest(Destination::Summary)
+                                    && self.dashboard_mode >= 2
+                                    && self.page_edit.current.tiles.iter().any(|t| {
+                                        matches!(
+                                            t.face,
+                                            FaceKind::DiskOceanMetaballs
+                                                | FaceKind::DiskDefragBlocks
+                                                | FaceKind::VectorTunnelTempest
+                                        )
+                                    })));
+                    let needs_continuous_60hz = shaders_active
+                        || (self.screenshot_out.is_some() && !self.screenshot_saved)
+                        || self.disk_scanning
+                        || self
+                            .disk_scan_completed_at
+                            .is_some_and(|t| t.elapsed() < Duration::from_millis(600))
+                        || self.trace_player.as_ref().is_some_and(|p| p.playing);
+
+                    if needs_continuous_60hz {
+                        let pace_ms = if self.app.theme.high_frequency_visuals {
+                            16
+                        } else {
+                            50
+                        };
+                        window.request_redraw();
+                        if let Some(pop_win) = &self.popout_window {
+                            pop_win.request_redraw();
+                        }
+                        event_loop.set_control_flow(ControlFlow::WaitUntil(
+                            Instant::now() + Duration::from_millis(pace_ms),
+                        ));
+                    } else if root_repaint_delay == Duration::ZERO {
+                        window.request_redraw();
                     } else {
-                        50
-                    };
-                    window.request_redraw();
-                    if let Some(pop_win) = &self.popout_window {
-                        pop_win.request_redraw();
+                        let refresh_wait =
+                            Duration::from_millis(self.preferred_interval_ms.max(250));
+                        let wait_dur = root_repaint_delay.min(refresh_wait);
+                        event_loop
+                            .set_control_flow(ControlFlow::WaitUntil(Instant::now() + wait_dur));
                     }
-                    event_loop.set_control_flow(ControlFlow::WaitUntil(
-                        Instant::now() + Duration::from_millis(pace_ms),
-                    ));
                 }
             }
             _ => {}
@@ -9783,7 +9598,8 @@ fn draw_health_ring_mini(ui: &mut egui::Ui, score: f64, level: HealthLevel) {
     );
 }
 
-fn human_sensor_subtitle(sp: &SensorPath, _snap: &SystemSnapshot) -> String {
+fn human_sensor_subtitle(sp: &SensorPath, snap: &SystemSnapshot) -> String {
+    let plat = HostPlatform::current();
     match (
         sp.category.as_str(),
         sp.instance.as_str(),
@@ -9794,14 +9610,26 @@ fn human_sensor_subtitle(sp: &SensorPath, _snap: &SystemSnapshot) -> String {
         ("cpu", "[P-Cluster]", _) => "Performance core cluster".to_string(),
         ("cpu", "[E-Cluster]", _) => "Efficiency core cluster".to_string(),
         ("memory", "system", "used_percent") => "Physical memory utilization".to_string(),
-        ("memory", "system", "pressure") => "macOS memory pressure index".to_string(),
-        ("gpu", "0", "utilization") => "Apple Silicon GPU activity".to_string(),
-        ("soc", "package", "watts") => "SoC total package power".to_string(),
-        ("soc", "p_cluster", "residency") => "Performance & Efficiency clusters".to_string(),
+        ("memory", "system", "pressure") => match plat {
+            HostPlatform::MacOs => "macOS memory pressure index".to_string(),
+            HostPlatform::Windows => "Windows memory pressure index".to_string(),
+            HostPlatform::Linux => "Linux memory pressure index".to_string(),
+        },
+        ("gpu", "0", "utilization") => {
+            if plat.is_macos() {
+                "Apple Silicon GPU activity".to_string()
+            } else if !snap.system.gpu_model.is_empty() {
+                format!("{} GPU activity", snap.system.gpu_model)
+            } else {
+                "Dedicated / integrated GPU activity".to_string()
+            }
+        }
+        ("soc", "package", "watts") => "Processor & GPU package power".to_string(),
+        ("soc", "p_cluster", "residency") => "Processor core & cluster residency".to_string(),
         ("soc", "e_cluster", "residency") => "Efficiency core cluster residency".to_string(),
-        ("thermal", _, "celsius") => "Silicon thermal sensor".to_string(),
+        ("thermal", _, "celsius") => "Hardware thermal sensor".to_string(),
         ("disk", _, "categories") => "Storage category breakdown".to_string(),
-        ("os", "system", "uptime") => "macOS host uptime".to_string(),
+        ("os", "system", "uptime") => "System host uptime".to_string(),
         (cat, inst, met) => {
             let pretty_inst = inst
                 .trim_start_matches('[')
@@ -9816,6 +9644,706 @@ fn human_sensor_subtitle(sp: &SensorPath, _snap: &SystemSnapshot) -> String {
             )
         }
     }
+}
+
+/// Renders the Hardware Architecture & Thermals view for the specified `HostPlatform`.
+/// On macOS, renders `"Apple Silicon Architecture & Thermals"`.
+/// On Windows and Linux, renders `"Processor, GPU & Thermal Architecture"` with 4 platform-native cards.
+pub fn render_hardware_architecture_view_for_platform(
+    ui: &mut egui::Ui,
+    snap: &SystemSnapshot,
+    hw: Option<&SystemHardwareSummary>,
+    platform: HostPlatform,
+    accent: Color32,
+) {
+    let sp = &snap.hardware_telemetry.soc_power;
+    let th = &snap.hardware_telemetry.thermals;
+    let chip_name = hw
+        .map(|h| h.chip_model.as_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| snap.system.gpu_model.as_str());
+
+    let soc_title = platform.hardware_architecture_heading();
+    let soc_sub = match platform {
+        HostPlatform::MacOs => {
+            "Authoritative libIOReport cluster residency, Neural Engine, Media Engine, and AppleSMC die temperatures."
+        }
+        HostPlatform::Windows => {
+            "Processor core topology, dedicated & integrated GPU telemetry, compute & media engines, and hardware thermal sensors."
+        }
+        HostPlatform::Linux => {
+            "Linux processor core topology, DRM/hwmon GPU telemetry, compute & media engines, and sysfs thermal sensors."
+        }
+    };
+    hig_view_header(ui, soc_title, soc_sub, accent);
+
+    let die_c = measured_opt(&th.max_die_celsius);
+    let (temp_badge, temp_col) = match die_c {
+        Some(t) if t > 85.0 => (format!("Hot · {t:.1} C"), hig_red(ui)),
+        Some(t) if t >= 65.0 => (format!("Warm · {t:.1} C"), hig_amber(ui)),
+        Some(t) => (format!("Cool · {t:.1} C"), hig_green(ui)),
+        None => ("Temp Unavailable".to_string(), hig_gray(ui)),
+    };
+
+    egui::ScrollArea::vertical()
+        .id_salt("apple_silicon_scroll")
+        .max_height((ui.available_height() - 4.0).max(200.0))
+        .show(ui, |ui| {
+            // Top Summary Strip
+            hig_card(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.horizontal_wrapped(|ui| {
+                    hig_status_pill(ui, &format!("Processor: {chip_name}"), accent);
+                    if !platform.is_macos() && !snap.system.gpu_model.is_empty() {
+                        hig_status_pill(
+                            ui,
+                            &format!("GPU: {}", snap.system.gpu_model),
+                            hig_green(ui),
+                        );
+                    }
+                    hig_status_pill(
+                        ui,
+                        &format!(
+                            "Package Power: {}",
+                            sp.package_watts.format_with_unit(2, "W")
+                        ),
+                        hig_amber(ui),
+                    );
+                    if platform.is_macos() {
+                        hig_status_pill(
+                            ui,
+                            &format!(
+                                "System Power In: {}",
+                                sp.system_power_in_watts.format_with_unit(2, "W")
+                            ),
+                            hig_blue(ui),
+                        );
+                    } else {
+                        hig_status_pill(
+                            ui,
+                            &format!("Source: {}", platform.power_telemetry_badge()),
+                            hig_blue(ui),
+                        );
+                    }
+                    hig_status_pill(ui, &temp_badge, temp_col);
+                });
+            });
+
+            ui.add_space(10.0);
+
+            if platform.is_macos() {
+                // Row 1: Efficiency Cluster & Performance Cluster
+                ui.columns(2, |cols| {
+                    hig_card(&mut cols[0], |ui| {
+                        ui.set_min_width(ui.available_width());
+                        hig_card_header(
+                            ui,
+                            "Efficiency Cluster",
+                            "Background tasks and low-power background threads run on E-cores to save battery.",
+                            accent,
+                        );
+                        let e_res = measured_opt(&sp.e_cluster_active_residency_percent);
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(
+                                    sp.e_cluster_active_residency_percent.format_with_unit(1, "%"),
+                                )
+                                .font(FontId::proportional(20.0))
+                                .strong()
+                                .color(hig_green(ui)),
+                            );
+                            let e_mhz_suffix = measured_opt(&sp.e_cluster_mhz)
+                                .map_or_else(String::new, |m| format!(" · {m:.0} MHz"));
+                            hig_status_pill(
+                                ui,
+                                &format!(
+                                    "{} cores{e_mhz_suffix}",
+                                    snap.system.efficiency_core_count
+                                ),
+                                hig_green(ui),
+                            );
+                        });
+                        ui.add_space(4.0);
+                        draw_hig_progress_bar(
+                            ui,
+                            ui.available_width(),
+                            10.0,
+                            (e_res.unwrap_or(0.0) / 100.0) as f32,
+                            hig_green(ui),
+                        );
+                    });
+
+                    hig_card(&mut cols[1], |ui| {
+                        ui.set_min_width(ui.available_width());
+                        hig_card_header(
+                            ui,
+                            "Performance Cluster",
+                            "Interactive applications, builds, and heavy compute run on high-clock P-cores.",
+                            accent,
+                        );
+                        let p_res = measured_opt(&sp.p_cluster_active_residency_percent);
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(
+                                    sp.p_cluster_active_residency_percent.format_with_unit(1, "%"),
+                                )
+                                .font(FontId::proportional(20.0))
+                                .strong()
+                                .color(hig_blue(ui)),
+                            );
+                            let p_mhz_suffix = measured_opt(&sp.p_cluster_mhz)
+                                .map_or_else(String::new, |m| format!(" · {m:.0} MHz"));
+                            hig_status_pill(
+                                ui,
+                                &format!(
+                                    "{} cores{p_mhz_suffix}",
+                                    snap.system.performance_core_count
+                                ),
+                                hig_blue(ui),
+                            );
+                        });
+                        ui.add_space(4.0);
+                        draw_hig_progress_bar(
+                            ui,
+                            ui.available_width(),
+                            10.0,
+                            (p_res.unwrap_or(0.0) / 100.0) as f32,
+                            hig_blue(ui),
+                        );
+                    });
+                });
+
+                ui.add_space(10.0);
+
+                // Row 2: Apple GPU & Neural Engine (ANE)
+                ui.columns(2, |cols| {
+                    hig_card(&mut cols[0], |ui| {
+                        ui.set_min_width(ui.available_width());
+                        hig_card_header(
+                            ui,
+                            "Apple GPU",
+                            "Unified-memory Metal graphics and compute cores.",
+                            accent,
+                        );
+                        let gpu_pct = measured_opt(&snap.system.gpu_utilization_percent);
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(
+                                RichText::new(
+                                    snap.system.gpu_utilization_percent.format_with_unit(1, "%"),
+                                )
+                                .font(FontId::proportional(20.0))
+                                .strong()
+                                .color(accent),
+                            );
+                            let gpu_badge = match measured_opt(&sp.gpu_clock_mhz) {
+                                Some(mhz) => format!(
+                                    "{mhz:.0} MHz · {}",
+                                    sp.gpu_watts.format_with_unit(2, "W")
+                                ),
+                                None => format!("Power: {}", sp.gpu_watts.format_with_unit(2, "W")),
+                            };
+                            hig_status_pill(ui, &gpu_badge, accent);
+                        });
+                        ui.add_space(4.0);
+                        draw_hig_progress_bar(
+                            ui,
+                            ui.available_width(),
+                            10.0,
+                            (gpu_pct.unwrap_or(0.0) / 100.0) as f32,
+                            accent,
+                        );
+                        ui.add_space(4.0);
+                        ui.label(
+                            RichText::new(format!(
+                                "Memory In-Use: {} · Allocated: {}",
+                                format_metric_bytes(&snap.system.gpu_in_use_memory_bytes),
+                                format_metric_bytes(&snap.system.gpu_alloc_memory_bytes),
+                            ))
+                            .font(FontId::proportional(11.5))
+                            .color(ui.visuals().weak_text_color()),
+                        );
+                    });
+
+                    hig_card(&mut cols[1], |ui| {
+                        ui.set_min_width(ui.available_width());
+                        hig_card_header(
+                            ui,
+                            "Neural Engine (ANE)",
+                            "Dedicated machine-learning matrix accelerators for CoreML and on-device AI.",
+                            accent,
+                        );
+                        let ane_res = measured_opt(&sp.ane_active_residency_percent);
+                        let ane_watts = measured_opt(&sp.ane_watts);
+                        let ane_headline = if ane_res.is_some() {
+                            sp.ane_active_residency_percent.format_with_unit(1, "%")
+                        } else if let Some(w) = ane_watts {
+                            if w <= 0.005 {
+                                "Idle (0.00 W)".to_string()
+                            } else {
+                                format!("Active ({w:.2} W)")
+                            }
+                        } else {
+                            sp.ane_active_residency_percent.format_with_unit(1, "%")
+                        };
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(
+                                RichText::new(ane_headline)
+                                    .font(FontId::proportional(20.0))
+                                    .strong()
+                                    .color(hig_purple(ui)),
+                            );
+                            hig_status_pill(
+                                ui,
+                                &format!(
+                                    "ANE Power: {} · SoC Floor: {}",
+                                    sp.ane_watts.format_with_unit(2, "W"),
+                                    sp.soc_floor_residency_percent.format_with_unit(1, "%")
+                                ),
+                                hig_purple(ui),
+                            );
+                        });
+                        ui.add_space(4.0);
+                        draw_hig_progress_bar(
+                            ui,
+                            ui.available_width(),
+                            10.0,
+                            (ane_res.unwrap_or(0.0) / 100.0) as f32,
+                            hig_purple(ui),
+                        );
+                        ui.add_space(4.0);
+                        ui.label(
+                            RichText::new(format!(
+                                "PMP / Auxiliary SoC Power: {}",
+                                sp.pmp_power_watts.format_with_unit(2, "W")
+                            ))
+                            .font(FontId::proportional(11.5))
+                            .color(ui.visuals().weak_text_color()),
+                        );
+                    });
+                });
+
+                ui.add_space(10.0);
+
+                // Row 3: Media Engine Blocks & Thermal Sensors
+                ui.columns(2, |cols| {
+                    hig_card(&mut cols[0], |ui| {
+                        ui.set_min_width(ui.available_width());
+                        hig_card_header(
+                            ui,
+                            "Media Engine Blocks",
+                            "Dedicated hardware video encoders, decoders, and ProRes pipelines.",
+                            accent,
+                        );
+                        if sp.media_blocks.is_empty() {
+                            ui.label(
+                                RichText::new("No active media engine residency counters reported.")
+                                    .color(ui.visuals().weak_text_color()),
+                            );
+                        } else {
+                            for block in &sp.media_blocks {
+                                let v = measured_opt(&block.active_residency_percent).unwrap_or(0.0);
+                                ui.horizontal(|ui| {
+                                    ui.add_sized(
+                                        [140.0, 18.0],
+                                        egui::Label::new(
+                                            RichText::new(block.label.as_str()).strong(),
+                                        ),
+                                    );
+                                    draw_hig_progress_bar(
+                                        ui,
+                                        120.0,
+                                        8.0,
+                                        (v / 100.0).clamp(0.0, 1.0) as f32,
+                                        hig_blue(ui),
+                                    );
+                                    ui.label(
+                                        block.active_residency_percent.format_with_unit(1, "%"),
+                                    );
+                                });
+                            }
+                        }
+                    });
+
+                    hig_card(&mut cols[1], |ui| {
+                        ui.set_min_width(ui.available_width());
+                        hig_card_header(
+                            ui,
+                            "Thermal Sensors (AppleSMC)",
+                            "Selector 2 die temperature sensors and macOS thermal warning state.",
+                            accent,
+                        );
+                        ui.horizontal_wrapped(|ui| {
+                            hig_status_pill(ui, &temp_badge, temp_col);
+                            hig_status_pill(
+                                ui,
+                                &format!(
+                                    "Warning Level: {}",
+                                    th.warning_level.format_with_unit(0, "")
+                                ),
+                                if measured_zero(&th.warning_level) > 0.0 {
+                                    hig_amber(ui)
+                                } else {
+                                    hig_green(ui)
+                                },
+                            );
+                        });
+                        ui.add_space(6.0);
+                        if th.sensors.is_empty() {
+                            ui.label(
+                                RichText::new("No individual SMC die sensors available.")
+                                    .color(ui.visuals().weak_text_color()),
+                            );
+                        } else {
+                            egui::ScrollArea::vertical()
+                                .id_salt("smc_thermals_scroll")
+                                .max_height(210.0)
+                                .show(ui, |ui| {
+                                    for s in &th.sensors {
+                                        let tc = measured_opt(&s.celsius);
+                                        let col = match tc {
+                                            Some(t) if t > 85.0 => hig_red(ui),
+                                            Some(t) if t >= 65.0 => hig_amber(ui),
+                                            Some(_) => hig_green(ui),
+                                            None => hig_gray(ui),
+                                        };
+                                        ui.horizontal(|ui| {
+                                            ui.add_sized(
+                                                [155.0, 18.0],
+                                                egui::Label::new(s.name.as_str()).truncate(),
+                                            );
+                                            draw_hig_progress_bar(
+                                                ui,
+                                                105.0,
+                                                7.0,
+                                                (tc.unwrap_or(0.0) / 110.0).clamp(0.0, 1.0)
+                                                    as f32,
+                                                col,
+                                            );
+                                            ui.label(
+                                                RichText::new(s.celsius.format_with_unit(1, "C"))
+                                                    .color(col),
+                                            );
+                                        });
+                                    }
+                                });
+                        }
+                    });
+                });
+            } else {
+                // Windows & Linux 4-Card Processor, GPU & Thermal Architecture Layout
+                let phys_cores = hw.map_or(snap.system.performance_core_count, |h| {
+                    h.physical_cores.max(1)
+                });
+                let logical_threads =
+                    hw.map_or(snap.system.cores.len() as u32, |h| h.logical_cores.max(1));
+
+                // Row 1: (1) CPU Core & Thread Topology Card + (2) Dedicated & Integrated GPU Telemetry Card
+                ui.columns(2, |cols| {
+                    hig_card(&mut cols[0], |ui| {
+                        ui.set_min_width(ui.available_width());
+                        hig_card_header(
+                            ui,
+                            "CPU Core & Thread Topology",
+                            "Processor model, physical cores, logical threads, clock frequency, and per-core load.",
+                            accent,
+                        );
+                        let cpu_pct = measured_opt(&snap.system.cpu_percent);
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(
+                                RichText::new(snap.system.cpu_percent.format_with_unit(1, "%"))
+                                    .font(FontId::proportional(20.0))
+                                    .strong()
+                                    .color(hig_blue(ui)),
+                            );
+                            let mhz_suffix = measured_opt(&sp.p_cluster_mhz)
+                                .map_or_else(String::new, |m| format!(" · {m:.0} MHz"));
+                            hig_status_pill(
+                                ui,
+                                &format!(
+                                    "{phys_cores} Cores / {logical_threads} Threads{mhz_suffix}"
+                                ),
+                                hig_blue(ui),
+                            );
+                        });
+                        ui.add_space(4.0);
+                        draw_hig_progress_bar(
+                            ui,
+                            ui.available_width(),
+                            10.0,
+                            (cpu_pct.unwrap_or(0.0) / 100.0) as f32,
+                            hig_blue(ui),
+                        );
+                        ui.add_space(6.0);
+                        ui.label(
+                            RichText::new(format!("Model: {chip_name}"))
+                                .font(FontId::proportional(12.0))
+                                .strong(),
+                        );
+                        if !snap.system.cores.is_empty() {
+                            ui.add_space(4.0);
+                            egui::ScrollArea::vertical()
+                                .id_salt("win_linux_core_topology_scroll")
+                                .max_height(145.0)
+                                .show(ui, |ui| {
+                                    for c in &snap.system.cores {
+                                        let cv = measured_opt(&c.total_percent).unwrap_or(0.0);
+                                        ui.horizontal(|ui| {
+                                            ui.add_sized(
+                                                [78.0, 16.0],
+                                                egui::Label::new(
+                                                    RichText::new(format!(
+                                                        "Thread #{}",
+                                                        c.core_index
+                                                    ))
+                                                    .font(FontId::proportional(11.5)),
+                                                ),
+                                            );
+                                            draw_hig_progress_bar(
+                                                ui,
+                                                110.0,
+                                                7.0,
+                                                (cv / 100.0).clamp(0.0, 1.0) as f32,
+                                                hig_blue(ui),
+                                            );
+                                            ui.label(
+                                                RichText::new(c.total_percent.format_with_unit(1, "%"))
+                                                    .font(FontId::proportional(11.5)),
+                                            );
+                                        });
+                                    }
+                                });
+                        }
+                    });
+
+                    hig_card(&mut cols[1], |ui| {
+                        ui.set_min_width(ui.available_width());
+                        let gpu_title = if !snap.system.gpu_model.is_empty() {
+                            format!(
+                                "Dedicated & Integrated GPU Telemetry ({})",
+                                snap.system.gpu_model
+                            )
+                        } else {
+                            "Dedicated & Integrated GPU Telemetry".to_string()
+                        };
+                        hig_card_header(
+                            ui,
+                            &gpu_title,
+                            "GPU core load, dedicated VRAM used/total, board power draw, clocks, and fan speed.",
+                            accent,
+                        );
+                        let gpu_pct = measured_opt(&snap.system.gpu_utilization_percent);
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(
+                                RichText::new(
+                                    snap.system
+                                        .gpu_utilization_percent
+                                        .format_with_unit(1, "%"),
+                                )
+                                .font(FontId::proportional(20.0))
+                                .strong()
+                                .color(accent),
+                            );
+                            let gpu_badge = match measured_opt(&sp.gpu_clock_mhz) {
+                                Some(mhz) => format!(
+                                    "{mhz:.0} MHz · {}",
+                                    sp.gpu_watts.format_with_unit(1, "W")
+                                ),
+                                None => format!(
+                                    "Board Power: {}",
+                                    sp.gpu_watts.format_with_unit(1, "W")
+                                ),
+                            };
+                            hig_status_pill(ui, &gpu_badge, accent);
+                            if let Some(fan_block) =
+                                sp.media_blocks.iter().find(|b| b.id == "gpu_fan")
+                                && let Some(fan_pct) =
+                                    measured_opt(&fan_block.active_residency_percent)
+                            {
+                                hig_status_pill(
+                                    ui,
+                                    &format!("Fan: {fan_pct:.0}%"),
+                                    hig_green(ui),
+                                );
+                            }
+                        });
+                        ui.add_space(4.0);
+                        draw_hig_progress_bar(
+                            ui,
+                            ui.available_width(),
+                            10.0,
+                            (gpu_pct.unwrap_or(0.0) / 100.0) as f32,
+                            accent,
+                        );
+                        ui.add_space(6.0);
+                        let vram_used = measured_zero(&snap.system.gpu_in_use_memory_bytes);
+                        let vram_tot = measured_zero(&snap.system.gpu_alloc_memory_bytes);
+                        let vram_frac = if vram_tot > 0.0 {
+                            (vram_used / vram_tot).clamp(0.0, 1.0) as f32
+                        } else {
+                            0.0
+                        };
+                        ui.label(
+                            RichText::new(format!(
+                                "VRAM Used: {} / {}",
+                                format_metric_bytes(&snap.system.gpu_in_use_memory_bytes),
+                                format_metric_bytes(&snap.system.gpu_alloc_memory_bytes),
+                            ))
+                            .font(FontId::proportional(12.0))
+                            .strong(),
+                        );
+                        ui.add_space(3.0);
+                        draw_hig_progress_bar(
+                            ui,
+                            ui.available_width(),
+                            8.0,
+                            vram_frac,
+                            hig_purple(ui),
+                        );
+                        if !sp.cluster_clocks.is_empty() {
+                            ui.add_space(4.0);
+                            let clocks_str = sp
+                                .cluster_clocks
+                                .iter()
+                                .map(|c| {
+                                    format!(
+                                        "{}: {}",
+                                        c.cluster_name,
+                                        c.effective_mhz.format_with_unit(0, "MHz")
+                                    )
+                                })
+                                .collect::<Vec<_>>()
+                                .join(" · ");
+                            ui.label(
+                                RichText::new(clocks_str)
+                                    .font(FontId::proportional(11.5))
+                                    .color(ui.visuals().weak_text_color()),
+                            );
+                        }
+                    });
+                });
+
+                ui.add_space(10.0);
+
+                // Row 2: (3) Compute & Media Engines Card + (4) Hardware Thermal Sensors Card
+                ui.columns(2, |cols| {
+                    hig_card(&mut cols[0], |ui| {
+                        ui.set_min_width(ui.available_width());
+                        hig_card_header(
+                            ui,
+                            "Compute & Media Engines",
+                            "3D graphics, compute shaders, DMA copy, and hardware video decode/encode engine load.",
+                            accent,
+                        );
+                        if sp.media_blocks.is_empty() {
+                            ui.label(
+                                RichText::new(
+                                    "No individual 3D / Compute / Video engine counters reported.",
+                                )
+                                .color(ui.visuals().weak_text_color()),
+                            );
+                        } else {
+                            for block in &sp.media_blocks {
+                                let v =
+                                    measured_opt(&block.active_residency_percent).unwrap_or(0.0);
+                                ui.horizontal(|ui| {
+                                    ui.add_sized(
+                                        [165.0, 18.0],
+                                        egui::Label::new(
+                                            RichText::new(block.label.as_str()).strong(),
+                                        ),
+                                    );
+                                    draw_hig_progress_bar(
+                                        ui,
+                                        115.0,
+                                        8.0,
+                                        (v / 100.0).clamp(0.0, 1.0) as f32,
+                                        hig_blue(ui),
+                                    );
+                                    ui.label(
+                                        block.active_residency_percent.format_with_unit(1, "%"),
+                                    );
+                                });
+                            }
+                        }
+                    });
+
+                    hig_card(&mut cols[1], |ui| {
+                        ui.set_min_width(ui.available_width());
+                        hig_card_header(
+                            ui,
+                            &format!(
+                                "Hardware Thermal Sensors ({})",
+                                platform.thermal_source_badge()
+                            ),
+                            "GPU core temperature, CPU package / ACPI thermal zones, and thermal throttling state.",
+                            accent,
+                        );
+                        ui.horizontal_wrapped(|ui| {
+                            hig_status_pill(ui, &temp_badge, temp_col);
+                            hig_status_pill(
+                                ui,
+                                &format!("Source: {}", platform.thermal_source_badge()),
+                                hig_blue(ui),
+                            );
+                            hig_status_pill(
+                                ui,
+                                &format!(
+                                    "Warning Level: {}",
+                                    th.warning_level.format_with_unit(0, "")
+                                ),
+                                if measured_zero(&th.warning_level) > 0.0 {
+                                    hig_amber(ui)
+                                } else {
+                                    hig_green(ui)
+                                },
+                            );
+                        });
+                        ui.add_space(6.0);
+                        if th.sensors.is_empty() {
+                            ui.label(
+                                RichText::new(
+                                    "No hardware thermal sensors reported by active drivers.",
+                                )
+                                .color(ui.visuals().weak_text_color()),
+                            );
+                        } else {
+                            egui::ScrollArea::vertical()
+                                .id_salt("hw_thermals_scroll")
+                                .max_height(210.0)
+                                .show(ui, |ui| {
+                                    for s in &th.sensors {
+                                        let tc = measured_opt(&s.celsius);
+                                        let col = match tc {
+                                            Some(t) if t > 85.0 => hig_red(ui),
+                                            Some(t) if t >= 65.0 => hig_amber(ui),
+                                            Some(_) => hig_green(ui),
+                                            None => hig_gray(ui),
+                                        };
+                                        ui.horizontal(|ui| {
+                                            ui.add_sized(
+                                                [165.0, 18.0],
+                                                egui::Label::new(s.name.as_str()).truncate(),
+                                            );
+                                            draw_hig_progress_bar(
+                                                ui,
+                                                105.0,
+                                                7.0,
+                                                (tc.unwrap_or(0.0) / 110.0).clamp(0.0, 1.0)
+                                                    as f32,
+                                                col,
+                                            );
+                                            ui.label(
+                                                RichText::new(s.celsius.format_with_unit(1, "C"))
+                                                    .color(col),
+                                            );
+                                        });
+                                    }
+                                });
+                        }
+                    });
+                });
+            }
+        });
 }
 
 fn popout_skin_short_label(skin_id: &str) -> &'static str {

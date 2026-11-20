@@ -1529,8 +1529,13 @@ pub fn run_cli() -> std::process::ExitCode {
                     }
                 };
                 safe_println!("=== .nexustrace Inspection: {} ===", path.display());
+                let arch_label = if nexus_core::HostPlatform::current().is_macos() {
+                    "AppleSilicon"
+                } else {
+                    "Arm64SoC"
+                };
                 safe_println!(
-                    "Machine: {} | OS: {} | AppleSilicon: {} | RecordedAt: {:?}",
+                    "Machine: {} | OS: {} | {arch_label}: {} | RecordedAt: {:?}",
                     trace.machine_name,
                     trace.os_version,
                     trace.is_apple_silicon,

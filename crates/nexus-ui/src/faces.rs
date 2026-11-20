@@ -626,7 +626,11 @@ impl SensorRegistry {
             ),
             desc(
                 SensorPath::new("soc", "ane", "watts"),
-                "ANE Power",
+                if nexus_core::HostPlatform::current().is_macos() {
+                    "ANE Power"
+                } else {
+                    "Accelerator Power"
+                },
                 "W",
                 15,
                 true,
@@ -661,7 +665,11 @@ impl SensorRegistry {
             ),
             desc(
                 SensorPath::new("soc", "ane", "residency"),
-                "ANE Active Residency",
+                if nexus_core::HostPlatform::current().is_macos() {
+                    "ANE Active Residency"
+                } else {
+                    "Accelerator Active Residency"
+                },
                 "%",
                 100,
                 true,
@@ -1107,7 +1115,13 @@ impl PageEngine {
                 },
                 DashboardTile {
                     id: CompactString::const_new("tile.soc_clusters"),
-                    title: CompactString::const_new("Apple Silicon Clusters"),
+                    title: CompactString::const_new(
+                        if nexus_core::HostPlatform::current().is_macos() {
+                            "Apple Silicon Clusters"
+                        } else {
+                            "Processor & GPU Clusters"
+                        },
+                    ),
                     face: FaceKind::ProcessorClusterGrid,
                     sensors: vec![
                         SensorPath::new("soc", "p_cluster", "residency"),

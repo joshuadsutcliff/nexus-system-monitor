@@ -28,11 +28,11 @@ pub use health::{
     TrendDirection,
 };
 pub use platform::{
-    ConnectionProtocol, DriverEntry, DriverKind, DriverScope, DriverState, InstalledAppEntry,
-    LanHostEntry, LanPortEntry, LanRadarReport, NetworkConnectionEntry, RelatedFileEntry,
-    ServiceActionResult, ServiceEntry, ServiceStartType, ServiceState, StartupItem,
-    StartupItemType, SystemHardwareSummary, TcpState, UninstallReceipt, UserSessionEntry,
-    VolumeSpaceSummary, WifiBand, WifiNetworkEntry, WirelessScanReport,
+    ConnectionProtocol, DriverEntry, DriverKind, DriverScope, DriverState, HostPlatform,
+    InstalledAppEntry, LanHostEntry, LanPortEntry, LanRadarReport, NetworkConnectionEntry,
+    RelatedFileEntry, ServiceActionResult, ServiceEntry, ServiceStartType, ServiceState,
+    StartupItem, StartupItemType, SystemHardwareSummary, TcpState, UninstallReceipt,
+    UserSessionEntry, VolumeSpaceSummary, WifiBand, WifiNetworkEntry, WirelessScanReport,
 };
 pub use remote::{
     BONJOUR_SERVICE_TYPE, ConnectedRemotePeer, DEFAULT_REMOTE_PORT, INFO_CLIENT_FRAMES,

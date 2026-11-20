@@ -864,6 +864,8 @@ fn scan_subtree_with_omissions(
         Err(err) => omissions.record_io_error(path, &err),
     }
     children.sort_by_key(|a| std::cmp::Reverse(a.size));
+    children.truncate(64);
+    children.shrink_to_fit();
 
     let dominant_cat = dir_cat.unwrap_or_else(|| {
         let mut best_idx = DiskCategory::Other as usize;
@@ -921,32 +923,36 @@ pub fn scan_directory_parallel(root: &Path, max_depth: usize) -> DiskScanReport 
         dirs: Vec<DiskNodeSummary>,
     }
 
-    let partial_scans: Vec<EntryScan> = top_entries
-        .par_iter()
-        .map(|entry| {
-            let mut bytes_by_cat = [0u64; 7];
-            let mut count_by_cat = [0u64; 7];
-            let mut files = Vec::new();
-            let mut dirs = Vec::new();
-            let path = entry.path();
-            let node = scan_subtree(
-                &path,
-                0,
-                max_depth.max(1),
-                &mut bytes_by_cat,
-                &mut count_by_cat,
-                &mut files,
-                &mut dirs,
-            );
-            EntryScan {
-                node,
-                bytes_by_cat,
-                count_by_cat,
-                files,
-                dirs,
-            }
-        })
-        .collect();
+    let map_entry = |entry: &std::fs::DirEntry| {
+        let mut bytes_by_cat = [0u64; 7];
+        let mut count_by_cat = [0u64; 7];
+        let mut files = Vec::new();
+        let mut dirs = Vec::new();
+        let path = entry.path();
+        let node = scan_subtree(
+            &path,
+            0,
+            max_depth.max(1),
+            &mut bytes_by_cat,
+            &mut count_by_cat,
+            &mut files,
+            &mut dirs,
+        );
+        EntryScan {
+            node,
+            bytes_by_cat,
+            count_by_cat,
+            files,
+            dirs,
+        }
+    };
+
+    let partial_scans: Vec<EntryScan> =
+        if let Ok(pool) = rayon::ThreadPoolBuilder::new().num_threads(4).build() {
+            pool.install(|| top_entries.par_iter().map(map_entry).collect())
+        } else {
+            top_entries.par_iter().map(map_entry).collect()
+        };
 
     let mut total_bytes_by_cat = [0u64; 7];
     let mut total_count_by_cat = [0u64; 7];
@@ -1164,6 +1170,8 @@ fn scan_subtree(
         }
     }
     children.sort_by_key(|a| std::cmp::Reverse(a.size));
+    children.truncate(64);
+    children.shrink_to_fit();
 
     let dominant_cat = dir_cat.unwrap_or_else(|| {
         let mut best_idx = DiskCategory::Other as usize;

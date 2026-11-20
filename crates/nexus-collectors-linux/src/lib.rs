@@ -1223,8 +1223,9 @@ impl LinuxCollector {
             .extend(state.exited_procs.values().cloned());
         state.prev_procs = next_procs;
 
-        // 6. Thermals (/sys/class/thermal/thermal_zone* + /sys/class/hwmon) & Power (/sys/class/power_supply/BAT*)
+        // 6. Thermals (/sys/class/thermal/thermal_zone* + /sys/class/hwmon), GPU (/sys/class/drm/card*) & Power (/sys/class/power_supply/BAT*)
         collect_linux_thermals(snap, sampled_at_ns, src_therm);
+        collect_linux_drm_gpu(snap, sampled_at_ns);
         if let Some(watts) = read_linux_battery_watts() {
             snap.hardware_telemetry.soc_power.system_power_in_watts = Metric::measured(
                 watts,
@@ -1729,6 +1730,99 @@ fn collect_linux_thermals(snap: &mut SystemSnapshot, sampled_at_ns: u64, src_the
         Some(t) => Metric::measured(t, prov),
         None => Metric::unavailable(UnavailableReason::Unsupported, prov),
     };
+}
+
+#[cfg(target_os = "linux")]
+fn collect_linux_drm_gpu(snap: &mut SystemSnapshot, sampled_at_ns: u64) {
+    let src_drm = snap.intern_source("linux.sysfs.drm");
+    let src_hwmon = snap.intern_source("linux.sysfs.hwmon");
+    let pct_prov = MetricProvenance {
+        source: src_drm,
+        unit_tag: Some(UnitTag::PERCENT),
+        sampled_at_ns,
+        window_ns: 0,
+        quality: MetricQuality::Authoritative,
+        contributed_by_stale: false,
+    };
+    let bytes_prov = MetricProvenance {
+        source: src_drm,
+        unit_tag: Some(UnitTag::BYTES),
+        sampled_at_ns,
+        window_ns: 0,
+        quality: MetricQuality::Authoritative,
+        contributed_by_stale: false,
+    };
+    let watts_prov = MetricProvenance {
+        source: src_hwmon,
+        unit_tag: Some(UnitTag::WATTS),
+        sampled_at_ns,
+        window_ns: 0,
+        quality: MetricQuality::Authoritative,
+        contributed_by_stale: false,
+    };
+
+    let Ok(entries) = std::fs::read_dir("/sys/class/drm") else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let fname = entry.file_name();
+        let Some(name) = fname.to_str() else {
+            continue;
+        };
+        // Skip connector subdirectories like card0-DP-1
+        if !name.starts_with("card") || name.contains('-') {
+            continue;
+        }
+        let dev_dir = entry.path().join("device");
+        if !dev_dir.exists() {
+            continue;
+        }
+        if let Ok(busy_txt) = std::fs::read_to_string(dev_dir.join("gpu_busy_percent"))
+            && let Ok(pct) = busy_txt.trim().parse::<f64>()
+            && pct.is_finite()
+        {
+            snap.system.gpu_utilization_percent = Metric::measured(pct.clamp(0.0, 100.0), pct_prov);
+        }
+        if let Ok(used_txt) = std::fs::read_to_string(dev_dir.join("mem_info_vram_used"))
+            && let Ok(used) = used_txt.trim().parse::<f64>()
+            && used >= 0.0
+        {
+            snap.system.gpu_in_use_memory_bytes = Metric::measured(used, bytes_prov);
+        }
+        if let Ok(tot_txt) = std::fs::read_to_string(dev_dir.join("mem_info_vram_total"))
+            && let Ok(tot) = tot_txt.trim().parse::<f64>()
+            && tot > 0.0
+        {
+            snap.system.gpu_alloc_memory_bytes = Metric::measured(tot, bytes_prov);
+        }
+        if let Ok(hwmons) = std::fs::read_dir(dev_dir.join("hwmon")) {
+            for hw in hwmons.flatten() {
+                let hw_path = hw.path();
+                let pw_txt = std::fs::read_to_string(hw_path.join("power1_average"))
+                    .or_else(|_| std::fs::read_to_string(hw_path.join("power1_input")));
+                if let Ok(txt) = pw_txt
+                    && let Ok(microwatts) = txt.trim().parse::<f64>()
+                    && microwatts > 0.0
+                {
+                    let watts = microwatts / 1_000_000.0;
+                    snap.hardware_telemetry.soc_power.gpu_watts =
+                        Metric::measured(watts, watts_prov);
+                    if !matches!(
+                        snap.hardware_telemetry.soc_power.package_watts.reading,
+                        MetricReading::Measured { .. }
+                    ) {
+                        let est_prov = MetricProvenance {
+                            quality: MetricQuality::Estimated,
+                            ..watts_prov
+                        };
+                        snap.hardware_telemetry.soc_power.package_watts =
+                            Metric::measured(watts, est_prov);
+                    }
+                }
+            }
+        }
+        break;
+    }
 }
 
 #[cfg(target_os = "linux")]

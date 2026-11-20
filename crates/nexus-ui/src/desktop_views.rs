@@ -26,8 +26,8 @@ use nexus_collectors_macos::system_ops::{
 };
 use nexus_core::{
     BONJOUR_SERVICE_TYPE, BottleneckSeverity, DEFAULT_REMOTE_PORT, DriverEntry, DriverKind,
-    DriverScope, DriverState, HealthLevel, HealthScoring, InstalledAppEntry, LanRadarReport,
-    Metric, MetricReading, NetworkConnectionEntry, ProcessKey, RelatedFileEntry,
+    DriverScope, DriverState, HealthLevel, HealthScoring, HostPlatform, InstalledAppEntry,
+    LanRadarReport, Metric, MetricReading, NetworkConnectionEntry, ProcessKey, RelatedFileEntry,
     RemoteServerConfig, RemoteServerHandle, ServiceEntry, ServiceStartType, ServiceState,
     StartupItem, StartupItemType, SystemHardwareSummary, SystemHealthTracker, SystemSnapshot,
     TcpState, TrendDirection, UserSessionEntry, VolumeSpaceSummary, WifiBand, WirelessScanReport,
@@ -544,13 +544,13 @@ impl<'a> HigGuidanceCard<'a> {
                     if self.show_reveal_app_button
                         && ui
                             .button(
-                                RichText::new("Reveal App in Finder")
-                                    .font(FontId::proportional(12.5))
-                                    .strong(),
+                                RichText::new(
+                                    HostPlatform::current().reveal_in_file_manager_label(),
+                                )
+                                .font(FontId::proportional(12.5))
+                                .strong(),
                             )
-                            .on_hover_text(
-                                "Show Nexus System Monitor.app in Finder so you can drag it into System Settings",
-                            )
+                            .on_hover_text("Show Nexus System Monitor in your file manager")
                             .clicked()
                     {
                         reveal_app_in_finder();
@@ -1307,20 +1307,31 @@ impl PlatformDataCache {
             .collect();
 
         for app in &self.installed_apps {
-            let stem = app.name.strip_suffix(".app").unwrap_or(app.name.as_str());
+            let stem = app
+                .name
+                .strip_suffix(".app")
+                .or_else(|| app.name.strip_suffix(".exe"))
+                .unwrap_or(app.name.as_str());
             let app_lower = stem.trim().to_ascii_lowercase();
             if app_lower.is_empty() {
                 continue;
             }
+            let first_word = app_lower
+                .split_whitespace()
+                .next()
+                .unwrap_or(app_lower.as_str());
             let mut sum_cpu = 0.0_f64;
             let mut sum_mem = 0_u64;
             let mut matched = false;
             for (pname, pcpu, pmem) in &proc_samples {
-                let is_match = *pname == app_lower
+                let p_clean = pname.strip_suffix(".exe").unwrap_or(pname.as_str());
+                let is_match = p_clean == app_lower
                     || (app_lower.len() >= 3
-                        && (pname.starts_with(&format!("{app_lower} "))
-                            || pname.starts_with(&format!("{app_lower}helper"))
-                            || pname.starts_with(&format!("{app_lower}-"))));
+                        && (p_clean.starts_with(&format!("{app_lower} "))
+                            || p_clean.starts_with(&format!("{app_lower}helper"))
+                            || p_clean.starts_with(&format!("{app_lower}-"))
+                            || app_lower.starts_with(p_clean) && p_clean.len() >= 4))
+                    || (first_word.len() >= 4 && p_clean == first_word);
                 if is_match {
                     matched = true;
                     sum_cpu += *pcpu;
@@ -1410,22 +1421,28 @@ impl PlatformDataCache {
         {
             self.installed_apps = apps;
             self.apps_loading = false;
-            // Kick off background bundle size measurement
-            let paths: Vec<String> = self
-                .installed_apps
-                .iter()
-                .map(|a| a.path.to_string())
-                .collect();
-            let size_slot = Arc::clone(&self.apps_size_slot);
-            std::thread::spawn(move || {
-                for p in paths {
-                    let sz = measure_path_size_bytes(Path::new(&p));
-                    size_slot
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .push((p, sz));
+            // On macOS, measure .app bundle sizes asynchronously. On Windows, rely on O(1) registry
+            // EstimatedSize without walking C:\Program Files.
+            if HostPlatform::current().is_macos() {
+                let paths: Vec<String> = self
+                    .installed_apps
+                    .iter()
+                    .filter(|a| a.size_bytes.is_none() && !a.path.is_empty())
+                    .map(|a| a.path.to_string())
+                    .collect();
+                if !paths.is_empty() {
+                    let size_slot = Arc::clone(&self.apps_size_slot);
+                    std::thread::spawn(move || {
+                        for p in paths {
+                            let sz = measure_path_size_bytes(Path::new(&p));
+                            size_slot
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .push((p, sz));
+                        }
+                    });
                 }
-            });
+            }
         }
         let sizes: Vec<(String, u64)> = {
             let mut lock = self
@@ -1549,7 +1566,11 @@ fn service_scope_label(svc: &ServiceEntry) -> &str {
         return svc.user_account.as_str();
     }
     if svc.name.starts_with("com.apple.") {
-        "Apple System"
+        if HostPlatform::current().is_macos() {
+            "Apple System"
+        } else {
+            "OS System"
+        }
     } else if svc.binary_path.starts_with("/Library/") {
         "System Daemon"
     } else if svc.name.starts_with("application.") || svc.binary_path.contains("/Users/") {
@@ -1568,10 +1589,25 @@ pub fn draw_services_view(
     if cache.services.is_empty() {
         cache.services = list_services();
     }
+    let plat = HostPlatform::current();
     hig_view_header(
         ui,
-        "Background Services & Launch Daemons",
-        "Inspect active macOS launchd daemons and agents, filter by runtime state, and test lifecycle actions safely.",
+        match plat {
+            HostPlatform::MacOs => "Background Services & Launch Daemons",
+            HostPlatform::Windows => "Background Services & Windows SCM",
+            HostPlatform::Linux => "Background Services & systemd Units",
+        },
+        match plat {
+            HostPlatform::MacOs => {
+                "Inspect active macOS launchd daemons and agents, filter by runtime state, and test lifecycle actions safely."
+            }
+            HostPlatform::Windows => {
+                "Inspect registered Windows Service Control Manager (SCM) services, filter by runtime state, and test lifecycle actions safely."
+            }
+            HostPlatform::Linux => {
+                "Inspect registered Linux systemd service units, filter by runtime state, and test lifecycle actions safely."
+            }
+        },
         accent,
     );
 
@@ -1588,7 +1624,11 @@ pub fn draw_services_view(
             HigKpiItem {
                 label: "Total Services".to_string(),
                 value: total_services.to_string(),
-                detail: "Registered launchd units".to_string(),
+                detail: match plat {
+                    HostPlatform::MacOs => "Registered launchd units".to_string(),
+                    HostPlatform::Windows => "Registered Windows SCM services".to_string(),
+                    HostPlatform::Linux => "Registered systemd units".to_string(),
+                },
                 color: accent,
             },
             HigKpiItem {
@@ -1636,25 +1676,27 @@ pub fn draw_services_view(
                 }
             }
         });
-        ui.add_space(4.0);
-        ui.horizontal_wrapped(|ui| {
-            ui.label(
-                RichText::new(
-                    "macOS launchd StartType changes (enable/disable) report Unsupported unless edited via launchd plist or Login Items & Extensions.",
-                )
-                .font(FontId::proportional(11.5))
-                .color(ui.visuals().weak_text_color()),
-            );
-            if ui
-                .small_button("Open Login Items & Extensions")
-                .on_hover_text("Open macOS System Settings › General › Login Items & Extensions")
-                .clicked()
-            {
-                open_macos_privacy_pane(
-                    "x-apple.systempreferences:com.apple.LoginItems-Settings.extension",
+        if plat.is_macos() {
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.label(
+                    RichText::new(
+                        "macOS launchd StartType changes (enable/disable) report Unsupported unless edited via launchd plist or Login Items & Extensions.",
+                    )
+                    .font(FontId::proportional(11.5))
+                    .color(ui.visuals().weak_text_color()),
                 );
-            }
-        });
+                if ui
+                    .small_button("Open Login Items & Extensions")
+                    .on_hover_text("Open macOS System Settings › General › Login Items & Extensions")
+                    .clicked()
+                {
+                    open_macos_privacy_pane(
+                        "x-apple.systempreferences:com.apple.LoginItems-Settings.extension",
+                    );
+                }
+            });
+        }
         ui.add_space(6.0);
 
         egui::ScrollArea::both()
@@ -1759,16 +1801,17 @@ pub fn draw_services_view(
 }
 
 fn startup_scope_label(item: &StartupItem) -> &'static str {
+    let plat = HostPlatform::current();
     match item.item_type {
-        StartupItemType::LaunchAgent => {
+        StartupItemType::LaunchAgent if plat.is_macos() => {
             if item.user_writable {
                 "User LaunchAgent"
             } else {
                 "Global LaunchAgent"
             }
         }
-        StartupItemType::LaunchDaemon => "System LaunchDaemon",
-        other => other.as_str(),
+        StartupItemType::LaunchDaemon if plat.is_macos() => "System LaunchDaemon",
+        other => other.as_str_for(plat),
     }
 }
 
@@ -1781,10 +1824,21 @@ pub fn draw_startup_view(
     if cache.startup_items.is_empty() {
         cache.startup_items = list_startup_items();
     }
+    let plat = HostPlatform::current();
     hig_view_header(
         ui,
         "Login Items & Startup Agents",
-        "Review LaunchAgents and LaunchDaemons configured to run automatically at login or system boot.",
+        match plat {
+            HostPlatform::MacOs => {
+                "Review LaunchAgents and LaunchDaemons configured to run automatically at login or system boot."
+            }
+            HostPlatform::Windows => {
+                "Review Registry Run keys and Startup Folder tasks configured to launch automatically at user sign-in."
+            }
+            HostPlatform::Linux => {
+                "Review XDG Autostart entries and user units configured to run automatically at login."
+            }
+        },
         accent,
     );
 
@@ -1801,7 +1855,13 @@ pub fn draw_startup_view(
             HigKpiItem {
                 label: "Total Startup Items".to_string(),
                 value: total.to_string(),
-                detail: "Discovered launch plists".to_string(),
+                detail: match plat {
+                    HostPlatform::MacOs => "Discovered launch plists".to_string(),
+                    HostPlatform::Windows => {
+                        "Discovered Registry Run & Startup entries".to_string()
+                    }
+                    HostPlatform::Linux => "Discovered XDG autostart entries".to_string(),
+                },
                 color: accent,
             },
             HigKpiItem {
@@ -1813,7 +1873,11 @@ pub fn draw_startup_view(
             HigKpiItem {
                 label: "User-Manageable".to_string(),
                 value: user_writable.to_string(),
-                detail: "Writable in ~/Library/LaunchAgents".to_string(),
+                detail: match plat {
+                    HostPlatform::MacOs => "Writable in ~/Library/LaunchAgents".to_string(),
+                    HostPlatform::Windows => "Writable in HKCU\\...\\Run".to_string(),
+                    HostPlatform::Linux => "Writable in ~/.config/autostart".to_string(),
+                },
                 color: hig_blue(ui),
             },
         ],
@@ -1831,15 +1895,23 @@ pub fn draw_startup_view(
                     .hint_text("Filter by label or executable command...")
                     .desired_width(240.0),
             );
-            if ui.button("Rescan Plists").clicked() {
+            if ui
+                .button(if plat.is_macos() {
+                    "Rescan Plists"
+                } else {
+                    "Rescan Startup Items"
+                })
+                .clicked()
+            {
                 cache.startup_items = list_startup_items();
             }
-            if ui
-                .button("Open Login Items Settings")
-                .on_hover_text(
-                    "Open macOS System Settings › General › Login Items & Extensions to manage system-wide background items",
-                )
-                .clicked()
+            if plat.is_macos()
+                && ui
+                    .button("Open Login Items Settings")
+                    .on_hover_text(
+                        "Open macOS System Settings › General › Login Items & Extensions to manage system-wide background items",
+                    )
+                    .clicked()
             {
                 open_macos_privacy_pane(
                     "x-apple.systempreferences:com.apple.LoginItems-Settings.extension",
@@ -1861,7 +1933,14 @@ pub fn draw_startup_view(
                         ui.label(RichText::new("Scope").strong());
                         ui.label(RichText::new("Status").strong());
                         ui.label(RichText::new("Executable / Command").strong());
-                        ui.label(RichText::new("Plist Location").strong());
+                        ui.label(
+                            RichText::new(if plat.is_macos() {
+                                "Plist Location"
+                            } else {
+                                "Config Location"
+                            })
+                            .strong(),
+                        );
                         ui.label(RichText::new("Action").strong());
                         ui.end_row();
 
@@ -2308,15 +2387,16 @@ pub fn draw_wireless_radar_view(
     });
     ui.add_space(6.0);
 
-    let wifi_redacted = cache.wifi_report.as_ref().is_some_and(|rep| {
-        rep.connected_ssid
-            .as_deref()
-            .is_none_or(|s| s.contains("redacted") || s.contains("Redacted") || s.is_empty())
-            || rep
-                .networks
-                .iter()
-                .any(|n| n.ssid.contains("redacted") || n.ssid.contains("Redacted"))
-    });
+    let wifi_redacted = HostPlatform::current().is_macos()
+        && cache.wifi_report.as_ref().is_some_and(|rep| {
+            rep.connected_ssid
+                .as_deref()
+                .is_none_or(|s| s.contains("redacted") || s.contains("Redacted") || s.is_empty())
+                || rep
+                    .networks
+                    .iter()
+                    .any(|n| n.ssid.contains("redacted") || n.ssid.contains("Redacted"))
+        });
     if wifi_redacted {
         let _ = draw_permission_guidance_card(
             ui,
@@ -2811,10 +2891,17 @@ pub fn draw_system_info_and_health_view(
                                     RichText::new("Processor").color(ui.visuals().weak_text_color()),
                                 );
                                 ui.label(
-                                    RichText::new(format!(
-                                        "{} ({} cores: {}P + {}E)",
-                                        hw.chip_model, hw.physical_cores, hw.p_cores, hw.e_cores
-                                    ))
+                                    RichText::new(if HostPlatform::current().is_macos() {
+                                        format!(
+                                            "{} ({} cores: {}P + {}E)",
+                                            hw.chip_model, hw.physical_cores, hw.p_cores, hw.e_cores
+                                        )
+                                    } else {
+                                        format!(
+                                            "{} ({} physical / {} logical threads)",
+                                            hw.chip_model, hw.physical_cores, hw.logical_cores
+                                        )
+                                    })
                                     .strong(),
                                 );
                                 ui.end_row();
@@ -2835,16 +2922,22 @@ pub fn draw_system_info_and_health_view(
                                 ui.label(
                                     RichText::new("Graphics").color(ui.visuals().weak_text_color()),
                                 );
-                                ui.label(format!(
-                                    "{} ({} cores)",
-                                    hw.gpu_model,
-                                    hw.gpu_cores
-                                        .map_or_else(|| "n/a".to_string(), |c| c.to_string())
-                                ));
+                                let gpu_label = if !snap.system.gpu_model.is_empty()
+                                    && snap.system.gpu_model != "Windows Display Adapter"
+                                {
+                                    snap.system.gpu_model.as_str()
+                                } else {
+                                    hw.gpu_model.as_str()
+                                };
+                                ui.label(if let Some(cores) = hw.gpu_cores {
+                                    format!("{gpu_label} ({cores} cores)")
+                                } else {
+                                    gpu_label.to_string()
+                                });
                                 ui.end_row();
 
                                 ui.label(
-                                    RichText::new("Startup Disk")
+                                    RichText::new(HostPlatform::current().system_drive_title())
                                         .color(ui.visuals().weak_text_color()),
                                 );
                                 ui.label(&startup_disk_summary);
@@ -3075,23 +3168,33 @@ pub fn draw_system_info_and_health_view(
                     ui.add_space(6.0);
                     draw_single_vfd_bar(
                         ui,
-                        &format!("P-Cluster ({})", sp.p_cluster_mhz.format_with_unit(0, "MHz")),
+                        &format!(
+                            "{} ({})",
+                            if HostPlatform::current().is_macos() {
+                                "P-Cluster"
+                            } else {
+                                "CPU Package"
+                            },
+                            sp.p_cluster_mhz.format_with_unit(0, "MHz")
+                        ),
                         &sp.p_cluster_active_residency_percent.format_with_unit(1, "%"),
                         measured_val_f64(&sp.p_cluster_active_residency_percent) / 100.0,
                         true,
                         accent,
                         theme,
                     );
-                    ui.add_space(4.0);
-                    draw_single_vfd_bar(
-                        ui,
-                        &format!("E-Cluster ({})", sp.e_cluster_mhz.format_with_unit(0, "MHz")),
-                        &sp.e_cluster_active_residency_percent.format_with_unit(1, "%"),
-                        measured_val_f64(&sp.e_cluster_active_residency_percent) / 100.0,
-                        true,
-                        accent,
-                        theme,
-                    );
+                    if HostPlatform::current().is_macos() || hw.e_cores > 0 {
+                        ui.add_space(4.0);
+                        draw_single_vfd_bar(
+                            ui,
+                            &format!("E-Cluster ({})", sp.e_cluster_mhz.format_with_unit(0, "MHz")),
+                            &sp.e_cluster_active_residency_percent.format_with_unit(1, "%"),
+                            measured_val_f64(&sp.e_cluster_active_residency_percent) / 100.0,
+                            true,
+                            accent,
+                            theme,
+                        );
+                    }
                 });
 
                 hig_card(&mut cols[1], |ui| {
@@ -3104,12 +3207,21 @@ pub fn draw_system_info_and_health_view(
                     let comp_b = measured_val_f64(&snap.system.mem_compressed_bytes);
                     let cached_b = measured_val_f64(&snap.system.mem_cached_files_bytes);
                     let free_b = measured_val_f64(&snap.system.mem_free_bytes);
-                    let subtitle = if hw.architecture.eq_ignore_ascii_case("arm64") {
+                    let subtitle = if HostPlatform::current().is_macos() {
                         "Unified LPDDR memory pool shared across CPU, GPU, and Neural Engine."
                     } else {
                         "Physical RAM composition across active, wired, compressed, and cached pages."
                     };
-                    hig_card_header(ui, "Unified Memory Composition", subtitle, accent);
+                    hig_card_header(
+                        ui,
+                        if HostPlatform::current().is_macos() {
+                            "Unified Memory Composition"
+                        } else {
+                            "Physical Memory Composition"
+                        },
+                        subtitle,
+                        accent,
+                    );
                     ui.label(format!(
                         "Total: {} ({} used) · Memory Pressure: {}",
                         format_bytes(total_b as u64),
@@ -3174,15 +3286,25 @@ pub fn draw_system_info_and_health_view(
                 hig_card(&mut cols[0], |ui| {
                     ui.set_min_width(ui.available_width());
                     let sp = &snap.hardware_telemetry.soc_power;
+                    let gpu_label = if !snap.system.gpu_model.is_empty()
+                        && snap.system.gpu_model != "Windows Display Adapter"
+                    {
+                        snap.system.gpu_model.as_str()
+                    } else {
+                        hw.gpu_model.as_str()
+                    };
                     hig_card_header(
                         ui,
-                        "Graphics & Neural Engine",
-                        &format!(
-                            "{} ({} GPU cores)",
-                            hw.gpu_model,
-                            hw.gpu_cores
-                                .map_or_else(|| "n/a".to_string(), |c| c.to_string())
-                        ),
+                        if HostPlatform::current().is_macos() {
+                            "Graphics & Neural Engine"
+                        } else {
+                            "Graphics & Compute Accelerators"
+                        },
+                        &if let Some(cores) = hw.gpu_cores {
+                            format!("{gpu_label} ({cores} GPU cores)")
+                        } else {
+                            gpu_label.to_string()
+                        },
                         accent,
                     );
                     draw_single_vfd_bar(
@@ -3199,15 +3321,26 @@ pub fn draw_system_info_and_health_view(
                     );
                     ui.add_space(4.0);
                     ui.label(format!(
-                        "GPU Memory In-Use: {} · Allocated: {}",
+                        "GPU Memory In-Use: {} · Total / Allocated: {}",
                         format_metric_bytes(&snap.system.gpu_in_use_memory_bytes),
                         format_metric_bytes(&snap.system.gpu_alloc_memory_bytes),
                     ));
-                    ui.label(format!(
-                        "ANE Active Residency: {} · ANE Power: {}",
-                        sp.ane_active_residency_percent.format_with_unit(1, "%"),
-                        sp.ane_watts.format_with_unit(2, "W"),
-                    ));
+                    if HostPlatform::current().is_macos() {
+                        ui.label(format!(
+                            "ANE Active Residency: {} · ANE Power: {}",
+                            sp.ane_active_residency_percent.format_with_unit(1, "%"),
+                            sp.ane_watts.format_with_unit(2, "W"),
+                        ));
+                    } else {
+                        ui.label(format!(
+                            "GPU Board Power: {} · Thermal Max: {}",
+                            sp.gpu_watts.format_with_unit(1, "W"),
+                            snap.hardware_telemetry
+                                .thermals
+                                .max_die_celsius
+                                .format_with_unit(1, "C"),
+                        ));
+                    }
                 });
 
                 hig_card(&mut cols[1], |ui| {
@@ -3294,10 +3427,21 @@ pub fn draw_users_view(ui: &mut egui::Ui, cache: &mut PlatformDataCache, accent:
     if cache.users.is_empty() {
         cache.users = collect_users();
     }
+    let plat = HostPlatform::current();
     hig_view_header(
         ui,
         "User Sessions & Login Seats",
-        "Inspect active macOS console, graphical desktop, and terminal or SSH login sessions.",
+        match plat {
+            HostPlatform::MacOs => {
+                "Inspect active macOS console, graphical desktop, and terminal or SSH login sessions."
+            }
+            HostPlatform::Windows => {
+                "Inspect active Windows desktop console and remote login sessions."
+            }
+            HostPlatform::Linux => {
+                "Inspect active Linux console, graphical seat, and terminal or SSH login sessions."
+            }
+        },
         accent,
     );
 
@@ -3316,7 +3460,11 @@ pub fn draw_users_view(ui: &mut egui::Ui, cache: &mut PlatformDataCache, accent:
             HigKpiItem {
                 label: "Console Seat".to_string(),
                 value: console_count.to_string(),
-                detail: "Local macOS WindowServer display".to_string(),
+                detail: match plat {
+                    HostPlatform::MacOs => "Local macOS WindowServer display".to_string(),
+                    HostPlatform::Windows => "Local Windows desktop session".to_string(),
+                    HostPlatform::Linux => "Local graphical / console display".to_string(),
+                },
                 color: hig_blue(ui),
             },
             HigKpiItem {
@@ -3409,10 +3557,21 @@ pub fn draw_installed_apps_view(
         cache.trigger_apps_refresh();
     }
 
+    let plat = HostPlatform::current();
     hig_view_header(
         ui,
         "Installed Applications & Storage Footprint",
-        "Inspect application bundle sizes, live processor and memory usage, and associated Library support files.",
+        match plat {
+            HostPlatform::MacOs => {
+                "Inspect application bundle sizes, live processor and memory usage, and associated Library support files."
+            }
+            HostPlatform::Windows => {
+                "Inspect installed Windows applications, estimated package sizes, and live processor and memory usage."
+            }
+            HostPlatform::Linux => {
+                "Inspect installed desktop applications, package sizes, and live processor and memory usage."
+            }
+        },
         accent,
     );
 
@@ -3443,9 +3602,13 @@ pub fn draw_installed_apps_view(
         format_bytes(combined_bytes)
     };
     let footprint_detail = if measured_count < total_apps {
-        format!("Measured {measured_count} of {total_apps} bundles")
+        format!("Measured {measured_count} of {total_apps} applications")
     } else {
-        "Across /Applications & ~/Applications".to_string()
+        match plat {
+            HostPlatform::MacOs => "Across /Applications & ~/Applications".to_string(),
+            HostPlatform::Windows => "Across Windows Uninstall Registry".to_string(),
+            HostPlatform::Linux => "Across /usr/share/applications".to_string(),
+        }
     };
 
     draw_hig_kpi_strip(
@@ -3454,7 +3617,11 @@ pub fn draw_installed_apps_view(
             HigKpiItem {
                 label: "Installed Apps".to_string(),
                 value: total_apps.to_string(),
-                detail: "Discovered .app bundles".to_string(),
+                detail: match plat {
+                    HostPlatform::MacOs => "Discovered .app bundles".to_string(),
+                    HostPlatform::Windows => "Registered Windows applications".to_string(),
+                    HostPlatform::Linux => "Discovered desktop applications".to_string(),
+                },
                 color: accent,
             },
             HigKpiItem {
@@ -3476,7 +3643,7 @@ pub fn draw_installed_apps_view(
         ui.label(RichText::new("Search:").strong());
         ui.add(
             egui::TextEdit::singleline(&mut cache.apps_filter)
-                .hint_text("App name or bundle identifier...")
+                .hint_text("App name or identifier...")
                 .desired_width(220.0),
         );
         if ui.button("Rescan").clicked() {
@@ -3488,27 +3655,29 @@ pub fn draw_installed_apps_view(
         {
             cache.app_columns_open = !cache.app_columns_open;
         }
-        if ui
-            .button("Open Full Disk Access")
-            .on_hover_text(
-                "Grant Full Disk Access in System Settings › Privacy & Security so Nexus can inspect protected ~/Library/Containers sizes",
-            )
-            .clicked()
-        {
-            open_macos_privacy_pane(
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
-            );
-        }
-        if ui
-            .button("Open App Management")
-            .on_hover_text(
-                "Grant App Management in System Settings › Privacy & Security so Nexus can move protected app bundles to Trash",
-            )
-            .clicked()
-        {
-            open_macos_privacy_pane(
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_AppBundles",
-            );
+        if plat.is_macos() {
+            if ui
+                .button("Open Full Disk Access")
+                .on_hover_text(
+                    "Grant Full Disk Access in System Settings › Privacy & Security so Nexus can inspect protected ~/Library/Containers sizes",
+                )
+                .clicked()
+            {
+                open_macos_privacy_pane(
+                    "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
+                );
+            }
+            if ui
+                .button("Open App Management")
+                .on_hover_text(
+                    "Grant App Management in System Settings › Privacy & Security so Nexus can move protected app bundles to Trash",
+                )
+                .clicked()
+            {
+                open_macos_privacy_pane(
+                    "x-apple.systempreferences:com.apple.preference.security?Privacy_AppBundles",
+                );
+            }
         }
         if cache.apps_loading {
             hig_status_pill(ui, "Scanning...", hig_blue(ui));
@@ -3550,10 +3719,21 @@ pub fn draw_installed_apps_view(
     ui.columns(2, |cols| {
         hig_card(&mut cols[0], |ui| {
             ui.set_min_width(ui.available_width());
+            let apps_card_sub = match plat {
+                HostPlatform::MacOs => {
+                    "Click any app to inspect its bundle footprint and ~/Library support files."
+                }
+                HostPlatform::Windows => {
+                    "Click any application to inspect its installation path, registry size, and AppData support files."
+                }
+                HostPlatform::Linux => {
+                    "Click any application to inspect its package path, footprint, and XDG config/cache files."
+                }
+            };
             hig_card_header(
                 ui,
                 "Applications",
-                "Click any app to inspect its bundle footprint and ~/Library support files.",
+                apps_card_sub,
                 accent,
             );
             egui::ScrollArea::both()
@@ -3604,10 +3784,13 @@ pub fn draw_installed_apps_view(
                                             ui.label(app.version.as_str());
                                         }
                                         "size" => {
-                                            let sz_str = app
-                                                .size_bytes
-                                                .map(format_bytes)
-                                                .unwrap_or_else(|| "Measuring...".to_string());
+                                            let sz_str = app.size_bytes.map(format_bytes).unwrap_or_else(|| {
+                                                if plat.is_macos() {
+                                                    "Measuring...".to_string()
+                                                } else {
+                                                    "Unknown".to_string()
+                                                }
+                                            });
                                             if c.style == ColumnDisplayStyle::HorizontalBar {
                                                 let frac = (app.size_bytes.unwrap_or(0) as f64
                                                     / max_app_bytes)
@@ -3699,10 +3882,24 @@ pub fn draw_installed_apps_view(
 
         hig_card(&mut cols[1], |ui| {
             ui.set_min_width(ui.available_width());
+            let (uninst_title, uninst_sub) = match plat {
+                HostPlatform::MacOs => (
+                    "App Footprint & Safe Trash Uninstaller",
+                    "Compare the .app bundle size against ~/Library caches and containers before moving items to Trash.",
+                ),
+                HostPlatform::Windows => (
+                    "App Footprint & Uninstaller",
+                    "Inspect the application install footprint and AppData support files before moving items to Recycle Bin.",
+                ),
+                HostPlatform::Linux => (
+                    "App Footprint & Uninstaller",
+                    "Inspect the application footprint and XDG config/cache files before moving items to Trash.",
+                ),
+            };
             hig_card_header(
                 ui,
-                "App Footprint & Safe Trash Uninstaller",
-                "Compare the .app bundle size against ~/Library caches and containers before moving items to Trash.",
+                uninst_title,
+                uninst_sub,
                 accent,
             );
             if let Some(idx) = cache.selected_app_idx
@@ -3729,7 +3926,7 @@ pub fn draw_installed_apps_view(
                 );
                 ui.add_space(6.0);
 
-                // Visual stacked Bundle vs ~/Library support bar
+                // Visual stacked App vs Support bar
                 let (bar_rect, _) = ui.allocate_exact_size(
                     Vec2::new(ui.available_width().max(120.0), 14.0),
                     egui::Sense::hover(),
@@ -3764,15 +3961,20 @@ pub fn draw_installed_apps_view(
                     );
                 }
                 ui.add_space(4.0);
+                let (bundle_lbl, support_lbl) = match plat {
+                    HostPlatform::MacOs => ("* .app Bundle", "* ~/Library Support"),
+                    HostPlatform::Windows => ("* Application Size", "* AppData Support"),
+                    HostPlatform::Linux => ("* Package Size", "* XDG Config/Cache"),
+                };
                 ui.horizontal_wrapped(|ui| {
                     ui.colored_label(
                         bundle_col,
-                        format!("* .app Bundle: {}", format_bytes(bundle_bytes)),
+                        format!("{bundle_lbl}: {}", format_bytes(bundle_bytes)),
                     );
                     ui.colored_label(
                         lib_col,
                         format!(
-                            "* ~/Library Support: {}",
+                            "{support_lbl}: {}",
                             format_bytes(selected_related_bytes)
                         ),
                     );
@@ -3791,12 +3993,16 @@ pub fn draw_installed_apps_view(
                     .max_height((ui.available_height() - 56.0).max(120.0))
                     .show(ui, |ui| {
                         if cache.selected_app_related.is_empty() {
-                            ui.label("No matching ~/Library support, cache, or container items found.");
-                            ui.label(
-                                RichText::new("Tip: If this app uses a sandboxed container under ~/Library/Containers, click 'Open Full Disk Access' above and add Nexus System Monitor so macOS allows reading container sizes.")
-                                    .font(FontId::proportional(12.0))
-                                    .color(ui.visuals().weak_text_color()),
-                            );
+                            if plat.is_macos() {
+                                ui.label("No matching ~/Library support, cache, or container items found.");
+                                ui.label(
+                                    RichText::new("Tip: If this app uses a sandboxed container under ~/Library/Containers, click 'Open Full Disk Access' above and add Nexus System Monitor so macOS allows reading container sizes.")
+                                        .font(FontId::proportional(12.0))
+                                        .color(ui.visuals().weak_text_color()),
+                                );
+                            } else {
+                                ui.label("No matching user support or cache directories found.");
+                            }
                         }
                         for (rel, checked) in &mut cache.selected_app_related {
                             ui.checkbox(
@@ -3811,14 +4017,25 @@ pub fn draw_installed_apps_view(
                         }
                     });
                 ui.separator();
+                let move_btn_label = format!(
+                    "Move App + {} Selected Related to {}",
+                    cache.selected_app_related.iter().filter(|(_, c)| *c).count(),
+                    plat.trash_noun()
+                );
+                let move_btn_tip = match plat {
+                    HostPlatform::MacOs => {
+                        "Moves the .app bundle and checked ~/Library support items to ~/.Trash (recoverable via Finder)."
+                    }
+                    HostPlatform::Windows => {
+                        "Moves the selected application files to the Recycle Bin (recoverable via File Explorer)."
+                    }
+                    HostPlatform::Linux => {
+                        "Moves the selected application files to the user Trash folder."
+                    }
+                };
                 if ui
-                    .button(format!(
-                        "Move Bundle + {} Selected Related to Trash",
-                        cache.selected_app_related.iter().filter(|(_, c)| *c).count()
-                    ))
-                    .on_hover_text(
-                        "Moves the .app bundle and checked ~/Library support items to ~/.Trash (recoverable via Finder).",
-                    )
+                    .button(move_btn_label)
+                    .on_hover_text(move_btn_tip)
                     .clicked()
                 {
                     let paths: Vec<PathBuf> = cache
@@ -3830,9 +4047,10 @@ pub fn draw_installed_apps_view(
                     match uninstall_app_to_trash(&app, &paths) {
                         Ok(receipt) => {
                             cache.app_uninstall_status = format!(
-                                "Moved {} item(s) for '{}' to ~/.Trash ({} failed)",
+                                "Moved {} item(s) for '{}' to {} ({} failed)",
                                 receipt.trashed_paths.len(),
                                 receipt.app_name,
+                                plat.trash_noun(),
                                 receipt.failed_paths.len()
                             );
                             cache.selected_app_idx = None;
@@ -3845,9 +4063,18 @@ pub fn draw_installed_apps_view(
                     }
                 }
             } else {
-                ui.label(
-                    "Select an application from the list on the left to inspect its bundle size, ~/Library footprint, and Trash uninstall options.",
-                );
+                let empty_hint = match plat {
+                    HostPlatform::MacOs => {
+                        "Select an application from the list on the left to inspect its bundle size, ~/Library footprint, and Trash uninstall options."
+                    }
+                    HostPlatform::Windows => {
+                        "Select an application from the list on the left to inspect its installation size, AppData footprint, and Recycle Bin options."
+                    }
+                    HostPlatform::Linux => {
+                        "Select an application from the list on the left to inspect its package footprint and Trash options."
+                    }
+                };
+                ui.label(empty_hint);
             }
         });
     });
@@ -3867,11 +4094,26 @@ pub fn draw_drivers_view(ui: &mut egui::Ui, cache: &mut PlatformDataCache, accen
     if cache.drivers.is_empty() && !cache.drivers_loading {
         cache.trigger_drivers_refresh();
     }
+    let plat = HostPlatform::current();
 
     hig_view_header(
         ui,
-        "Kernel & DriverKit Extensions",
-        "Inspect loaded macOS kernel extensions (.kext) and user-space DriverKit system extensions (.dext).",
+        match plat {
+            HostPlatform::MacOs => "Kernel & DriverKit Extensions",
+            HostPlatform::Windows => "Kernel Drivers & System Modules",
+            HostPlatform::Linux => "Loaded Kernel Modules",
+        },
+        match plat {
+            HostPlatform::MacOs => {
+                "Inspect loaded macOS kernel extensions (.kext) and user-space DriverKit system extensions (.dext)."
+            }
+            HostPlatform::Windows => {
+                "Inspect installed Windows kernel drivers (.sys) and system driver packages."
+            }
+            HostPlatform::Linux => {
+                "Inspect loaded Linux kernel modules (/proc/modules and /sys/module)."
+            }
+        },
         accent,
     );
 
@@ -3896,50 +4138,72 @@ pub fn draw_drivers_view(ui: &mut egui::Ui, cache: &mut PlatformDataCache, accen
         ui,
         &[
             HigKpiItem {
-                label: "Total Extensions".to_string(),
+                label: if plat.is_macos() {
+                    "Total Extensions".to_string()
+                } else {
+                    "Total Drivers".to_string()
+                },
                 value: total_ext.to_string(),
-                detail: "kextstat + DriverKit inventory".to_string(),
+                detail: match plat {
+                    HostPlatform::MacOs => "kextstat + DriverKit inventory".to_string(),
+                    HostPlatform::Windows => "System32\\drivers inventory".to_string(),
+                    HostPlatform::Linux => "/proc/modules inventory".to_string(),
+                },
                 color: accent,
             },
             HigKpiItem {
-                label: "Apple System Kexts".to_string(),
+                label: match plat {
+                    HostPlatform::MacOs => "Apple System Kexts".to_string(),
+                    HostPlatform::Windows => "Windows System Drivers".to_string(),
+                    HostPlatform::Linux => "Built-In Kernel Modules".to_string(),
+                },
                 value: apple_kexts.to_string(),
-                detail: "Built-in macOS kernel modules".to_string(),
+                detail: "Built-in OS kernel modules".to_string(),
                 color: hig_blue(ui),
             },
             HigKpiItem {
-                label: "Third-Party / DriverKit".to_string(),
+                label: if plat.is_macos() {
+                    "Third-Party / DriverKit".to_string()
+                } else {
+                    "Loaded / Third-Party".to_string()
+                },
                 value: third_party_or_dext.to_string(),
-                detail: "Vendor kexts & user-space .dext".to_string(),
+                detail: "Active kernel & vendor modules".to_string(),
                 color: hig_amber(ui),
             },
             HigKpiItem {
-                label: "SIP Protected".to_string(),
+                label: if plat.is_macos() {
+                    "SIP Protected".to_string()
+                } else {
+                    "System Protected".to_string()
+                },
                 value: sip_protected.to_string(),
-                detail: "Immutable under System Integrity Protection".to_string(),
+                detail: "Protected OS kernel components".to_string(),
                 color: hig_green(ui),
             },
         ],
     );
 
-    let _ = draw_permission_guidance_card(
-        ui,
-        "SIP & DriverKit Policy",
-        hig_blue(ui),
-        "Most macOS drivers cannot be unloaded while running",
-        "Apple locks built-in kernel extensions with System Integrity Protection (SIP) and manages DriverKit extensions through System Settings.",
-        &[
-            "Click Open Login Items & Extensions to toggle user-space DriverKit extensions.",
-            "To unload an eligible third-party kext with 0 active dependencies, run:",
-        ],
-        Some("sudo kextunload -b <BundleID>"),
-        Some((
-            "Open Login Items & Extensions",
-            "x-apple.systempreferences:com.apple.LoginItems-Settings.extension",
-        )),
-        false,
-        None,
-    );
+    if plat.is_macos() {
+        let _ = draw_permission_guidance_card(
+            ui,
+            "SIP & DriverKit Policy",
+            hig_blue(ui),
+            "Most macOS drivers cannot be unloaded while running",
+            "Apple locks built-in kernel extensions with System Integrity Protection (SIP) and manages DriverKit extensions through System Settings.",
+            &[
+                "Click Open Login Items & Extensions to toggle user-space DriverKit extensions.",
+                "To unload an eligible third-party kext with 0 active dependencies, run:",
+            ],
+            Some("sudo kextunload -b <BundleID>"),
+            Some((
+                "Open Login Items & Extensions",
+                "x-apple.systempreferences:com.apple.LoginItems-Settings.extension",
+            )),
+            false,
+            None,
+        );
+    }
     if !cache.driver_refusal_status.is_empty() {
         ui.add_space(4.0);
         hig_card(ui, |ui| {
@@ -4002,24 +4266,45 @@ pub fn draw_drivers_view(ui: &mut egui::Ui, cache: &mut PlatformDataCache, accen
                             })
                             .take(200)
                         {
-                            let (origin_label, origin_col) = match (d.scope, d.kind) {
-                                (DriverScope::AppleSystem, DriverKind::KernelExtension) => {
-                                    ("Apple System Kext", hig_blue(ui))
+                            let (origin_label, origin_col) = match (d.scope, d.kind, plat) {
+                                (
+                                    DriverScope::AppleSystem,
+                                    DriverKind::KernelExtension,
+                                    HostPlatform::MacOs,
+                                ) => ("Apple System Kext", hig_blue(ui)),
+                                (
+                                    DriverScope::AppleSystem,
+                                    DriverKind::SystemExtension,
+                                    HostPlatform::MacOs,
+                                ) => ("Apple DriverKit", hig_blue(ui)),
+                                (
+                                    DriverScope::ThirdParty,
+                                    DriverKind::SystemExtension,
+                                    HostPlatform::MacOs,
+                                ) => ("Third-Party DriverKit", hig_amber(ui)),
+                                (
+                                    DriverScope::ThirdParty,
+                                    DriverKind::KernelExtension,
+                                    HostPlatform::MacOs,
+                                ) => ("Third-Party Kext", hig_amber(ui)),
+                                (_, _, HostPlatform::Windows) => {
+                                    ("Windows Kernel Driver (.sys)", hig_blue(ui))
                                 }
-                                (DriverScope::AppleSystem, DriverKind::SystemExtension) => {
-                                    ("Apple DriverKit", hig_blue(ui))
-                                }
-                                (DriverScope::ThirdParty, DriverKind::SystemExtension) => {
-                                    ("Third-Party DriverKit", hig_amber(ui))
-                                }
-                                (DriverScope::ThirdParty, DriverKind::KernelExtension) => {
-                                    ("Third-Party Kext", hig_amber(ui))
+                                (_, _, HostPlatform::Linux) => {
+                                    ("Linux Kernel Module", hig_blue(ui))
                                 }
                             };
                             hig_status_pill(ui, origin_label, origin_col);
 
                             let (state_label, state_col) = if d.scope == DriverScope::AppleSystem {
-                                ("SIP Protected", hig_blue(ui))
+                                (
+                                    if plat.is_macos() {
+                                        "SIP Protected"
+                                    } else {
+                                        "OS Protected"
+                                    },
+                                    hig_blue(ui),
+                                )
                             } else if d.state == DriverState::Loaded
                                 || d.state == DriverState::ActivatedEnabled
                             {
@@ -4081,10 +4366,21 @@ pub fn draw_power_and_freq_view(
     accent: Color32,
 ) {
     let sp = &snap.hardware_telemetry.soc_power;
+    let plat = HostPlatform::current();
     hig_view_header(
         ui,
         "Power Rails, Clocks & Energy Profiles",
-        "Real-time Apple Silicon power draw across CPU, GPU, Neural Engine, and DRAM rails, plus sleep prevention and performance profiles.",
+        match plat {
+            HostPlatform::MacOs => {
+                "Real-time Apple Silicon power draw across CPU, GPU, Neural Engine, and DRAM rails, plus sleep prevention and performance profiles."
+            }
+            HostPlatform::Windows => {
+                "Real-time GPU board power, processor and graphics clock frequencies, sleep prevention, and guided performance profiles."
+            }
+            HostPlatform::Linux => {
+                "Real-time processor and GPU power rails, sysfs cpufreq clock frequencies, sleep prevention, and guided performance profiles."
+            }
+        },
         accent,
     );
 
@@ -4104,30 +4400,48 @@ pub fn draw_power_and_freq_view(
                 ui.set_min_width(ui.available_width());
                 hig_card_header(
                     ui,
-                    "Apple Silicon Power Rails & Clocks",
-                    "Live IOReport rail telemetry scaled against total package power draw.",
+                    match plat {
+                        HostPlatform::MacOs => "Apple Silicon Power Rails & Clocks",
+                        HostPlatform::Windows => "Processor & GPU Power Rails & Clocks",
+                        HostPlatform::Linux => "System Power Rails & Clocks",
+                    },
+                    match plat {
+                        HostPlatform::MacOs => {
+                            "Live IOReport rail telemetry scaled against total package power draw."
+                        }
+                        HostPlatform::Windows => {
+                            "Live NVML / Win32 power and clock telemetry scaled against active board power draw."
+                        }
+                        HostPlatform::Linux => {
+                            "Live Linux hwmon and sysfs cpufreq telemetry scaled against system power draw."
+                        }
+                    },
                     accent,
                 );
                 draw_power_rail_row(ui, "CPU Rail", &sp.cpu_watts, max_rail_w, hig_blue(ui));
                 draw_power_rail_row(ui, "GPU Rail", &sp.gpu_watts, max_rail_w, hig_green(ui));
-                draw_power_rail_row(
-                    ui,
-                    "Neural Engine (ANE)",
-                    &sp.ane_watts,
-                    max_rail_w,
-                    hig_amber(ui),
-                );
+                if plat.is_macos() {
+                    draw_power_rail_row(
+                        ui,
+                        "Neural Engine (ANE)",
+                        &sp.ane_watts,
+                        max_rail_w,
+                        hig_amber(ui),
+                    );
+                }
                 draw_power_rail_row(ui, "DRAM Rail", &sp.dram_watts, max_rail_w, accent);
+                if plat.is_macos() {
+                    draw_power_rail_row(
+                        ui,
+                        "PMP / SoC Aux",
+                        &sp.pmp_power_watts,
+                        max_rail_w,
+                        hig_gray(ui),
+                    );
+                }
                 draw_power_rail_row(
                     ui,
-                    "PMP / SoC Aux",
-                    &sp.pmp_power_watts,
-                    max_rail_w,
-                    hig_gray(ui),
-                );
-                draw_power_rail_row(
-                    ui,
-                    "Package Total",
+                    "Package / Board Total",
                     &sp.package_watts,
                     max_rail_w,
                     hig_red(ui),
@@ -4141,32 +4455,51 @@ pub fn draw_power_and_freq_view(
                 );
 
                 ui.add_space(8.0);
-                ui.label(RichText::new("DVFS Clocks & SoC Residency").strong());
+                ui.label(
+                    RichText::new(if plat.is_macos() {
+                        "DVFS Clocks & SoC Residency"
+                    } else {
+                        "Clock Frequencies & Active Provenance"
+                    })
+                    .strong(),
+                );
                 ui.add_space(4.0);
                 ui.horizontal_wrapped(|ui| {
+                    if plat.is_macos() {
+                        hig_status_pill(
+                            ui,
+                            &format!("E-Cluster: {}", sp.e_cluster_mhz.format_with_unit(0, "MHz")),
+                            hig_green(ui),
+                        );
+                        hig_status_pill(
+                            ui,
+                            &format!("P-Cluster: {}", sp.p_cluster_mhz.format_with_unit(0, "MHz")),
+                            hig_blue(ui),
+                        );
+                    } else {
+                        hig_status_pill(
+                            ui,
+                            &format!("CPU Clock: {}", sp.p_cluster_mhz.format_with_unit(0, "MHz")),
+                            hig_blue(ui),
+                        );
+                    }
                     hig_status_pill(
                         ui,
-                        &format!("E-Cluster: {}", sp.e_cluster_mhz.format_with_unit(0, "MHz")),
-                        hig_green(ui),
-                    );
-                    hig_status_pill(
-                        ui,
-                        &format!("P-Cluster: {}", sp.p_cluster_mhz.format_with_unit(0, "MHz")),
-                        hig_blue(ui),
-                    );
-                    hig_status_pill(
-                        ui,
-                        &format!("GPU: {}", sp.gpu_clock_mhz.format_with_unit(0, "MHz")),
+                        &format!("GPU Clock: {}", sp.gpu_clock_mhz.format_with_unit(0, "MHz")),
                         accent,
                     );
-                    hig_status_pill(
-                        ui,
-                        &format!(
-                            "SoC Floor: {}",
-                            sp.soc_floor_residency_percent.format_with_unit(1, "%")
-                        ),
-                        hig_amber(ui),
-                    );
+                    if plat.is_macos() {
+                        hig_status_pill(
+                            ui,
+                            &format!(
+                                "SoC Floor: {}",
+                                sp.soc_floor_residency_percent.format_with_unit(1, "%")
+                            ),
+                            hig_amber(ui),
+                        );
+                    } else {
+                        hig_status_pill(ui, plat.power_telemetry_badge(), hig_amber(ui));
+                    }
                 });
                 if !sp.cluster_clocks.is_empty() {
                     ui.add_space(6.0);
@@ -4188,7 +4521,11 @@ pub fn draw_power_and_freq_view(
                     ui.vertical(|ui| {
                         hig_card_header(
                             ui,
-                            "Sleep Prevention (caffeinate -di)",
+                            if plat.is_macos() {
+                                "Sleep Prevention (caffeinate -di)"
+                            } else {
+                                "System Sleep & Idle Prevention"
+                            },
                             "Prevents your display and system from sleeping during long builds or recordings.",
                             accent,
                         );
@@ -4201,7 +4538,16 @@ pub fn draw_power_and_freq_view(
                         }
                     });
                 });
-                ui.checkbox(sleep_preventing, "Keep Mac Awake (caffeinate -di)");
+                ui.checkbox(
+                    sleep_preventing,
+                    match plat {
+                        HostPlatform::MacOs => "Keep Mac Awake (caffeinate -di)",
+                        HostPlatform::Windows => {
+                            "Keep Windows PC Awake (SetThreadExecutionState)"
+                        }
+                        HostPlatform::Linux => "Keep Linux Host Awake (Inhibit Idle Sleep)",
+                    },
+                );
             });
         });
 
@@ -5016,7 +5362,11 @@ pub fn draw_disk_space_extra_tabs(
                 hig_card_header(
                     ui,
                     "Physical & Mounted Volumes",
-                    "Capacity, filesystem type, and available space across mounted APFS and external volumes.",
+                    if HostPlatform::current().is_macos() {
+                        "Capacity, filesystem type, and available space across mounted APFS and external volumes."
+                    } else {
+                        "Capacity, filesystem type, and available space across mounted storage volumes."
+                    },
                     accent,
                 );
                 egui::Grid::new("volumes_grid")

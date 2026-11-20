@@ -1667,8 +1667,19 @@ pub fn scan_wifi() -> WirelessScanReport {
             .output()
             && out.status.success()
         {
-            return nexus_collectors_windows::WindowsCollector::parse_windows_netsh_wlan(
+            let ifaces_txt = Command::new("netsh")
+                .args(["wlan", "show", "interfaces"])
+                .creation_flags(WIN_CREATE_NO_WINDOW)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+                .unwrap_or_default();
+            return nexus_collectors_windows::WindowsCollector::parse_windows_netsh_wlan_with_interfaces(
                 &String::from_utf8_lossy(&out.stdout),
+                &ifaces_txt,
                 sampled_at_ns,
                 src,
             );
@@ -2898,72 +2909,7 @@ pub fn collect_installed_apps() -> Vec<InstalledAppEntry> {
     }
     #[cfg(target_os = "windows")]
     {
-        let mut dirs = Vec::new();
-        if let Some(pf) = std::env::var_os("ProgramFiles").filter(|v| !v.is_empty()) {
-            dirs.push(PathBuf::from(pf));
-        } else {
-            dirs.push(PathBuf::from("C:\\Program Files"));
-        }
-        if let Some(pf86) = std::env::var_os("ProgramFiles(x86)").filter(|v| !v.is_empty()) {
-            dirs.push(PathBuf::from(pf86));
-        } else {
-            dirs.push(PathBuf::from("C:\\Program Files (x86)"));
-        }
-        let mut seen = HashSet::new();
-        let mut apps = Vec::new();
-        for dir in dirs {
-            let Ok(rd) = fs::read_dir(&dir) else {
-                continue;
-            };
-            for entry in rd.flatten() {
-                let p = entry.path();
-                let p_str = p.to_string_lossy().into_owned();
-                if !seen.insert(p_str.clone()) {
-                    continue;
-                }
-                let name = p
-                    .file_stem()
-                    .map(|s| s.to_string_lossy().into_owned())
-                    .unwrap_or_default();
-                apps.push(InstalledAppEntry {
-                    name: CompactString::from(name),
-                    version: CompactString::const_new(""),
-                    bundle_id: CompactString::const_new(""),
-                    path: CompactString::from(p_str),
-                    size_bytes: None,
-                });
-            }
-        }
-        let sys32 = PathBuf::from(
-            std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string()),
-        )
-        .join("System32");
-        if apps.is_empty()
-            && let Ok(rd) = fs::read_dir(&sys32)
-        {
-            for entry in rd.flatten().take(200) {
-                let p = entry.path();
-                if p.extension()
-                    .and_then(|e| e.to_str())
-                    .is_some_and(|e| e.eq_ignore_ascii_case("exe"))
-                    && let Some(name) = p.file_stem().and_then(|s| s.to_str())
-                {
-                    apps.push(InstalledAppEntry {
-                        name: CompactString::from(name),
-                        version: CompactString::const_new(""),
-                        bundle_id: CompactString::const_new(""),
-                        path: CompactString::from(p.to_string_lossy().as_ref()),
-                        size_bytes: None,
-                    });
-                }
-            }
-        }
-        apps.sort_by(|a, b| {
-            a.name
-                .to_ascii_lowercase()
-                .cmp(&b.name.to_ascii_lowercase())
-        });
-        apps
+        win32_ops::list_registry_installed_apps()
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
@@ -4119,11 +4065,21 @@ mod win32_ops {
     }
 
     fn reg_read_string(root: *mut c_void, subkey: &str, value_name: &str) -> Option<String> {
+        reg_read_string_with_flags(root, subkey, value_name, 0)
+    }
+
+    fn reg_read_string_with_flags(
+        root: *mut c_void,
+        subkey: &str,
+        value_name: &str,
+        view_flag: u32,
+    ) -> Option<String> {
         let sk_w = to_wide_z(subkey);
         let mut hkey: *mut c_void = ptr::null_mut();
         // SAFETY: Registry key open + read wrapped in RAII `RegKeyGuard`.
         unsafe {
-            if RegOpenKeyExW(root, sk_w.as_ptr(), 0, KEY_READ, &raw mut hkey) != 0 || hkey.is_null()
+            if RegOpenKeyExW(root, sk_w.as_ptr(), 0, KEY_READ | view_flag, &raw mut hkey) != 0
+                || hkey.is_null()
             {
                 return None;
             }
@@ -4152,12 +4108,23 @@ mod win32_ops {
         None
     }
 
+    #[allow(dead_code)]
     fn reg_read_dword(root: *mut c_void, subkey: &str, value_name: &str) -> Option<u32> {
+        reg_read_dword_with_flags(root, subkey, value_name, 0)
+    }
+
+    fn reg_read_dword_with_flags(
+        root: *mut c_void,
+        subkey: &str,
+        value_name: &str,
+        view_flag: u32,
+    ) -> Option<u32> {
         let sk_w = to_wide_z(subkey);
         let mut hkey: *mut c_void = ptr::null_mut();
         // SAFETY: Registry key open + read wrapped in RAII `RegKeyGuard`.
         unsafe {
-            if RegOpenKeyExW(root, sk_w.as_ptr(), 0, KEY_READ, &raw mut hkey) != 0 || hkey.is_null()
+            if RegOpenKeyExW(root, sk_w.as_ptr(), 0, KEY_READ | view_flag, &raw mut hkey) != 0
+                || hkey.is_null()
             {
                 return None;
             }
@@ -4452,6 +4419,145 @@ mod win32_ops {
             }
         }
         out
+    }
+
+    pub(super) fn list_registry_installed_apps() -> Vec<InstalledAppEntry> {
+        let mut apps = Vec::new();
+        let mut seen = HashSet::new();
+        const KEY_WOW64_64KEY: u32 = 0x0100;
+        const KEY_WOW64_32KEY: u32 = 0x0200;
+
+        for (root, subkey, view_flag) in [
+            (
+                HKEY_LOCAL_MACHINE,
+                "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+                KEY_WOW64_64KEY,
+            ),
+            (
+                HKEY_LOCAL_MACHINE,
+                "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+                KEY_WOW64_32KEY,
+            ),
+            (
+                HKEY_CURRENT_USER,
+                "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+                0u32,
+            ),
+        ] {
+            let sk_w = to_wide_z(subkey);
+            let mut hkey: *mut c_void = ptr::null_mut();
+            unsafe {
+                if RegOpenKeyExW(root, sk_w.as_ptr(), 0, KEY_READ | view_flag, &raw mut hkey) != 0
+                    || hkey.is_null()
+                {
+                    continue;
+                }
+                let _guard = RegKeyGuard(hkey);
+                let mut idx = 0u32;
+                loop {
+                    let mut name_buf = [0u16; 256];
+                    let mut name_len = name_buf.len() as u32;
+                    let rc = RegEnumKeyExW(
+                        hkey,
+                        idx,
+                        name_buf.as_mut_ptr(),
+                        &raw mut name_len,
+                        ptr::null_mut(),
+                        ptr::null_mut(),
+                        ptr::null_mut(),
+                        ptr::null_mut(),
+                    );
+                    if rc != 0 {
+                        break;
+                    }
+                    idx += 1;
+                    let sub_name =
+                        String::from_utf16_lossy(&name_buf[..(name_len as usize).min(256)]);
+                    if sub_name.is_empty() {
+                        continue;
+                    }
+                    let full_sub = format!("{subkey}\\{sub_name}");
+                    if reg_read_dword_with_flags(root, &full_sub, "SystemComponent", view_flag)
+                        == Some(1)
+                    {
+                        continue;
+                    }
+                    if reg_read_string_with_flags(root, &full_sub, "ParentKeyName", view_flag)
+                        .is_some()
+                    {
+                        continue;
+                    }
+                    if let Some(rel) =
+                        reg_read_string_with_flags(root, &full_sub, "ReleaseType", view_flag)
+                        && (rel.eq_ignore_ascii_case("Security Update")
+                            || rel.eq_ignore_ascii_case("Update")
+                            || rel.eq_ignore_ascii_case("Hotfix"))
+                    {
+                        continue;
+                    }
+                    let Some(display_name) =
+                        reg_read_string_with_flags(root, &full_sub, "DisplayName", view_flag)
+                    else {
+                        continue;
+                    };
+                    let display_name = display_name.trim();
+                    if display_name.is_empty() {
+                        continue;
+                    }
+                    let version =
+                        reg_read_string_with_flags(root, &full_sub, "DisplayVersion", view_flag)
+                            .unwrap_or_default();
+                    let publisher =
+                        reg_read_string_with_flags(root, &full_sub, "Publisher", view_flag)
+                            .unwrap_or_else(|| sub_name.clone());
+                    let install_loc =
+                        reg_read_string_with_flags(root, &full_sub, "InstallLocation", view_flag)
+                            .or_else(|| {
+                                reg_read_string_with_flags(
+                                    root,
+                                    &full_sub,
+                                    "DisplayIcon",
+                                    view_flag,
+                                )
+                                .map(|s| {
+                                    s.split(',')
+                                        .next()
+                                        .unwrap_or(&s)
+                                        .trim_matches('"')
+                                        .to_string()
+                                })
+                            })
+                            .unwrap_or_default();
+                    let dedup_key = format!(
+                        "{}|{}",
+                        display_name.to_ascii_lowercase(),
+                        version.to_ascii_lowercase()
+                    );
+                    if !seen.insert(dedup_key) {
+                        continue;
+                    }
+                    // EstimatedSize in Windows Uninstall registry is stored in KiB; preserve None
+                    // when absent so measurement honesty is kept without walking C:\Program Files.
+                    let size_bytes =
+                        reg_read_dword_with_flags(root, &full_sub, "EstimatedSize", view_flag)
+                            .filter(|&kib| kib > 0)
+                            .map(|kib| u64::from(kib).saturating_mul(1024));
+                    apps.push(InstalledAppEntry {
+                        name: CompactString::from(display_name),
+                        version: CompactString::from(version),
+                        bundle_id: CompactString::from(publisher),
+                        path: CompactString::from(install_loc),
+                        size_bytes,
+                    });
+                }
+            }
+        }
+        apps.sort_by(|a, b| {
+            a.name
+                .to_ascii_lowercase()
+                .cmp(&b.name.to_ascii_lowercase())
+        });
+        apps
     }
 
     pub(super) fn windows_system_hardware() -> SystemHardwareSummary {

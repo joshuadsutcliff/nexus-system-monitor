@@ -164,7 +164,7 @@ pub fn render_prometheus_metrics(
         &mut out,
         snap,
         "nexus_soc_package_watts",
-        "Apple Silicon package power in watts",
+        "Processor / GPU package power in watts",
         &snap.hardware_telemetry.soc_power.package_watts,
     );
     emit_metric(
