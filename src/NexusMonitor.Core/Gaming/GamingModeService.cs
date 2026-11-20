@@ -20,8 +20,8 @@ public sealed class GamingModeService : IDisposable
     private readonly ILogger<GamingModeService> _logger;
     private readonly IPlatformCapabilities _platform;
 
-    // pid → original priority saved before we touched it
-    private readonly Dictionary<int, ProcessPriority> _throttled = new();
+    // pid to exact provider-owned restore receipt, recorded only after a confirmed change
+    private readonly Dictionary<int, PriorityRestoreReceipt> _throttled = new();
     private readonly Subject<string> _statusMessages = new();
     private IDisposable? _pollingSubscription;
     private readonly SemaphoreSlim _stateLock = new(1, 1);
@@ -30,6 +30,8 @@ public sealed class GamingModeService : IDisposable
     private bool _active;
 
     public bool IsActive => _active;
+    public int PendingRestoreCount => _throttled.Count;
+    public PriorityRestoreReport LastRestoreReport { get; private set; } = PriorityRestoreReport.Empty;
 
     public IObservable<string> StatusMessages => _statusMessages.AsObservable();
 
@@ -58,6 +60,12 @@ public sealed class GamingModeService : IDisposable
     public void Start(string? gameProcessName = null)
     {
         if (_active) return;
+        if (_throttled.Count > 0)
+        {
+            _statusMessages.OnNext(
+                $"Gaming Mode cannot activate while {_throttled.Count} priority restore(s) remain pending");
+            return;
+        }
         _active = true;
 
         // -- Power plan -------------------------------------------------------
@@ -109,11 +117,14 @@ public sealed class GamingModeService : IDisposable
 
     /// <summary>
     /// Deactivate Gaming Mode.
-    /// Restores the original power plan and resets all throttled processes to Normal.
+    /// Restores the original power plan and each process's exact native priority.
     /// </summary>
-    public void Stop()
+    public void Stop() => StopAsync().GetAwaiter().GetResult();
+
+    public async Task<PriorityRestoreReport> StopAsync(CancellationToken ct = default)
     {
-        if (!_active) return;
+        if (!_active && _throttled.Count == 0) return LastRestoreReport;
+        bool wasActive = _active;
         _active = false;
 
         _pollingSubscription?.Dispose();
@@ -138,9 +149,10 @@ public sealed class GamingModeService : IDisposable
         }
 
         // -- Restore process priorities ----------------------------------------
-        _ = RestoreAllAsync(); // best-effort restore on shutdown
+        var report = await RetryPendingRestoresAsync(ct).ConfigureAwait(false);
 
-        _statusMessages.OnNext("Gaming Mode deactivated");
+        if (wasActive) _statusMessages.OnNext("Gaming Mode deactivated");
+        return report;
     }
 
     // ── Internal helpers ──────────────────────────────────────────────────────
@@ -148,10 +160,11 @@ public sealed class GamingModeService : IDisposable
     private async Task ThrottleBackgroundProcessesAsync(string? gameProcess, IReadOnlyList<ProcessInfo>? processes = null)
     {
         if (!_active) return;
-        await _stateLock.WaitAsync();
+        await _stateLock.WaitAsync().ConfigureAwait(false);
         try
         {
-            processes  ??= await _processProvider.GetProcessesAsync();
+            if (!_active) return;
+            processes  ??= await _processProvider.GetProcessesAsync().ConfigureAwait(false);
             var exclusions = _settings.GamingModeExclusions;
 
             var candidates = processes
@@ -166,53 +179,94 @@ public sealed class GamingModeService : IDisposable
             {
                 try
                 {
-                    // NOTE: ProcessInfo.BasePriority is an int, not a ProcessPriority enum.
-                    // We restore to Normal since we can't read the actual priority class here.
-                    // Processes set to High/AboveNormal will be downgraded on restore.
-                    // TODO: read actual priority class before throttling.
-                    _throttled[proc.Pid] = ProcessPriority.Normal;
-                    await _processProvider.SetPriorityAsync(proc.Pid, ProcessPriority.BelowNormal);
-                    _statusMessages.OnNext($"Throttled: {proc.Name} (PID {proc.Pid})");
+                    var result = await _processProvider.ApplyTemporaryPriorityAsync(
+                        proc.Pid, ProcessPriority.BelowNormal).ConfigureAwait(false);
+                    if (result.Succeeded && result.Receipt is not null)
+                    {
+                        _throttled[proc.Pid] = result.Receipt;
+                        _statusMessages.OnNext($"Throttled: {proc.Name} (PID {proc.Pid})");
+                    }
+                    else
+                    {
+                        var message = result.Failure?.Message ?? "unknown priority error";
+                        _statusMessages.OnNext($"Throttle failed: {proc.Name} (PID {proc.Pid}): {message}");
+                        _logger.LogWarning(
+                            "Gaming mode: could not throttle {Name} (PID {Pid}): {Message}",
+                            proc.Name, proc.Pid, message);
+                    }
                 }
                 catch (Exception ex)
                 {
-                    // Access denied or process exited — remove from map
                     _logger.LogDebug(ex, "Gaming mode: could not throttle {Name} (PID {Pid})", proc.Name, proc.Pid);
-                    _throttled.Remove(proc.Pid);
+                    _statusMessages.OnNext($"Throttle failed: {proc.Name} (PID {proc.Pid}): {ex.Message}");
                 }
             }
-
-            // Clean up entries for processes that have exited
-            var alive = new HashSet<int>(processes.Select(p => p.Pid));
-            foreach (var pid in _throttled.Keys.Where(k => !alive.Contains(k)).ToList())
-                _throttled.Remove(pid);
         }
         catch (Exception ex) { _logger.LogWarning(ex, "Gaming mode: throttle loop error"); }
         finally { _stateLock.Release(); }
     }
 
-    private async Task RestoreAllAsync()
+    public async Task<PriorityRestoreReport> RetryPendingRestoresAsync(CancellationToken ct = default)
     {
-        if (_throttled.Count == 0) return;
-        await _stateLock.WaitAsync();
+        if (_throttled.Count == 0) return LastRestoreReport;
+        await _stateLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var processes = await _processProvider.GetProcessesAsync();
-            foreach (var (pid, original) in _throttled.ToList())
+            int attempted = 0;
+            int restored = 0;
+            int exited = 0;
+            var failures = new List<PriorityRestoreFailure>();
+
+            foreach (var (pid, receipt) in _throttled.ToList())
             {
+                attempted++;
                 try
                 {
-                    await _processProvider.SetPriorityAsync(pid, original);
-                    var name = processes.FirstOrDefault(p => p.Pid == pid)?.Name ?? $"PID {pid}";
-                    _statusMessages.OnNext($"Restored: {name} (PID {pid})");
+                    var result = await _processProvider.RestorePriorityAsync(receipt, ct)
+                        .ConfigureAwait(false);
+                    if (result.Status == PriorityRestoreStatus.Restored)
+                    {
+                        restored++;
+                        _throttled.Remove(pid);
+                        _statusMessages.OnNext($"Restored priority: PID {pid}");
+                    }
+                    else if (result.Status == PriorityRestoreStatus.ProcessExited)
+                    {
+                        exited++;
+                        _throttled.Remove(pid);
+                    }
+                    else
+                    {
+                        failures.Add(new PriorityRestoreFailure(
+                            pid,
+                            result.Failure ?? new ProcessPriorityFailure(
+                                ProcessPriorityFailureKind.Unknown,
+                                "managed",
+                                0,
+                                $"Priority restore failed for process {pid}")));
+                    }
                 }
-                catch (Exception ex) { _logger.LogDebug(ex, "Gaming mode: could not restore PID {Pid}", pid); }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Gaming mode: could not restore PID {Pid}", pid);
+                    failures.Add(new PriorityRestoreFailure(
+                        pid,
+                        new ProcessPriorityFailure(
+                            ProcessPriorityFailureKind.Unknown,
+                            "managed",
+                            0,
+                            ex.Message)));
+                }
             }
+
+            LastRestoreReport = new PriorityRestoreReport(attempted, restored, exited, failures);
+            if (failures.Count > 0)
+                _statusMessages.OnNext(
+                    $"Priority restore incomplete: {restored} restored, {exited} exited, {failures.Count} pending");
+            return LastRestoreReport;
         }
-        catch (Exception ex) { _logger.LogWarning(ex, "Gaming mode: RestoreAllAsync failed"); }
         finally
         {
-            _throttled.Clear();
             _stateLock.Release();
         }
     }
@@ -240,6 +294,6 @@ public sealed class GamingModeService : IDisposable
 
     // ── Public stat helpers ───────────────────────────────────────────────────
 
-    /// <summary>Number of processes currently held at BelowNormal by Gaming Mode.</summary>
+    /// <summary>Number of processes with a confirmed temporary priority change.</summary>
     public int ThrottledCount => _throttled.Count;
 }

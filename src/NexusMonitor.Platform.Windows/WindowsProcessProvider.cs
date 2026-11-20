@@ -609,20 +609,64 @@ public sealed class WindowsProcessProvider : IProcessProvider, IDisposable
     public Task SetPriorityAsync(int pid, ProcessPriority priority, CancellationToken ct = default) =>
         Task.Run(() =>
         {
-            nint h = Kernel32.OpenProcess(Kernel32.PROCESS_SET_INFORMATION, false, (uint)pid);
-            if (h == nint.Zero) throw new InvalidOperationException($"Cannot open process {pid}");
-            uint cls = priority switch
+            var failure = TrySetPriorityClass(pid, MapPriorityToClass(priority));
+            if (failure is not null)
+                throw new ProcessPriorityOperationException(pid, failure);
+        }, ct);
+
+    public Task<PriorityApplyResult> ApplyTemporaryPriorityAsync(
+        int pid, ProcessPriority priority, CancellationToken ct = default) =>
+        Task.Run(() =>
+        {
+            nint h = Kernel32.OpenProcess(
+                Kernel32.PROCESS_SET_INFORMATION | Kernel32.PROCESS_QUERY_LIMITED_INFO,
+                false,
+                (uint)pid);
+            if (h == nint.Zero)
             {
-                ProcessPriority.Idle        => Kernel32.IDLE_PRIORITY_CLASS,
-                ProcessPriority.BelowNormal => Kernel32.BELOW_NORMAL_PRIORITY_CLASS,
-                ProcessPriority.Normal      => Kernel32.NORMAL_PRIORITY_CLASS,
-                ProcessPriority.AboveNormal => Kernel32.ABOVE_NORMAL_PRIORITY_CLASS,
-                ProcessPriority.High        => Kernel32.HIGH_PRIORITY_CLASS,
-                ProcessPriority.RealTime    => Kernel32.REALTIME_PRIORITY_CLASS,
-                _                           => Kernel32.NORMAL_PRIORITY_CLASS,
-            };
-            try   { Kernel32.SetPriorityClass(h, cls); }
-            finally { Kernel32.CloseHandle(h); }
+                int error = Marshal.GetLastPInvokeError();
+                return PriorityApplyResult.Failed(CreatePriorityFailure(pid, error, "open"));
+            }
+
+            try
+            {
+                uint originalClass = Kernel32.GetPriorityClass(h);
+                int readError = Marshal.GetLastPInvokeError();
+                if (originalClass == 0)
+                    return PriorityApplyResult.Failed(CreatePriorityFailure(pid, readError, "read"));
+
+                bool changed = Kernel32.SetPriorityClass(h, MapPriorityToClass(priority));
+                int setError = Marshal.GetLastPInvokeError();
+                return changed
+                    ? PriorityApplyResult.Success(
+                        new PriorityRestoreReceipt(pid, "windows-priority-class", originalClass))
+                    : PriorityApplyResult.Failed(CreatePriorityFailure(pid, setError, "set"));
+            }
+            finally
+            {
+                Kernel32.CloseHandle(h);
+            }
+        }, ct);
+
+    public Task<PriorityRestoreResult> RestorePriorityAsync(
+        PriorityRestoreReceipt receipt, CancellationToken ct = default) =>
+        Task.Run(() =>
+        {
+            if (receipt.ProviderKind != "windows-priority-class" ||
+                receipt.NativeValue <= 0 || receipt.NativeValue > uint.MaxValue)
+            {
+                return PriorityRestoreResult.Failed(new ProcessPriorityFailure(
+                    ProcessPriorityFailureKind.InvalidRequest,
+                    "managed",
+                    0,
+                    $"Invalid Windows priority restore receipt for process {receipt.Pid}"));
+            }
+
+            var failure = TrySetPriorityClass(receipt.Pid, (uint)receipt.NativeValue);
+            if (failure is null) return PriorityRestoreResult.Restored();
+            return failure.Kind == ProcessPriorityFailureKind.ProcessExited
+                ? PriorityRestoreResult.Exited(failure)
+                : PriorityRestoreResult.Failed(failure);
         }, ct);
 
     public Task<ProcessPriority?> GetPriorityAsync(int pid, CancellationToken cancellationToken = default) =>
@@ -646,6 +690,53 @@ public sealed class WindowsProcessProvider : IProcessProvider, IDisposable
             }
             finally { Kernel32.CloseHandle(h); }
         }, cancellationToken);
+
+    private static ProcessPriorityFailure? TrySetPriorityClass(int pid, uint priorityClass)
+    {
+        nint h = Kernel32.OpenProcess(Kernel32.PROCESS_SET_INFORMATION, false, (uint)pid);
+        if (h == nint.Zero)
+        {
+            int error = Marshal.GetLastPInvokeError();
+            return CreatePriorityFailure(pid, error, "open");
+        }
+
+        try
+        {
+            bool changed = Kernel32.SetPriorityClass(h, priorityClass);
+            int error = Marshal.GetLastPInvokeError();
+            return changed ? null : CreatePriorityFailure(pid, error, "set");
+        }
+        finally
+        {
+            Kernel32.CloseHandle(h);
+        }
+    }
+
+    private static ProcessPriorityFailure CreatePriorityFailure(int pid, int error, string operation)
+    {
+        var kind = error switch
+        {
+            87 => ProcessPriorityFailureKind.ProcessExited,
+            5 => ProcessPriorityFailureKind.PermissionDenied,
+            _ => ProcessPriorityFailureKind.Unknown,
+        };
+        return new ProcessPriorityFailure(
+            kind,
+            "win32",
+            error,
+            $"Cannot {operation} priority for process {pid} (Win32 error {error})");
+    }
+
+    private static uint MapPriorityToClass(ProcessPriority priority) => priority switch
+    {
+        ProcessPriority.Idle        => Kernel32.IDLE_PRIORITY_CLASS,
+        ProcessPriority.BelowNormal => Kernel32.BELOW_NORMAL_PRIORITY_CLASS,
+        ProcessPriority.Normal      => Kernel32.NORMAL_PRIORITY_CLASS,
+        ProcessPriority.AboveNormal => Kernel32.ABOVE_NORMAL_PRIORITY_CLASS,
+        ProcessPriority.High        => Kernel32.HIGH_PRIORITY_CLASS,
+        ProcessPriority.RealTime    => Kernel32.REALTIME_PRIORITY_CLASS,
+        _                           => Kernel32.NORMAL_PRIORITY_CLASS,
+    };
 
     public Task<IReadOnlyList<ModuleInfo>> GetModulesAsync(int pid, CancellationToken ct = default)
     {

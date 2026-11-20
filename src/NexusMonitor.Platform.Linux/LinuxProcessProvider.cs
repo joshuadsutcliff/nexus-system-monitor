@@ -440,17 +440,43 @@ public sealed class LinuxProcessProvider : IProcessProvider, IDisposable
     public Task SetPriorityAsync(int pid, ProcessPriority priority, CancellationToken ct = default) =>
         Task.Run(() =>
         {
-            int nice = priority switch
+            var failure = TrySetNativePriority(pid, MapPriorityToNice(priority));
+            if (failure is not null)
+                throw new ProcessPriorityOperationException(pid, failure);
+        }, ct);
+
+    public Task<PriorityApplyResult> ApplyTemporaryPriorityAsync(
+        int pid, ProcessPriority priority, CancellationToken ct = default) =>
+        Task.Run(() =>
+        {
+            var (nativeValue, readFailure) = ReadNativePriority(pid);
+            if (readFailure is not null)
+                return PriorityApplyResult.Failed(readFailure);
+
+            var setFailure = TrySetNativePriority(pid, MapPriorityToNice(priority));
+            return setFailure is null
+                ? PriorityApplyResult.Success(new PriorityRestoreReceipt(pid, "linux-nice", nativeValue))
+                : PriorityApplyResult.Failed(setFailure);
+        }, ct);
+
+    public Task<PriorityRestoreResult> RestorePriorityAsync(
+        PriorityRestoreReceipt receipt, CancellationToken ct = default) =>
+        Task.Run(() =>
+        {
+            if (receipt.ProviderKind != "linux-nice" || receipt.NativeValue is < -20 or > 19)
             {
-                ProcessPriority.Idle        =>  19,
-                ProcessPriority.BelowNormal =>  10,
-                ProcessPriority.Normal      =>   0,
-                ProcessPriority.AboveNormal =>  -5,
-                ProcessPriority.High        => -10,
-                ProcessPriority.RealTime    => -20,
-                _                           =>   0,
-            };
-            setpriority(PRIO_PROCESS, (uint)pid, nice);
+                return PriorityRestoreResult.Failed(new ProcessPriorityFailure(
+                    ProcessPriorityFailureKind.InvalidRequest,
+                    "managed",
+                    0,
+                    $"Invalid Linux priority restore receipt for process {receipt.Pid}"));
+            }
+
+            var failure = TrySetNativePriority(receipt.Pid, (int)receipt.NativeValue);
+            if (failure is null) return PriorityRestoreResult.Restored();
+            return failure.Kind == ProcessPriorityFailureKind.ProcessExited
+                ? PriorityRestoreResult.Exited(failure)
+                : PriorityRestoreResult.Failed(failure);
         }, ct);
 
     // getpriority(2) legitimately returns negative values on success, so -1 alone doesn't mean
@@ -460,23 +486,62 @@ public sealed class LinuxProcessProvider : IProcessProvider, IDisposable
     public Task<ProcessPriority?> GetPriorityAsync(int pid, CancellationToken cancellationToken = default) =>
         Task.Run(() =>
         {
-            int nice = getpriority(PRIO_PROCESS, (uint)pid);
-            if (nice == -1)
-            {
-                var errno = Marshal.GetLastWin32Error();
-                if (errno != 0) return (ProcessPriority?)null;
-            }
-
-            return nice switch
-            {
-                <= -15          => ProcessPriority.RealTime,
-                >= -14 and <= -8 => ProcessPriority.High,
-                >= -7 and <= -1  => ProcessPriority.AboveNormal,
-                0                => ProcessPriority.Normal,
-                >= 1 and <= 14   => ProcessPriority.BelowNormal,
-                _                => ProcessPriority.Idle, // >= 15
-            };
+            var (nice, failure) = ReadNativePriority(pid);
+            return failure is null ? (ProcessPriority?)MapNiceToPriority(nice) : null;
         }, cancellationToken);
+
+    private static (int NativeValue, ProcessPriorityFailure? Failure) ReadNativePriority(int pid)
+    {
+        int nice = getpriority(PRIO_PROCESS, (uint)pid);
+        int errno = Marshal.GetLastPInvokeError();
+        return nice == -1 && errno != 0
+            ? (0, CreatePriorityFailure(pid, errno, "read"))
+            : (nice, null);
+    }
+
+    private static ProcessPriorityFailure? TrySetNativePriority(int pid, int nice)
+    {
+        int result = setpriority(PRIO_PROCESS, (uint)pid, nice);
+        int errno = Marshal.GetLastPInvokeError();
+        return result == 0 ? null : CreatePriorityFailure(pid, errno, "set");
+    }
+
+    private static ProcessPriorityFailure CreatePriorityFailure(int pid, int errno, string operation)
+    {
+        var kind = errno switch
+        {
+            3 => ProcessPriorityFailureKind.ProcessExited,
+            1 or 13 => ProcessPriorityFailureKind.PermissionDenied,
+            22 => ProcessPriorityFailureKind.InvalidRequest,
+            _ => ProcessPriorityFailureKind.Unknown,
+        };
+        return new ProcessPriorityFailure(
+            kind,
+            "errno",
+            errno,
+            $"Cannot {operation} priority for process {pid} (errno {errno})");
+    }
+
+    private static int MapPriorityToNice(ProcessPriority priority) => priority switch
+    {
+        ProcessPriority.Idle        =>  19,
+        ProcessPriority.BelowNormal =>  10,
+        ProcessPriority.Normal      =>   0,
+        ProcessPriority.AboveNormal =>  -5,
+        ProcessPriority.High        => -10,
+        ProcessPriority.RealTime    => -20,
+        _                           =>   0,
+    };
+
+    private static ProcessPriority MapNiceToPriority(int nice) => nice switch
+    {
+        <= -15           => ProcessPriority.RealTime,
+        >= -14 and <= -8 => ProcessPriority.High,
+        >= -7 and <= -1  => ProcessPriority.AboveNormal,
+        0                 => ProcessPriority.Normal,
+        >= 1 and <= 14    => ProcessPriority.BelowNormal,
+        _                 => ProcessPriority.Idle,
+    };
 
     public Task SetAffinityAsync(int pid, long affinityMask, CancellationToken ct = default) =>
         Task.Run(() =>

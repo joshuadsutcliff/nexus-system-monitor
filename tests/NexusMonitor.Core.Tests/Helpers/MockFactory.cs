@@ -59,6 +59,16 @@ public static class MockFactory
         mock.Setup(p => p.SetPriorityAsync(It.IsAny<int>(), It.IsAny<ProcessPriority>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
+        mock.Setup(p => p.ApplyTemporaryPriorityAsync(
+                It.IsAny<int>(), It.IsAny<ProcessPriority>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((int pid, ProcessPriority _, CancellationToken _) =>
+                PriorityApplyResult.Success(
+                    new PriorityRestoreReceipt(pid, "test-priority", (long)ProcessPriority.Normal)));
+
+        mock.Setup(p => p.RestorePriorityAsync(
+                It.IsAny<PriorityRestoreReceipt>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PriorityRestoreResult.Restored());
+
         mock.Setup(p => p.GetPriorityAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((ProcessPriority?)ProcessPriority.Normal);
 

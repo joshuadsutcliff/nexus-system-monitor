@@ -1,4 +1,5 @@
 using System.Reactive.Subjects;
+using System.Diagnostics;
 using FluentAssertions;
 using Moq;
 using NexusMonitor.Core.Abstractions;
@@ -58,6 +59,17 @@ public class PerformanceProfileServiceTests
         };
         var settings = new AppSettings { PerformanceProfiles = new List<PerformanceProfile> { profile } };
         return (settings, profile, profileId);
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        var deadline = Stopwatch.GetTimestamp() + Stopwatch.Frequency * 3;
+        while (!condition())
+        {
+            if (Stopwatch.GetTimestamp() >= deadline)
+                throw new TimeoutException("Timed out waiting for the service operation.");
+            await Task.Delay(10);
+        }
     }
 
     // ── Basic activate / deactivate ────────────────────────────────────────
@@ -236,30 +248,163 @@ public class PerformanceProfileServiceTests
 
         // Emit processes — satisfies the FirstAsync in ApplyProfileAsync
         processSubject.OnNext(new[] { MakeProcess("chrome", 1000) });
-        await Task.Delay(200);
+        await WaitUntilAsync(() => mockProcess.Invocations.Any(i =>
+            i.Method.Name == nameof(IProcessProvider.ApplyTemporaryPriorityAsync)));
 
-        mockProcess.Verify(p => p.SetPriorityAsync(1000, ProcessPriority.High, It.IsAny<CancellationToken>()),
+        mockProcess.Verify(p => p.ApplyTemporaryPriorityAsync(
+                1000, ProcessPriority.High, It.IsAny<CancellationToken>()),
             Times.Once);
         svc.Dispose();
     }
 
     [Fact]
-    public async Task DeactivateProfile_RestoresProcessToNormal()
+    public async Task DeactivateProfile_RestoresCapturedNativePriority()
     {
         var (settings, _, profileId) = MakeSettings(
             processName: "chrome",
             priority: ProcessPriority.High);
         var (svc, processSubject, mockProcess, _) = CreateService(settings);
+        var receipt = new PriorityRestoreReceipt(1000, "test-native", 17);
+        mockProcess.Setup(p => p.ApplyTemporaryPriorityAsync(
+                1000, ProcessPriority.High, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PriorityApplyResult.Success(receipt));
 
         svc.ActivateProfile(profileId);
         processSubject.OnNext(new[] { MakeProcess("chrome", 1000) });
-        await Task.Delay(200); // let ApplyProfileAsync complete and add to _boostedPids
+        await WaitUntilAsync(() => mockProcess.Invocations.Any(i =>
+            i.Method.Name == nameof(IProcessProvider.ApplyTemporaryPriorityAsync)));
 
-        svc.DeactivateProfile();
-        await Task.Delay(200); // let RestoreProcessesAsync complete
+        var report = await svc.DeactivateProfileAsync();
 
-        mockProcess.Verify(p => p.SetPriorityAsync(1000, ProcessPriority.Normal, It.IsAny<CancellationToken>()),
-            Times.Once);
+        report.Restored.Should().Be(1);
+        mockProcess.Verify(p => p.RestorePriorityAsync(
+                It.Is<PriorityRestoreReceipt>(r =>
+                    r.Pid == 1000 && r.ProviderKind == "test-native" && r.NativeValue == 17),
+                It.IsAny<CancellationToken>()), Times.Once);
+        mockProcess.Verify(p => p.SetPriorityAsync(
+                1000, It.IsAny<ProcessPriority>(), It.IsAny<CancellationToken>()), Times.Never);
+        svc.Dispose();
+    }
+
+    [Fact]
+    public async Task ApplyPriorityFailure_DoesNotCreateRestoreState()
+    {
+        var (settings, _, profileId) = MakeSettings(priority: ProcessPriority.High);
+        var (svc, processSubject, mockProcess, _) = CreateService(settings);
+        var failure = new ProcessPriorityFailure(
+            ProcessPriorityFailureKind.PermissionDenied, "test", 5, "denied");
+        mockProcess.Setup(p => p.ApplyTemporaryPriorityAsync(
+                1234, ProcessPriority.High, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PriorityApplyResult.Failed(failure));
+        var messages = new List<string>();
+        svc.StatusMessages.Subscribe(messages.Add);
+
+        svc.ActivateProfile(profileId);
+        processSubject.OnNext(new[] { MakeProcess("chrome") });
+        await WaitUntilAsync(() => mockProcess.Invocations.Any(i =>
+            i.Method.Name == nameof(IProcessProvider.ApplyTemporaryPriorityAsync)));
+
+        svc.PendingRestoreCount.Should().Be(0);
+        messages.Should().Contain(m => m.Contains("Priority change failed") && m.Contains("denied"));
+
+        var report = await svc.DeactivateProfileAsync();
+        report.Attempted.Should().Be(0);
+        mockProcess.Verify(p => p.RestorePriorityAsync(
+                It.IsAny<PriorityRestoreReceipt>(), It.IsAny<CancellationToken>()), Times.Never);
+        svc.Dispose();
+    }
+
+    [Fact]
+    public async Task RestoreProcessExited_IsTerminalAndNotPending()
+    {
+        var (settings, _, profileId) = MakeSettings(priority: ProcessPriority.High);
+        var (svc, processSubject, mockProcess, _) = CreateService(settings);
+        var receipt = new PriorityRestoreReceipt(1234, "test-native", 9);
+        var failure = new ProcessPriorityFailure(
+            ProcessPriorityFailureKind.ProcessExited, "test", 3, "process exited");
+        mockProcess.Setup(p => p.ApplyTemporaryPriorityAsync(
+                1234, ProcessPriority.High, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PriorityApplyResult.Success(receipt));
+        mockProcess.Setup(p => p.RestorePriorityAsync(
+                It.Is<PriorityRestoreReceipt>(r => r.Pid == 1234), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PriorityRestoreResult.Exited(failure));
+
+        svc.ActivateProfile(profileId);
+        processSubject.OnNext(new[] { MakeProcess("chrome") });
+        await WaitUntilAsync(() => mockProcess.Invocations.Any(i =>
+            i.Method.Name == nameof(IProcessProvider.ApplyTemporaryPriorityAsync)));
+
+        var report = await svc.DeactivateProfileAsync();
+
+        report.Exited.Should().Be(1);
+        report.Pending.Should().Be(0);
+        svc.PendingRestoreCount.Should().Be(0);
+        mockProcess.Verify(p => p.RestorePriorityAsync(
+                It.Is<PriorityRestoreReceipt>(r => r.NativeValue == 9),
+                It.IsAny<CancellationToken>()), Times.Once);
+        svc.Dispose();
+    }
+
+    [Fact]
+    public async Task PartialRestoreFailure_IsReportedPendingAndRetryClearsIt()
+    {
+        var profileId = Guid.NewGuid();
+        var settings = new AppSettings
+        {
+            PerformanceProfiles = new List<PerformanceProfile>
+            {
+                new()
+                {
+                    Id = profileId,
+                    Name = "TestProfile",
+                    ProcessRules = new List<ProfileProcessRule>
+                    {
+                        new() { ProcessNamePattern = "chrome", Priority = ProcessPriority.BelowNormal }
+                    }
+                }
+            }
+        };
+        var (svc, processSubject, mockProcess, _) = CreateService(settings);
+        var first = new PriorityRestoreReceipt(1000, "test-native", 7);
+        var second = new PriorityRestoreReceipt(1001, "test-native", 13);
+        mockProcess.Setup(p => p.ApplyTemporaryPriorityAsync(
+                It.IsAny<int>(), ProcessPriority.BelowNormal, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((int pid, ProcessPriority _, CancellationToken _) =>
+                PriorityApplyResult.Success(pid == 1000 ? first : second));
+        var restoreAttempts = new Dictionary<int, int>();
+        var failure = new ProcessPriorityFailure(
+            ProcessPriorityFailureKind.PermissionDenied, "test", 13, "restore denied");
+        mockProcess.Setup(p => p.RestorePriorityAsync(
+                It.IsAny<PriorityRestoreReceipt>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PriorityRestoreReceipt r, CancellationToken _) =>
+            {
+                restoreAttempts[r.Pid] = restoreAttempts.GetValueOrDefault(r.Pid) + 1;
+                return r.Pid == 1001 && restoreAttempts[r.Pid] == 1
+                    ? PriorityRestoreResult.Failed(failure)
+                    : PriorityRestoreResult.Restored();
+            });
+        var messages = new List<string>();
+        svc.StatusMessages.Subscribe(messages.Add);
+
+        svc.ActivateProfile(profileId);
+        processSubject.OnNext(new[] { MakeProcess("chrome", 1000), MakeProcess("chrome", 1001) });
+        await WaitUntilAsync(() => mockProcess.Invocations.Count(i =>
+            i.Method.Name == nameof(IProcessProvider.ApplyTemporaryPriorityAsync)) == 2);
+
+        var firstReport = await svc.DeactivateProfileAsync();
+
+        firstReport.Restored.Should().Be(1);
+        firstReport.Pending.Should().Be(1);
+        firstReport.IsPartial.Should().BeTrue();
+        svc.PendingRestoreCount.Should().Be(1);
+        messages.Should().Contain(m => m.Contains("Priority restore incomplete"));
+
+        var retryReport = await svc.RetryPendingRestoresAsync();
+
+        retryReport.Restored.Should().Be(1);
+        retryReport.Pending.Should().Be(0);
+        svc.PendingRestoreCount.Should().Be(0);
+        restoreAttempts[1001].Should().Be(2);
         svc.Dispose();
     }
 
@@ -325,16 +470,17 @@ public class PerformanceProfileServiceTests
 
         svc.ActivateProfile(profileId);
 
-        // Emit the same process twice — _boostedPids.Add returns false on second call
+        // Emit the same process twice. The saved receipt prevents a second apply.
         processSubject.OnNext(new[] { MakeProcess("chrome", 1000) });
-        await Task.Delay(200);
+        await WaitUntilAsync(() => mockProcess.Invocations.Any(i =>
+            i.Method.Name == nameof(IProcessProvider.ApplyTemporaryPriorityAsync)));
 
-        // Emit again — applyLock is released, new apply triggered via polling or second emit
-        // But _boostedPids already contains 1000, so SetPriorityAsync should NOT be called again
+        // Emit again after the first apply has completed.
         processSubject.OnNext(new[] { MakeProcess("chrome", 1000) });
-        await Task.Delay(200);
+        await Task.Delay(100);
 
-        mockProcess.Verify(p => p.SetPriorityAsync(1000, ProcessPriority.High, It.IsAny<CancellationToken>()),
+        mockProcess.Verify(p => p.ApplyTemporaryPriorityAsync(
+                1000, ProcessPriority.High, It.IsAny<CancellationToken>()),
             Times.Once);
         svc.Dispose();
     }

@@ -20,8 +20,8 @@ public sealed class PerformanceProfileService : IDisposable
     private readonly AppSettings        _settings;
     private readonly ILogger<PerformanceProfileService> _logger;
 
-    // pid → rule that applied Priority (so we restore to Normal on deactivate)
-    private readonly HashSet<int> _boostedPids = new();
+    // pid to exact provider-owned restore receipt, recorded only after a confirmed change
+    private readonly Dictionary<int, PriorityRestoreReceipt> _priorityRestores = new();
     // pid → rule that changed EfficiencyMode
     private readonly HashSet<int> _efficiencyPids = new();
 
@@ -35,6 +35,8 @@ public sealed class PerformanceProfileService : IDisposable
 
     public bool   IsActive          => _activeProfileId.HasValue;
     public Guid?  ActiveProfileId   => _activeProfileId;
+    public int PendingRestoreCount => _priorityRestores.Count;
+    public PriorityRestoreReport LastRestoreReport { get; private set; } = PriorityRestoreReport.Empty;
     public string ActiveProfileName =>
         _activeProfileId is { } id
             ? _settings.PerformanceProfiles.FirstOrDefault(p => p.Id == id)?.Name ?? ""
@@ -61,6 +63,12 @@ public sealed class PerformanceProfileService : IDisposable
     public void ActivateProfile(Guid profileId)
     {
         if (_activeProfileId.HasValue) DeactivateProfile();
+        if (_priorityRestores.Count > 0)
+        {
+            _statusMessages.OnNext(
+                $"Cannot activate a profile while {_priorityRestores.Count} priority restore(s) remain pending");
+            return;
+        }
 
         var profile = _settings.PerformanceProfiles.FirstOrDefault(p => p.Id == profileId);
         if (profile is null) return;
@@ -105,11 +113,15 @@ public sealed class PerformanceProfileService : IDisposable
 
     // ── Deactivate ────────────────────────────────────────────────────────────
 
-    public void DeactivateProfile()
+    public void DeactivateProfile() => DeactivateProfileAsync().GetAwaiter().GetResult();
+
+    public async Task<PriorityRestoreReport> DeactivateProfileAsync(CancellationToken ct = default)
     {
-        if (!_activeProfileId.HasValue) return;
+        if (!_activeProfileId.HasValue && _priorityRestores.Count == 0 && _efficiencyPids.Count == 0)
+            return LastRestoreReport;
 
         var profileName = ActiveProfileName;
+        bool wasActive = _activeProfileId.HasValue;
         _activeProfileId = null;
 
         _pollingSubscription?.Dispose();
@@ -123,11 +135,15 @@ public sealed class PerformanceProfileService : IDisposable
             _activePowerPlan = null;
         }
 
-        // Restore process priorities
-        _ = RestoreProcessesAsync();
+        var report = await RetryPendingRestoresAsync(ct).ConfigureAwait(false);
+        await RestoreEfficiencyModesAsync(ct).ConfigureAwait(false);
 
-        _statusMessages.OnNext($"Profile '{profileName}' deactivated");
-        _profileChanged.OnNext(null);
+        if (wasActive)
+        {
+            _statusMessages.OnNext($"Profile '{profileName}' deactivated");
+            _profileChanged.OnNext(null);
+        }
+        return report;
     }
 
     // ── Internals ─────────────────────────────────────────────────────────────
@@ -136,43 +152,154 @@ public sealed class PerformanceProfileService : IDisposable
         PerformanceProfile profile,
         IReadOnlyList<ProcessInfo>? processes = null)
     {
-        if (!await _applyLock.WaitAsync(0)) return; // skip if previous apply still running
-        try
-        {
         processes ??= await _processProvider
             .GetProcessStream(MonitoringCadence.Fast)
             .FirstAsync()
-            .ToTask();
+            .ToTask()
+            .ConfigureAwait(false);
+
+        if (!await _applyLock.WaitAsync(0).ConfigureAwait(false)) return; // skip if previous apply still running
+        try
+        {
+        if (_activeProfileId != profile.Id) return;
 
         foreach (var proc in processes)
         {
             foreach (var rule in profile.ProcessRules.Where(r => r.Matches(proc.Name)))
             {
-                if (rule.Priority.HasValue && _boostedPids.Add(proc.Pid))
-                    try { await _processProvider.SetPriorityAsync(proc.Pid, rule.Priority.Value); }
-                    catch (Exception ex) { _logger.LogWarning(ex, "PerformanceProfile: set priority on {Name} (PID {Pid}) failed", proc.Name, proc.Pid); }
+                if (rule.Priority.HasValue && !_priorityRestores.ContainsKey(proc.Pid))
+                {
+                    try
+                    {
+                        var result = await _processProvider.ApplyTemporaryPriorityAsync(
+                            proc.Pid, rule.Priority.Value).ConfigureAwait(false);
+                        if (result.Succeeded && result.Receipt is not null)
+                        {
+                            _priorityRestores[proc.Pid] = result.Receipt;
+                        }
+                        else
+                        {
+                            var message = result.Failure?.Message ?? "unknown priority error";
+                            _statusMessages.OnNext(
+                                $"Priority change failed: {proc.Name} (PID {proc.Pid}): {message}");
+                            _logger.LogWarning(
+                                "PerformanceProfile: set priority on {Name} (PID {Pid}) failed: {Message}",
+                                proc.Name, proc.Pid, message);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "PerformanceProfile: set priority on {Name} (PID {Pid}) failed", proc.Name, proc.Pid);
+                        _statusMessages.OnNext(
+                            $"Priority change failed: {proc.Name} (PID {proc.Pid}): {ex.Message}");
+                    }
+                }
 
-                if (rule.EfficiencyMode.HasValue && _efficiencyPids.Add(proc.Pid))
-                    try { await _processProvider.SetEfficiencyModeAsync(proc.Pid, rule.EfficiencyMode.Value); }
-                    catch (Exception ex) { _logger.LogWarning(ex, "PerformanceProfile: set efficiency mode on {Name} (PID {Pid}) failed", proc.Name, proc.Pid); }
+                if (rule.EfficiencyMode.HasValue && !_efficiencyPids.Contains(proc.Pid))
+                {
+                    try
+                    {
+                        await _processProvider.SetEfficiencyModeAsync(proc.Pid, rule.EfficiencyMode.Value)
+                            .ConfigureAwait(false);
+                        _efficiencyPids.Add(proc.Pid);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "PerformanceProfile: set efficiency mode on {Name} (PID {Pid}) failed", proc.Name, proc.Pid);
+                    }
+                }
             }
         }
         } // end try
         finally { _applyLock.Release(); }
     }
 
-    private async Task RestoreProcessesAsync()
+    public async Task<PriorityRestoreReport> RetryPendingRestoresAsync(CancellationToken ct = default)
     {
-        await _applyLock.WaitAsync(); // wait for any in-progress apply to finish
-        foreach (var pid in _boostedPids.ToList())
-            try { await _processProvider.SetPriorityAsync(pid, ProcessPriority.Normal); }
-            catch (Exception ex) { _logger.LogDebug(ex, "PerformanceProfile: restore priority PID {Pid} failed", pid); }
-        foreach (var pid in _efficiencyPids.ToList())
-            try { await _processProvider.SetEfficiencyModeAsync(pid, false); }
-            catch (Exception ex) { _logger.LogDebug(ex, "PerformanceProfile: restore efficiency mode PID {Pid} failed", pid); }
-        _boostedPids.Clear();
-        _efficiencyPids.Clear();
-        _applyLock.Release();
+        if (_priorityRestores.Count == 0) return LastRestoreReport;
+        await _applyLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            int attempted = 0;
+            int restored = 0;
+            int exited = 0;
+            var failures = new List<PriorityRestoreFailure>();
+
+            foreach (var (pid, receipt) in _priorityRestores.ToList())
+            {
+                attempted++;
+                try
+                {
+                    var result = await _processProvider.RestorePriorityAsync(receipt, ct)
+                        .ConfigureAwait(false);
+                    if (result.Status == PriorityRestoreStatus.Restored)
+                    {
+                        restored++;
+                        _priorityRestores.Remove(pid);
+                    }
+                    else if (result.Status == PriorityRestoreStatus.ProcessExited)
+                    {
+                        exited++;
+                        _priorityRestores.Remove(pid);
+                    }
+                    else
+                    {
+                        failures.Add(new PriorityRestoreFailure(
+                            pid,
+                            result.Failure ?? new ProcessPriorityFailure(
+                                ProcessPriorityFailureKind.Unknown,
+                                "managed",
+                                0,
+                                $"Priority restore failed for process {pid}")));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "PerformanceProfile: restore priority PID {Pid} failed", pid);
+                    failures.Add(new PriorityRestoreFailure(
+                        pid,
+                        new ProcessPriorityFailure(
+                            ProcessPriorityFailureKind.Unknown,
+                            "managed",
+                            0,
+                            ex.Message)));
+                }
+            }
+
+            LastRestoreReport = new PriorityRestoreReport(attempted, restored, exited, failures);
+            if (failures.Count > 0)
+                _statusMessages.OnNext(
+                    $"Priority restore incomplete: {restored} restored, {exited} exited, {failures.Count} pending");
+            return LastRestoreReport;
+        }
+        finally
+        {
+            _applyLock.Release();
+        }
+    }
+
+    private async Task RestoreEfficiencyModesAsync(CancellationToken ct)
+    {
+        await _applyLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            foreach (var pid in _efficiencyPids.ToList())
+            {
+                try
+                {
+                    await _processProvider.SetEfficiencyModeAsync(pid, false, ct).ConfigureAwait(false);
+                    _efficiencyPids.Remove(pid);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "PerformanceProfile: restore efficiency mode PID {Pid} failed", pid);
+                }
+            }
+        }
+        finally
+        {
+            _applyLock.Release();
+        }
     }
 
     public void Dispose()

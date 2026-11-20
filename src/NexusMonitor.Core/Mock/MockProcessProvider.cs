@@ -29,6 +29,15 @@ public sealed class MockProcessProvider : IProcessProvider
     public Task SetPriorityAsync(int pid, ProcessPriority priority, CancellationToken ct = default)
         => Task.CompletedTask;
 
+    public Task<PriorityApplyResult> ApplyTemporaryPriorityAsync(
+        int pid, ProcessPriority priority, CancellationToken ct = default) =>
+        Task.FromResult(PriorityApplyResult.Success(
+            new PriorityRestoreReceipt(pid, "mock-priority", (long)ProcessPriority.Normal)));
+
+    public Task<PriorityRestoreResult> RestorePriorityAsync(
+        PriorityRestoreReceipt receipt, CancellationToken ct = default) =>
+        Task.FromResult(PriorityRestoreResult.Restored());
+
     public Task<ProcessPriority?> GetPriorityAsync(int pid, CancellationToken cancellationToken = default)
         => Task.FromResult<ProcessPriority?>(ProcessPriority.Normal);
 
