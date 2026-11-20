@@ -13,13 +13,13 @@
 
 **One system monitor. Every desktop platform. Authoritative telemetry.**
 
-Nexus System Monitor is a native Rust (`wgpu` + `egui` + `winit` + `ratatui`) system monitor, process controller, disk space analyzer, wireless & LAN radar, flight recorder, hardware benchmark suite, and skinnable desktop mini-monitor for **macOS**, **Linux**, and **Windows**.
+Nexus System Monitor is an 8-crate native Rust (`wgpu` + `egui` + `winit` + `ratatui`) system monitor, process controller, disk space analyzer, wireless and LAN radar, flight recorder, hardware benchmark suite, and skinnable desktop mini-monitor for **macOS**, **Linux**, and **Windows**.
 
 > **Testing or building from source?** Read [TESTING.md](TESTING.md) for platform prerequisites, build commands, and CLI/GUI verification harnesses.
 
 ---
 
-## Multi-Platform Screenshots
+## Multi-Platform Screenshot Gallery
 
 ### macOS (`aarch64-apple-darwin` · Metal)
 
@@ -35,15 +35,30 @@ Nexus System Monitor is a native Rust (`wgpu` + `egui` + `winit` + `ratatui`) sy
 *Storage & Disk Space Analyzer: Guided TCC Full Disk Access card, 3D WGSL Ocean Metaballs / 48x26 Defrag Blocks / Tempest Vector Tunnel, squarified treemap, 2-pass SHA-256 duplicate finder, and SQLite snapshot diffs*
 ![Disk Space on macOS](docs/screenshots/disk-space-macos.png)
 
+*Apple Silicon Architecture & Thermals: Live libIOReport E-cluster and P-cluster residency, Apple GPU power, Neural Engine state, Media Engine blocks, and AppleSMC die temperature sensors*
+![Apple Silicon on macOS](docs/screenshots/apple-silicon-macos.png)
+
 *System Information & Health: Hardware specification sheet, 5 subsystem VFD health cards, and SQLite health trend trajectory*
 ![System Info on macOS](docs/screenshots/system-info-macos.png)
+
+*Wireless Spectrum & LAN Radar: Wi-Fi RF spectrum table, CoreWLAN Location Services privacy unlock guidance, and concurrent TCP/ARP LAN subnet discovery*
+![Wireless & LAN Radar on macOS](docs/screenshots/wireless-macos.png)
+
+*Background Services & Launch Daemons: Live service inventory (`launchd` / `systemd` / Windows SCM) with runtime state filters and dry-run lifecycle controls*
+![Services on macOS](docs/screenshots/services-macos.png)
+
+*Hardware Benchmark Studio: 4-suite hardware benchmark (SplitMix64 CPU, offscreen Metal/wgpu Compute + Fragment GPU, uncached F_NOCACHE Disk I/O, and HTTPS transfer) anchored to a 100-point reference baseline*
+![Benchmarks on macOS](docs/screenshots/benchmarks-macos.png)
+
+*Measurement Honesty & Sensor Provenance: Real-time audit of every sensor ValueState, quality tier, collector source identifier, and platform permission unlock action*
+![Honesty & Provenance on macOS](docs/screenshots/honesty-macos.png)
 
 *Settings & Appearance: 20 curated themes, interactive HSV color wheel studio, quiet hours, watchdog automation, and ChaCha20-Poly1305 companion remote streaming*
 ![Settings on macOS](docs/screenshots/settings-macos.png)
 
 ### Linux (`aarch64-unknown-linux-gnu` · Vulkan)
 
-*Linux Dashboard & System Info (`/proc` + `/sys` + `statvfs` + `systemd`)*
+*Linux Dashboard, System Info, and Processes (`/proc` + `/sys` + `statvfs` + `systemd`)*
 ![Dashboard on Linux](docs/screenshots/dashboard-linux.png)
 ![System Info on Linux](docs/screenshots/system-info-linux.png)
 ![Processes on Linux](docs/screenshots/processes-linux.png)
@@ -57,19 +72,22 @@ Nexus System Monitor is a native Rust (`wgpu` + `egui` + `winit` + `ratatui`) sy
 
 ---
 
-## Core Engineering Highlights
+## Design Philosophy & Architecture Decisions
 
-### 1. Honesty & Provenance Engine (`nexus-core`)
+### 1. Apple Human Interface Guidelines (HIG) Progressive Disclosure
+All 18 views follow an inset grouped card hierarchy (`Card Title` -> `1-line plain-English subtitle` -> `Visual Meter / Graph` -> `Action / Detail`). Every screen leads with a human-readable workload summary and color-coded status pills, while low-level engineering data (`CreationToken` integers, `libIOReport` energy channels, `AppleSMC` die sensors, and 20-column tables) remains accessible on demand inside Inspector drawers and column pickers.
+
+### 2. Guided Permission & Feature Unlock Cards
+Whenever OS security boundaries restrict a sensor or directory (macOS Full Disk Access for protected containers, Location Services for Wi-Fi SSID names, App Management for safe Trash uninstallation, Linux `CAP_NET_ADMIN` / `sudo`, or Windows Administrator elevation), Nexus renders an inline guidance card with step-by-step instructions and a one-click button that opens the exact System Settings pane.
+
+### 3. Honesty & Provenance Engine (`nexus-core`)
 Every metric in Nexus carries a typed `Metric<T>` envelope with `ValueState` (`Valid`, `Zero`, `NotYetAvailable`, `Stale`, `Unsupported`, `AccessDenied`, `TransientError`), `MetricQuality` (`Authoritative`, `Derived`, `Estimated`, `Unknown`), sampling window duration, and an interned `SourceId` (for example `darwin.mach.host_processor_info`, `darwin.ioreport.energy_model`, `linux.proc.stat`, or `windows.win32.system_times`). Nexus never fabricates zeros when a sensor requires elevated privileges or a warm delta window.
 
-### 2. PID-Reuse-Safe `ProcessKey` & Double Verification (`nexus-automation`)
+### 4. PID-Reuse-Safe `ProcessKey` & Double Verification (`nexus-automation`)
 Every process is identified by `ProcessKey { pid, creation_token_us, uid }`. Before `ActionCoordinator` dispatches any signal (`SIGTERM`, `SIGKILL`, `renice`, or `taskkill`), it re-queries the live OS kernel twice around the operation and aborts with `PidReusedOrExited` if the creation timestamp token changed.
 
-### 3. Independent Native `.nexusskin` Desktop Popout Window (`nexus-ui`)
+### 5. Independent Native `.nexusskin` Desktop Popout Window (`nexus-ui`)
 Launching the Popout Mini-Monitor creates an independent borderless `winit` desktop window sharing the primary `wgpu::Device` and `wgpu::Queue` (`WgpuSetup::Existing`). Users can drag the mini-monitor anywhere on the desktop, minimize or close the main window while the popout stays live at 60 Hz, switch between 5 bundled `.nexusskin` designs (`Console`, `Traces`, `Winamp`, `Windows Media Player`, `Windows 2000 Task Manager`), and pin window level (`TopMost`, `Normal`, `Desktop`).
-
-### 4. Apple Human Interface Guidelines (HIG) + Guided Permission Unlock Cards
-All 18 views follow an inset grouped card hierarchy (`Card Title` -> `1-line plain-English subtitle` -> `Visual Meter / Graph` -> `Action / Detail`). Whenever OS privacy boundaries restrict a feature (macOS Full Disk Access, Location Services for Wi-Fi SSIDs, App Management for safe Trash uninstall, Linux `CAP_NET_ADMIN` / `sudo`, or Windows Administrator elevation), Nexus renders a clear guidance card with one-click deep links to the exact System Settings pane.
 
 ---
 
