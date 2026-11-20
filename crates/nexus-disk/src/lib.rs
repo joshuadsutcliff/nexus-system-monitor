@@ -387,11 +387,26 @@ pub fn probe_full_disk_access() -> bool {
     if let Ok(home) = std::env::var("HOME")
         && !home.is_empty()
     {
-        probes.push(PathBuf::from(home).join("Library").join("Safari"));
+        let lib = PathBuf::from(home).join("Library");
+        probes.push(lib.join("Safari"));
+        probes.push(lib.join("Mail"));
+        probes.push(lib.join("Messages"));
+        probes.push(lib.join("TimeMachine"));
     }
     for probe in probes {
         if probe.exists()
             && let Err(err) = std::fs::read_dir(&probe)
+            && err.kind() == std::io::ErrorKind::PermissionDenied
+        {
+            return false;
+        }
+    }
+    if cfg!(target_os = "macos") {
+        // Verify read access to the protected TCC database directly so unsigned/ad-hoc bundles
+        // or inherited shells without Full Disk Access for TCC.db accurately report TCC lock state.
+        let tcc_db = Path::new("/Library/Application Support/com.apple.TCC/TCC.db");
+        if tcc_db.exists()
+            && let Err(err) = std::fs::File::open(tcc_db)
             && err.kind() == std::io::ErrorKind::PermissionDenied
         {
             return false;

@@ -3,11 +3,12 @@ use crate::assets::{UI_APP_ICON_PNG, load_standalone_fonts};
 use crate::desktop_views::{
     AutomationRuntimeState, ColorWheelState, DiskSubTab, GuiView, PlatformDataCache,
     draw_configure_columns_panel, draw_connections_view, draw_disk_space_extra_tabs,
-    draw_drivers_view, draw_inline_hbar, draw_inline_sparkline, draw_installed_apps_view,
-    draw_multi_series_history_canvas, draw_permission_guidance_card, draw_power_and_freq_view,
-    draw_services_view, draw_settings_view, draw_single_vfd_bar, draw_startup_view,
-    draw_system_info_and_health_view, draw_users_view, draw_wireless_radar_view, format_bytes,
-    format_metric_bytes, hig_card, hig_card_header, hig_status_pill, hig_view_header, metric_mib,
+    draw_drivers_view, draw_hig_command_box, draw_inline_hbar, draw_inline_sparkline,
+    draw_installed_apps_view, draw_multi_series_history_canvas, draw_permission_guidance_card,
+    draw_power_and_freq_view, draw_services_view, draw_settings_view, draw_single_vfd_bar,
+    draw_startup_view, draw_system_info_and_health_view, draw_users_view, draw_wireless_radar_view,
+    format_bytes, format_metric_bytes, hig_amber, hig_blue, hig_card, hig_card_header, hig_gray,
+    hig_green, hig_purple, hig_red, hig_status_pill, hig_view_header, metric_mib,
     srgb_rgba_to_color32, srgb_to_color32, trigger_wireless_scans,
 };
 use crate::faces::{
@@ -1124,7 +1125,10 @@ impl GuiApp {
         self.disk_scan_progress = 0.0;
         self.disk_scan_completion = 0.0;
         self.disk_scan_completed_at = None;
-        self.disk_omissions = DiskScanOmissions::default();
+        self.disk_omissions = DiskScanOmissions {
+            full_disk_access_granted: nexus_disk::probe_full_disk_access(),
+            ..Default::default()
+        };
         self.disk_selected_category = None;
         self.treemap_rects.clear();
         self.treemap_last_size = None;
@@ -1860,6 +1864,8 @@ impl GuiApp {
             .clamp(0.001, 0.25);
         self.last_frame_instant = now;
 
+        self.platform_cache.poll_async_workers();
+        self.platform_cache.update_app_live_usage(&self.snapshot);
         self.app.theme.luminance_analyzer.step(dt_s);
         self.app.step_meters(&self.snapshot, dt_s);
         let accent = self.active_accent_color32();
@@ -1894,7 +1900,8 @@ impl GuiApp {
 
         // Apply DisplayMode window background, Crystal-Glass adaptive surfaces & specular borders
         let meta = self.app.theme.active_preset_metadata();
-        let mut visuals = if meta.is_dark {
+        let is_dark = meta.is_dark || self.app.theme.display_mode.forces_dark_appearance();
+        let mut visuals = if is_dark {
             egui::Visuals::dark()
         } else {
             egui::Visuals::light()
@@ -1946,14 +1953,69 @@ impl GuiApp {
         visuals.hyperlink_color = text_acc;
         if meta.is_specular_enabled {
             let spec_alpha = (meta.specular_intensity.clamp(0.1, 1.0) * 140.0) as u8;
-            let border_col = if meta.is_dark {
+            let border_col = if is_dark {
                 Color32::from_rgba_unmultiplied(255, 255, 255, spec_alpha)
             } else {
                 Color32::from_rgba_unmultiplied(15, 23, 42, spec_alpha / 2)
             };
             visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, border_col);
         }
-        ui.ctx().set_visuals(visuals);
+        let (primary_fg, strong_fg, weak_fg) = if is_dark {
+            (
+                Color32::from_rgb(241, 245, 249),
+                Color32::from_rgb(255, 255, 255),
+                Color32::from_rgb(194, 206, 222),
+            )
+        } else {
+            (
+                Color32::from_rgb(15, 23, 42),
+                Color32::from_rgb(9, 14, 26),
+                Color32::from_rgb(51, 65, 85),
+            )
+        };
+        visuals.override_text_color = None;
+        visuals.weak_text_color = Some(weak_fg);
+        visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, primary_fg);
+        visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, primary_fg);
+        visuals.widgets.hovered.fg_stroke = Stroke::new(1.5, strong_fg);
+        visuals.widgets.active.fg_stroke = Stroke::new(2.0, strong_fg);
+        visuals.widgets.open.fg_stroke = Stroke::new(1.0, primary_fg);
+        visuals.widgets.inactive.bg_stroke = Stroke::new(
+            1.0,
+            if is_dark {
+                Color32::from_rgba_unmultiplied(255, 255, 255, 34)
+            } else {
+                Color32::from_rgba_unmultiplied(15, 23, 42, 32)
+            },
+        );
+        visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, accent);
+        visuals.widgets.active.bg_stroke = Stroke::new(1.5, accent);
+        ui.ctx().set_theme(if is_dark {
+            egui::Theme::Dark
+        } else {
+            egui::Theme::Light
+        });
+        ui.ctx().all_styles_mut(|style| {
+            style
+                .text_styles
+                .insert(egui::TextStyle::Heading, FontId::proportional(21.0));
+            style
+                .text_styles
+                .insert(egui::TextStyle::Body, FontId::proportional(13.0));
+            style
+                .text_styles
+                .insert(egui::TextStyle::Button, FontId::proportional(13.0));
+            style
+                .text_styles
+                .insert(egui::TextStyle::Monospace, FontId::monospace(12.5));
+            style
+                .text_styles
+                .insert(egui::TextStyle::Small, FontId::proportional(11.5));
+            style.spacing.scroll.dormant_handle_opacity = 0.45;
+            style.spacing.scroll.dormant_background_opacity = 0.15;
+            style.visuals = visuals.clone();
+        });
+        ui.set_style(ui.ctx().global_style());
         ui.ctx().set_zoom_factor(
             (f32::from(self.app.theme.text_size_percent) / 100.0)
                 * meta.font_size_multiplier.clamp(0.75, 2.0),
@@ -2002,7 +2064,7 @@ impl GuiApp {
                             ui.horizontal(|ui| {
                                 ui.label(
                                     RichText::new("Display:")
-                                        .font(FontId::proportional(11.5))
+                                        .font(FontId::proportional(12.0))
                                         .color(ui.visuals().weak_text_color()),
                                 );
                                 let is_tint = !matches!(
@@ -2080,7 +2142,7 @@ impl GuiApp {
                             ui.horizontal(|ui| {
                                 ui.label(
                                     RichText::new("VFD:")
-                                        .font(FontId::proportional(11.5))
+                                        .font(FontId::proportional(12.0))
                                         .color(ui.visuals().weak_text_color()),
                                 );
                                 for (vc, label) in [
@@ -2111,7 +2173,7 @@ impl GuiApp {
                             ui.horizontal(|ui| {
                                 ui.label(
                                     RichText::new("Rate:")
-                                        .font(FontId::proportional(11.5))
+                                        .font(FontId::proportional(12.0))
                                         .color(ui.visuals().weak_text_color()),
                                 );
                                 for (ms, label, tip) in [
@@ -2243,7 +2305,7 @@ impl GuiApp {
                             rt_state.recent_alerts.len(),
                             self.action_status
                         ))
-                        .font(FontId::proportional(11.5))
+                        .font(FontId::proportional(12.0))
                         .color(ui.visuals().weak_text_color()),
                     );
                 });
@@ -2265,8 +2327,8 @@ impl GuiApp {
                     .fill(sidebar_fill)
                     .inner_margin(egui::Margin::symmetric(10, 10)),
             )
-            .default_size(210.0)
-            .min_size(196.0)
+            .default_size(226.0)
+            .min_size(210.0)
             .show(ui, |ui| {
                 let nav_height = (ui.available_height() - 210.0).max(200.0);
                 egui::ScrollArea::vertical()
@@ -2281,7 +2343,7 @@ impl GuiApp {
                             }
                             ui.label(
                                 RichText::new(*section_title)
-                                    .font(FontId::proportional(11.0))
+                                    .font(FontId::proportional(11.5))
                                     .strong()
                                     .color(ui.visuals().weak_text_color()),
                             );
@@ -2353,7 +2415,7 @@ impl GuiApp {
                         ui.horizontal(|ui| {
                             ui.label(
                                 RichText::new("Popout Mini-Monitor")
-                                    .font(FontId::proportional(12.0))
+                                    .font(FontId::proportional(12.5))
                                     .strong(),
                             );
                             ui.with_layout(
@@ -2448,7 +2510,7 @@ impl GuiApp {
                                 "Theme Preset ({})",
                                 CrystalGlassPreset::ALL.len()
                             ))
-                            .font(FontId::proportional(11.5))
+                            .font(FontId::proportional(12.5))
                             .strong(),
                         );
                         ui.add_space(3.0);
@@ -3915,7 +3977,7 @@ impl GuiApp {
                             ui.horizontal_wrapped(|ui| {
                                 ui.label(
                                     RichText::new(headline)
-                                        .font(FontId::proportional(17.0))
+                                        .font(FontId::proportional(17.5))
                                         .strong()
                                         .color(ui.visuals().strong_text_color()),
                                 );
@@ -3941,7 +4003,7 @@ impl GuiApp {
                                         hw.hostname,
                                         up_text
                                     ))
-                                    .font(FontId::proportional(12.0))
+                                    .font(FontId::proportional(12.5))
                                     .color(ui.visuals().weak_text_color()),
                                 );
                             }
@@ -3988,7 +4050,7 @@ impl GuiApp {
                             );
                             ui.label(
                                 RichText::new(summary_prose)
-                                    .font(FontId::proportional(12.5))
+                                    .font(FontId::proportional(13.0))
                                     .color(ui.visuals().text_color()),
                             );
                         });
@@ -3999,7 +4061,7 @@ impl GuiApp {
                                 ui.set_min_width(155.0);
                                 ui.label(
                                     RichText::new("Quick Actions")
-                                        .font(FontId::proportional(11.5))
+                                        .font(FontId::proportional(12.0))
                                         .strong()
                                         .color(ui.visuals().weak_text_color()),
                                 );
@@ -4102,14 +4164,14 @@ impl GuiApp {
                         ui.horizontal(|ui| {
                             ui.label(
                                 RichText::new("Processor (CPU & Clusters)")
-                                    .font(FontId::proportional(14.5))
+                                    .font(FontId::proportional(15.5))
                                     .strong()
                                     .color(ui.visuals().strong_text_color()),
                             );
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    if ui.small_button("View Details ->").clicked() {
+                                    if ui.small_button("View Details ›").clicked() {
                                         self.active_view = GuiView::Dest(Destination::Performance);
                                     }
                                 },
@@ -4117,7 +4179,7 @@ impl GuiApp {
                         });
                         ui.label(
                             RichText::new("Total, user-space, and kernel utilization across Performance and Efficiency cores.")
-                                .font(FontId::proportional(12.0))
+                                .font(FontId::proportional(13.0))
                                 .color(ui.visuals().weak_text_color()),
                         );
                         ui.add_space(6.0);
@@ -4200,7 +4262,7 @@ impl GuiApp {
                                 e_mhz_part,
                                 self.snapshot.system.load_avg_1m.format_with_unit(2, "")
                             ))
-                            .font(FontId::proportional(11.5))
+                            .font(FontId::proportional(12.0))
                             .color(ui.visuals().weak_text_color()),
                         );
                     });
@@ -4213,14 +4275,14 @@ impl GuiApp {
                         ui.horizontal(|ui| {
                             ui.label(
                                 RichText::new("Memory (RAM Composition)")
-                                    .font(FontId::proportional(14.5))
+                                    .font(FontId::proportional(15.5))
                                     .strong()
                                     .color(ui.visuals().strong_text_color()),
                             );
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    if ui.small_button("View Details ->").clicked() {
+                                    if ui.small_button("View Details ›").clicked() {
                                         self.active_view = GuiView::Dest(Destination::Performance);
                                     }
                                 },
@@ -4228,7 +4290,7 @@ impl GuiApp {
                         });
                         ui.label(
                             RichText::new("Physical memory allocation across apps, kernel wired pages, compression, and free headroom.")
-                                .font(FontId::proportional(12.0))
+                                .font(FontId::proportional(13.0))
                                 .color(ui.visuals().weak_text_color()),
                         );
                         ui.add_space(6.0);
@@ -4271,7 +4333,7 @@ impl GuiApp {
                                         "* {lbl}: {}",
                                         format_bytes(bytes as u64)
                                     ))
-                                    .font(FontId::proportional(11.0)),
+                                    .font(FontId::proportional(12.0)),
                                 );
                             }
                         });
@@ -4308,14 +4370,14 @@ impl GuiApp {
                         ui.horizontal(|ui| {
                             ui.label(
                                 RichText::new("Graphics & Silicon Power")
-                                    .font(FontId::proportional(14.5))
+                                    .font(FontId::proportional(15.5))
                                     .strong()
                                     .color(ui.visuals().strong_text_color()),
                             );
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    if ui.small_button("View Details ->").clicked() {
+                                    if ui.small_button("View Details ›").clicked() {
                                         self.active_view = GuiView::Dest(Destination::AppleSilicon);
                                     }
                                 },
@@ -4323,7 +4385,7 @@ impl GuiApp {
                         });
                         ui.label(
                             RichText::new("Apple GPU activity, package power draw, and max die thermal state.")
-                                .font(FontId::proportional(12.0))
+                                .font(FontId::proportional(13.0))
                                 .color(ui.visuals().weak_text_color()),
                         );
                         ui.add_space(6.0);
@@ -4389,7 +4451,7 @@ impl GuiApp {
                         };
                         ui.label(
                             RichText::new(gpu_explain)
-                                .font(FontId::proportional(11.5))
+                                .font(FontId::proportional(12.0))
                                 .color(ui.visuals().weak_text_color()),
                         );
                     });
@@ -4402,14 +4464,14 @@ impl GuiApp {
                         ui.horizontal(|ui| {
                             ui.label(
                                 RichText::new("Storage & Network")
-                                    .font(FontId::proportional(14.5))
+                                    .font(FontId::proportional(15.5))
                                     .strong()
                                     .color(ui.visuals().strong_text_color()),
                             );
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    if ui.small_button("View Details ->").clicked() {
+                                    if ui.small_button("View Details ›").clicked() {
                                         self.active_view = GuiView::Dest(Destination::DiskSpace);
                                     }
                                 },
@@ -4417,7 +4479,7 @@ impl GuiApp {
                         });
                         ui.label(
                             RichText::new("Root volume capacity and live disk and network throughput.")
-                                .font(FontId::proportional(12.0))
+                                .font(FontId::proportional(13.0))
                                 .color(ui.visuals().weak_text_color()),
                         );
                         ui.add_space(6.0);
@@ -4514,7 +4576,7 @@ impl GuiApp {
                                 d_read + d_write,
                                 n_down + n_up
                             ))
-                            .font(FontId::proportional(11.5))
+                            .font(FontId::proportional(12.0))
                             .color(ui.visuals().weak_text_color()),
                         );
                     });
@@ -4528,19 +4590,19 @@ impl GuiApp {
                     ui.horizontal(|ui| {
                         ui.label(
                             RichText::new("What Is Using My Mac Right Now")
-                                .font(FontId::proportional(14.5))
+                                .font(FontId::proportional(15.5))
                                 .strong()
                                 .color(ui.visuals().strong_text_color()),
                         );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("View All Processes ->").clicked() {
+                            if ui.button("View All Processes ›").clicked() {
                                 self.active_view = GuiView::Dest(Destination::Processes);
                             }
                         });
                     });
                     ui.label(
                         RichText::new("Top 5 active applications and processes ranked by combined processor and memory impact.")
-                            .font(FontId::proportional(12.0))
+                            .font(FontId::proportional(13.0))
                             .color(ui.visuals().weak_text_color()),
                     );
                     ui.add_space(6.0);
@@ -4582,7 +4644,7 @@ impl GuiApp {
                                         ui.label(RichText::new(proc_snap.name.as_str()).strong());
                                         ui.label(
                                             RichText::new(format!("PID {}", proc_snap.key.pid))
-                                                .font(FontId::proportional(11.0))
+                                                .font(FontId::proportional(12.0))
                                                 .color(ui.visuals().weak_text_color()),
                                         );
                                     });
@@ -5549,8 +5611,10 @@ impl GuiApp {
                     if self.snapshot.system.cores.is_empty() {
                         ui.label("Per-core processor telemetry is pending warm-up.");
                     } else {
+                        let avail_w = ui.available_width();
+                        let core_cols = ((avail_w + 10.0) / 184.0).floor().clamp(2.0, 5.0) as usize;
                         egui::Grid::new("per_core_grid")
-                            .num_columns(5)
+                            .num_columns(core_cols)
                             .spacing([10.0, 10.0])
                             .show(ui, |ui| {
                                 for (idx, core) in self.snapshot.system.cores.iter().enumerate() {
@@ -5591,7 +5655,7 @@ impl GuiApp {
                                                         "Core {} · {cluster_tag}",
                                                         core.core_index + 1
                                                     ))
-                                                    .font(FontId::proportional(11.5))
+                                                    .font(FontId::proportional(12.0))
                                                     .strong(),
                                                 );
                                                 ui.add_space(3.0);
@@ -5628,7 +5692,7 @@ impl GuiApp {
                                                 }
                                             });
                                         });
-                                    if (idx + 1).is_multiple_of(5) {
+                                    if (idx + 1).is_multiple_of(core_cols) {
                                         ui.end_row();
                                     }
                                 }
@@ -5903,36 +5967,48 @@ impl GuiApp {
         ui.add_space(8.0);
 
         if daemon_procs == 0 && total_procs > 0 {
-            let (headline, why, steps) = if cfg!(target_os = "macos") {
-                (
-                    "Showing processes owned by your macOS user account (UID >= 500)",
-                    "Standard macOS user privileges allow live CPU, memory footprint, and coalition inspection for your own apps without root access.",
-                    "How to inspect root & system daemons (UID 0): Launch Nexus with elevated privileges in Terminal (`sudo nexus-monitor` or `sudo nexus top`) to unlock kernel/root process telemetry.",
-                )
+            if cfg!(target_os = "macos") {
+                let _ = draw_permission_guidance_card(
+                    ui,
+                    "Root & System Daemons",
+                    hig_blue(ui),
+                    "Showing apps and processes for your user account",
+                    "Elevate privileges in Terminal if you need to inspect root-owned daemons (UID 0):",
+                    &[],
+                    Some("sudo nexus-monitor"),
+                    None,
+                    false,
+                    None,
+                );
             } else if cfg!(target_os = "linux") {
-                (
-                    "Showing processes visible to your Linux user account",
-                    "Standard Linux user privileges allow live /proc/[pid]/stat CPU, RSS memory, and thread inspection without root access.",
-                    "How to inspect root-only /proc/[pid]/fd & io descriptors: Run `sudo nexus-monitor` or `sudo nexus top` in Terminal.",
-                )
+                let _ = draw_permission_guidance_card(
+                    ui,
+                    "Root & System Daemons",
+                    hig_blue(ui),
+                    "Showing apps and processes for your Linux user account",
+                    "Elevate privileges in Terminal to inspect root-owned /proc/[pid]/fd and io descriptors:",
+                    &[],
+                    Some("sudo nexus-monitor"),
+                    None,
+                    false,
+                    None,
+                );
             } else {
-                (
-                    "Showing processes visible to your Windows user session",
-                    "Standard Windows privileges allow live Win32 Toolhelp32 and working-set memory inspection for active user processes.",
-                    "How to inspect protected SYSTEM services: Right-click Nexus System Monitor and select 'Run as administrator'.",
-                )
-            };
-            let _ = draw_permission_guidance_card(
-                ui,
-                "User-Session Scope",
-                hig_blue(ui),
-                headline,
-                why,
-                steps,
-                None,
-                false,
-                None,
-            );
+                let _ = draw_permission_guidance_card(
+                    ui,
+                    "User-Session Scope",
+                    hig_blue(ui),
+                    "Showing apps and processes for your Windows user session",
+                    "Standard privileges allow live CPU and working-set memory inspection for active user apps.",
+                    &[
+                        "Right-click Nexus System Monitor and choose Run as administrator to inspect protected SYSTEM services.",
+                    ],
+                    None,
+                    None,
+                    false,
+                    None,
+                );
+            }
             ui.add_space(8.0);
         }
 
@@ -6685,56 +6761,123 @@ impl GuiApp {
                 ui.add_space(8.0);
 
                 // Guided Full Disk Access / Storage Permission & Action Card
-                if self.disk_omissions.permission_denied_count > 0
-                    || self.disk_omissions.other_error_count > 0
-                    || !self.disk_omissions.full_disk_access_granted
                 {
-                    let rescan_clicked = if self.disk_omissions.full_disk_access_granted {
-                        let (badge, headline, tip) = if cfg!(target_os = "macos") {
-                            (
-                                "Full Disk Access Granted",
-                                "Protected macOS directories are unlocked",
-                                "Tip: Some system-sealed kernel folders remain read-protected by SIP even with Full Disk Access.",
+                    let rescan_clicked = if self.disk_omissions.full_disk_access_granted
+                        && self.disk_omissions.permission_denied_count == 0
+                        && self.disk_omissions.other_error_count == 0
+                    {
+                        if cfg!(target_os = "macos") {
+                            draw_permission_guidance_card(
+                                ui,
+                                "Full Disk Access",
+                                hig_amber(ui),
+                                "Grant Full Disk Access to scan protected macOS folders",
+                                "macOS hides Mail, Messages, Safari, and container sizes until you approve Nexus System Monitor.",
+                                &[
+                                    "Click Open Full Disk Access Settings.",
+                                    "Click + (or drag Nexus System Monitor.app from Finder) and toggle it ON.",
+                                    "Return here and click Rescan Now.",
+                                ],
+                                None,
+                                Some((
+                                    "Open Full Disk Access Settings",
+                                    "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
+                                )),
+                                true,
+                                Some("Rescan Now"),
                             )
                         } else if cfg!(target_os = "linux") {
-                            (
+                            draw_permission_guidance_card(
+                                ui,
                                 "Filesystem Access Active",
+                                hig_green(ui),
                                 "Directory tree scanned with current user permissions",
-                                "Tip: Run `sudo nexus-monitor` to inspect root-only paths such as /root or /var/lib/docker.",
+                                "To inspect root-only paths such as /root or /var/lib/docker, run:",
+                                &[],
+                                Some("sudo nexus-monitor"),
+                                None,
+                                false,
+                                Some("Rescan Now"),
                             )
                         } else {
-                            (
+                            draw_permission_guidance_card(
+                                ui,
                                 "Volume Access Active",
+                                hig_green(ui),
                                 "Directory tree scanned with current Windows privileges",
-                                "Tip: Run as Administrator to inspect protected System Volume Information or Windows Update folders.",
+                                "Standard user volume scan is active.",
+                                &[
+                                    "Run as Administrator to inspect protected System Volume Information folders.",
+                                ],
+                                None,
+                                None,
+                                false,
+                                Some("Rescan Now"),
                             )
-                        };
-                        draw_permission_guidance_card(
-                            ui,
-                            badge,
-                            hig_green(ui),
-                            headline,
-                            &format!(
-                                "Storage access is active. {} root/system-only items were skipped ({} other read errors).",
-                                self.disk_omissions.permission_denied_count,
-                                self.disk_omissions.other_error_count
-                            ),
-                            tip,
-                            None,
-                            false,
-                            Some("Rescan Now"),
-                        )
+                        }
+                    } else if self.disk_omissions.full_disk_access_granted {
+                        if cfg!(target_os = "macos") {
+                            draw_permission_guidance_card(
+                                ui,
+                                "Full Disk Access Granted",
+                                hig_green(ui),
+                                "Protected macOS directories are unlocked",
+                                &format!(
+                                    "Storage access is active ({} SIP-protected items skipped).",
+                                    self.disk_omissions.permission_denied_count
+                                ),
+                                &[],
+                                None,
+                                None,
+                                false,
+                                Some("Rescan Now"),
+                            )
+                        } else if cfg!(target_os = "linux") {
+                            draw_permission_guidance_card(
+                                ui,
+                                "Filesystem Access Active",
+                                hig_green(ui),
+                                "Directory tree scanned with current user permissions",
+                                &format!(
+                                    "Storage access is active ({} root-only items skipped). To inspect /root or /var/lib/docker, run:",
+                                    self.disk_omissions.permission_denied_count
+                                ),
+                                &[],
+                                Some("sudo nexus-monitor"),
+                                None,
+                                false,
+                                Some("Rescan Now"),
+                            )
+                        } else {
+                            draw_permission_guidance_card(
+                                ui,
+                                "Volume Access Active",
+                                hig_green(ui),
+                                "Directory tree scanned with current Windows privileges",
+                                &format!(
+                                    "Storage access is active ({} protected items skipped).",
+                                    self.disk_omissions.permission_denied_count
+                                ),
+                                &["Run as Administrator to inspect protected System Volume Information folders."],
+                                None,
+                                None,
+                                false,
+                                Some("Rescan Now"),
+                            )
+                        }
                     } else if cfg!(target_os = "macos") {
                         draw_permission_guidance_card(
                             ui,
-                            "Limited Scope (TCC)",
+                            "Full Disk Access",
                             hig_amber(ui),
                             "Grant Full Disk Access to scan protected macOS folders",
-                            &format!(
-                                "macOS Transparency, Consent, and Control (TCC) protects ~/Library/Mail, Messages, Safari, Containers, and Time Machine folders ({} items skipped in current scan).",
-                                self.disk_omissions.permission_denied_count
-                            ),
-                            "How to enable: 1. Click 'Open Full Disk Access Settings'  ->  2. Click '+' (or drag Nexus System Monitor.app from Finder)  ->  3. Toggle Nexus System Monitor ON and click 'Rescan Now'.",
+                            "macOS hides Mail, Messages, Safari, and container sizes until you approve Nexus System Monitor.",
+                            &[
+                                "Click Open Full Disk Access Settings.",
+                                "Click + (or drag Nexus System Monitor.app from Finder) and toggle it ON.",
+                                "Return here and click Rescan Now.",
+                            ],
+                            None,
                             Some((
                                 "Open Full Disk Access Settings",
                                 "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
@@ -6745,14 +6888,12 @@ impl GuiApp {
                     } else if cfg!(target_os = "linux") {
                         draw_permission_guidance_card(
                             ui,
-                            "Limited Scope (POSIX Permissions)",
+                            "Limited Scope (POSIX)",
                             hig_amber(ui),
                             "Some root-owned Linux directories were skipped",
-                            &format!(
-                                "Linux POSIX permissions restrict non-root access to /root, /proc/*/fd, and protected /var subdirectories ({} items skipped in current scan).",
-                                self.disk_omissions.permission_denied_count
-                            ),
-                            "How to unlock full filesystem scanning: Launch `sudo nexus-monitor` or grant read permissions to the target directory, then click 'Rescan Now'.",
+                            "Linux restricts non-root access to /root, /proc/*/fd, and protected /var subdirectories.",
+                            &["Elevate privileges in Terminal, then click Rescan Now:"],
+                            Some("sudo nexus-monitor"),
                             None,
                             false,
                             Some("Rescan Now"),
@@ -6760,14 +6901,15 @@ impl GuiApp {
                     } else {
                         draw_permission_guidance_card(
                             ui,
-                            "Limited Scope (UAC / ACL)",
+                            "Limited Scope (UAC)",
                             hig_amber(ui),
                             "Some protected Windows system folders were skipped",
-                            &format!(
-                                "Windows ACLs restrict standard user access to System Volume Information and protected administrator directories ({} items skipped in current scan).",
-                                self.disk_omissions.permission_denied_count
-                            ),
-                            "How to unlock full volume scanning: Launch Nexus System Monitor as Administrator, then click 'Rescan Now'.",
+                            "Windows restricts standard user access to System Volume Information and administrator directories.",
+                            &[
+                                "Right-click Nexus System Monitor and select Run as administrator.",
+                                "Return here and click Rescan Now.",
+                            ],
+                            None,
                             None,
                             false,
                             Some("Rescan Now"),
@@ -6941,8 +7083,9 @@ impl GuiApp {
                                         },
                                     ))
                                     .corner_radius(CornerRadius::same(8))
-                                    .inner_margin(egui::Margin::symmetric(8, 6))
+                                    .inner_margin(egui::Margin::symmetric(8, 5))
                                     .show(ui, |ui| {
+                                        ui.set_min_width(142.0);
                                         if ui
                                             .selectable_label(
                                                 is_sel,
@@ -6962,7 +7105,7 @@ impl GuiApp {
                                                 format_bytes(cat.bytes),
                                                 cat.file_count
                                             ))
-                                            .font(FontId::proportional(11.0))
+                                            .font(FontId::proportional(11.5))
                                             .color(ui.visuals().weak_text_color()),
                                         );
                                     });
@@ -7243,7 +7386,7 @@ impl GuiApp {
                             if let Some(base) = &self.baseline_snapshot {
                                 let diff = SnapshotDiffer::diff(base, &self.snapshot);
                                 self.last_diff_summary = format!(
-                                    "Diff Gen #{} -> #{}: dCPU={:+.1}%, Spawned={}, Terminated={}, Modified={}",
+                                    "Diff Gen #{} to #{}: dCPU={:+.1}%, Spawned={}, Terminated={}, Modified={}",
                                     diff.baseline_generation,
                                     diff.target_generation,
                                     diff.cpu_percent_delta.unwrap_or(0.0),
@@ -7376,7 +7519,7 @@ impl GuiApp {
                         ui.add_space(6.0);
                         for ev in events.iter().take(8) {
                             ui.label(format!(
-                                "• [{}] PID {} (token={}) {:?} -> target nice {:?}",
+                                "• [{}] PID {} (token={}) {:?} › target nice {:?}",
                                 ev.rule_id,
                                 ev.process_key.pid,
                                 ev.process_key.creation_token_us,
@@ -7972,7 +8115,185 @@ impl GuiApp {
                     });
                 });
 
-                ui.add_space(10.0);
+                ui.add_space(8.0);
+
+                hig_card(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    let (guide_title, guide_sub) = if cfg!(target_os = "macos") {
+                        (
+                            "Permissions & Feature Unlock Guide",
+                            "Quick links and step-by-step instructions to unlock any permission-gated macOS telemetry or storage feature.",
+                        )
+                    } else if cfg!(target_os = "linux") {
+                        (
+                            "Linux Privileges & Capabilities Guide",
+                            "How to unlock root-owned /proc descriptors, systemd control, and wireless netlink telemetry on Linux.",
+                        )
+                    } else {
+                        (
+                            "Windows Administrator & Privilege Guide",
+                            "How to unlock protected SYSTEM processes, Service Control Manager actions, and volume scans on Windows.",
+                        )
+                    };
+                    hig_card_header(ui, guide_title, guide_sub, accent);
+
+                    let draw_unlock_row = |ui: &mut egui::Ui,
+                                           title: &str,
+                                           bullet: &str,
+                                           command: Option<(&str, &str)>,
+                                           button_label: Option<&str>|
+                     -> bool {
+                        let mut clicked = false;
+                        egui::Frame::new()
+                            .fill(ui.visuals().faint_bg_color)
+                            .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
+                            .corner_radius(CornerRadius::same(8))
+                            .inner_margin(egui::Margin::symmetric(12, 7))
+                            .show(ui, |ui| {
+                                ui.set_min_width(ui.available_width());
+                                ui.horizontal(|ui| {
+                                    ui.vertical(|ui| {
+                                        ui.set_max_width((ui.available_width() - 180.0).max(200.0));
+                                        ui.label(
+                                            RichText::new(title)
+                                                .font(FontId::proportional(13.5))
+                                                .strong()
+                                                .color(ui.visuals().strong_text_color()),
+                                        );
+                                        ui.label(
+                                            RichText::new(bullet)
+                                                .font(FontId::proportional(13.0))
+                                                .color(ui.visuals().text_color()),
+                                        );
+                                        if let Some((cmd, salt)) = command {
+                                            ui.add_space(4.0);
+                                            draw_hig_command_box(ui, cmd, salt);
+                                        }
+                                    });
+                                    if let Some(btn_lbl) = button_label {
+                                        ui.with_layout(
+                                            egui::Layout::right_to_left(egui::Align::Center),
+                                            |ui| {
+                                                if ui
+                                                    .button(
+                                                        RichText::new(btn_lbl)
+                                                            .font(FontId::proportional(12.5))
+                                                            .strong(),
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    clicked = true;
+                                                }
+                                            },
+                                        );
+                                    }
+                                });
+                            });
+                        ui.add_space(5.0);
+                        clicked
+                    };
+
+                    if cfg!(target_os = "macos") {
+                        if draw_unlock_row(
+                            ui,
+                            "Full Disk Access (Disk Space & Containers)",
+                            "• Open System Settings › Privacy & Security › Full Disk Access and toggle Nexus System Monitor ON.",
+                            None,
+                            Some("Open Full Disk Access"),
+                        ) {
+                            crate::desktop_views::open_macos_privacy_pane(
+                                "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
+                            );
+                        }
+                        if draw_unlock_row(
+                            ui,
+                            "App Management (Safe Trash Uninstaller)",
+                            "• Open System Settings › Privacy & Security › App Management and toggle Nexus System Monitor ON.",
+                            None,
+                            Some("Open App Management"),
+                        ) {
+                            crate::desktop_views::open_macos_privacy_pane(
+                                "x-apple.systempreferences:com.apple.preference.security?Privacy_AppBundles",
+                            );
+                        }
+                        if draw_unlock_row(
+                            ui,
+                            "Location Services (Wi-Fi SSID Names)",
+                            "• Open System Settings › Privacy & Security › Location Services and toggle Nexus System Monitor ON.",
+                            None,
+                            Some("Open Location Services"),
+                        ) {
+                            crate::desktop_views::open_macos_privacy_pane(
+                                "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices",
+                            );
+                        }
+                        if draw_unlock_row(
+                            ui,
+                            "Login Items & Extensions (Launchd & DriverKit)",
+                            "• Open System Settings › General › Login Items & Extensions to manage background items or DriverKit extensions.",
+                            None,
+                            Some("Open Login Items"),
+                        ) {
+                            crate::desktop_views::open_macos_privacy_pane(
+                                "x-apple.systempreferences:com.apple.LoginItems-Settings.extension",
+                            );
+                        }
+                    } else if cfg!(target_os = "linux") {
+                        if draw_unlock_row(
+                            ui,
+                            "Full Filesystem & /proc/[pid]/fd Attribution",
+                            "• Elevate privileges or grant CAP_DAC_READ_SEARCH / CAP_SYS_PTRACE to inspect root-owned sockets and directories:",
+                            Some(("sudo nexus-monitor", "honesty_sudo_linux_fs")),
+                            Some("Reveal Binary"),
+                        ) {
+                            crate::desktop_views::reveal_app_in_finder();
+                        }
+                        let _ = draw_unlock_row(
+                            ui,
+                            "Wireless & Netlink RF Scanning",
+                            "• Grant CAP_NET_ADMIN for active nl80211 Wi-Fi scans:",
+                            Some((
+                                "sudo setcap cap_net_admin+ep ./nexus-monitor",
+                                "honesty_setcap_linux",
+                            )),
+                            None,
+                        );
+                    } else if draw_unlock_row(
+                        ui,
+                        "Administrator Elevation (SYSTEM Processes & SCM)",
+                        "• Right-click nexus-monitor.exe and choose Run as administrator to inspect protected SYSTEM processes and control services.",
+                        None,
+                        Some("Reveal Executable"),
+                    ) {
+                        crate::desktop_views::reveal_app_in_finder();
+                    }
+
+                    if cfg!(windows) {
+                        if draw_unlock_row(
+                            ui,
+                            "Root Daemons & Kernel Sockets (SYSTEM)",
+                            "• Run an elevated Administrator terminal to inspect all system-wide handles:",
+                            Some(("nexus.exe top", "honesty_sudo_windows")),
+                            Some("Reveal Binary"),
+                        ) {
+                            crate::desktop_views::reveal_app_in_finder();
+                        }
+                    } else if draw_unlock_row(
+                        ui,
+                        "Root Daemons & Kernel Sockets (UID 0)",
+                        "• Elevate privileges in Terminal to inspect root-owned process footprints and socket PIDs:",
+                        Some(("sudo nexus-monitor", "honesty_sudo_macos")),
+                        Some(if cfg!(target_os = "macos") {
+                            "Reveal App in Finder"
+                        } else {
+                            "Reveal Binary"
+                        }),
+                    ) {
+                        crate::desktop_views::reveal_app_in_finder();
+                    }
+                });
+
+                ui.add_space(8.0);
 
                 hig_card(ui, |ui| {
                     ui.set_min_width(ui.available_width());
@@ -7985,7 +8306,7 @@ impl GuiApp {
                     egui::Grid::new("honesty_provenance_grid")
                         .num_columns(5)
                         .striped(true)
-                        .spacing([18.0, 8.0])
+                        .spacing([16.0, 4.0])
                         .show(ui, |ui| {
                             ui.label(RichText::new("Sensor").strong().color(accent));
                             ui.label(RichText::new("Reading").strong().color(accent));
@@ -8000,7 +8321,7 @@ impl GuiApp {
                                     ui.label(RichText::new(desc).strong());
                                     ui.label(
                                         RichText::new(name)
-                                            .font(FontId::proportional(11.0))
+                                            .font(FontId::proportional(11.5))
                                             .color(ui.visuals().weak_text_color()),
                                     );
                                 });
@@ -8036,110 +8357,6 @@ impl GuiApp {
                                 ui.label(self.snapshot.source_name(m.provenance.source));
                                 ui.end_row();
                             }
-                        });
-                });
-
-                ui.add_space(10.0);
-
-                hig_card(ui, |ui| {
-                    ui.set_min_width(ui.available_width());
-                    let (guide_title, guide_sub, col_how) = if cfg!(target_os = "macos") {
-                        (
-                            "macOS Permissions & Feature Unlock Guide",
-                            "Quick links and step-by-step instructions to unlock any permission-gated macOS telemetry or storage feature.",
-                            "How to Unlock on macOS",
-                        )
-                    } else if cfg!(target_os = "linux") {
-                        (
-                            "Linux Privileges & Capabilities Guide",
-                            "How to unlock root-owned /proc descriptors, systemd control, and wireless netlink telemetry on Linux.",
-                            "How to Unlock on Linux",
-                        )
-                    } else {
-                        (
-                            "Windows Administrator & Privilege Guide",
-                            "How to unlock protected SYSTEM processes, Service Control Manager actions, and volume scans on Windows.",
-                            "How to Unlock on Windows",
-                        )
-                    };
-                    hig_card_header(ui, guide_title, guide_sub, accent);
-                    egui::Grid::new("honesty_permissions_guide_grid")
-                        .num_columns(3)
-                        .striped(true)
-                        .spacing([14.0, 8.0])
-                        .show(ui, |ui| {
-                            ui.label(RichText::new("Feature / Scope").strong().color(accent));
-                            ui.label(RichText::new(col_how).strong().color(accent));
-                            ui.label(RichText::new("Quick Action").strong().color(accent));
-                            ui.end_row();
-
-                            if cfg!(target_os = "macos") {
-                                ui.label(RichText::new("Full Disk Access (Disk Space & Containers)").strong());
-                                ui.label("System Settings -> Privacy & Security -> Full Disk Access -> Add & toggle Nexus System Monitor ON.");
-                                if ui.small_button("Open Full Disk Access").clicked() {
-                                    crate::desktop_views::open_macos_privacy_pane(
-                                        "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
-                                    );
-                                }
-                                ui.end_row();
-
-                                ui.label(RichText::new("App Management (Safe Trash Uninstaller)").strong());
-                                ui.label("System Settings -> Privacy & Security -> App Management -> Toggle Nexus System Monitor ON.");
-                                if ui.small_button("Open App Management").clicked() {
-                                    crate::desktop_views::open_macos_privacy_pane(
-                                        "x-apple.systempreferences:com.apple.preference.security?Privacy_AppBundles",
-                                    );
-                                }
-                                ui.end_row();
-
-                                ui.label(RichText::new("Location Services (Wi-Fi SSID Names)").strong());
-                                ui.label("System Settings -> Privacy & Security -> Location Services -> Toggle Nexus System Monitor ON to unredact SSIDs.");
-                                if ui.small_button("Open Location Services").clicked() {
-                                    crate::desktop_views::open_macos_privacy_pane(
-                                        "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices",
-                                    );
-                                }
-                                ui.end_row();
-
-                                ui.label(RichText::new("Login Items & Extensions (Launchd / DriverKit)").strong());
-                                ui.label("System Settings -> General -> Login Items & Extensions -> Toggle background items or DriverKit extensions.");
-                                if ui.small_button("Open Login Items").clicked() {
-                                    crate::desktop_views::open_macos_privacy_pane(
-                                        "x-apple.systempreferences:com.apple.LoginItems-Settings.extension",
-                                    );
-                                }
-                                ui.end_row();
-                            } else if cfg!(target_os = "linux") {
-                                ui.label(RichText::new("Full Filesystem & /proc/[pid]/fd Attribution").strong());
-                                ui.label("Run `sudo nexus-monitor` or grant CAP_DAC_READ_SEARCH / CAP_SYS_PTRACE to inspect root-owned sockets and directories.");
-                                if ui.small_button("Reveal Binary").clicked() {
-                                    crate::desktop_views::reveal_app_in_finder();
-                                }
-                                ui.end_row();
-
-                                ui.label(RichText::new("Wireless & Netlink RF Scanning").strong());
-                                ui.label("Grant CAP_NET_ADMIN (`sudo setcap cap_net_admin+ep ./nexus-monitor`) for active nl80211 Wi-Fi scans.");
-                                ui.label("CAP_NET_ADMIN");
-                                ui.end_row();
-                            } else {
-                                ui.label(RichText::new("Administrator Elevation (SYSTEM Processes & SCM)").strong());
-                                ui.label("Right-click nexus-monitor.exe and choose 'Run as administrator' to inspect protected SYSTEM processes and control services.");
-                                if ui.small_button("Reveal Executable").clicked() {
-                                    crate::desktop_views::reveal_app_in_finder();
-                                }
-                                ui.end_row();
-                            }
-
-                            ui.label(RichText::new("Root Daemons & Kernel Sockets (UID 0 / SYSTEM)").strong());
-                            ui.label(if cfg!(windows) {
-                                "Run an elevated Administrator terminal (`nexus.exe top`) to inspect all system-wide handles."
-                            } else {
-                                "Run `sudo nexus-monitor` or `sudo nexus top` in Terminal to inspect root-owned process footprints and socket PIDs."
-                            });
-                            if ui.small_button(if cfg!(target_os = "macos") { "Reveal App in Finder" } else { "Reveal Binary" }).clicked() {
-                                crate::desktop_views::reveal_app_in_finder();
-                            }
-                            ui.end_row();
                         });
                 });
             });
@@ -8507,6 +8724,22 @@ impl ApplicationHandler<UserEvent> for GuiApp {
                         && ((self.platform_cache.wifi_report.is_some()
                             && self.platform_cache.lan_report.is_some())
                             || elapsed_ms >= 9500)
+                } else if self.active_view == GuiView::Dest(Destination::Drivers) {
+                    self.frame_count >= 6
+                        && (!self.platform_cache.drivers_loading || elapsed_ms >= 4500)
+                } else if self.active_view == GuiView::Dest(Destination::InstalledApps) {
+                    self.frame_count >= 6
+                        && (!self.platform_cache.apps_loading
+                            && self
+                                .platform_cache
+                                .installed_apps
+                                .iter()
+                                .filter(|a| a.size_bytes.is_some())
+                                .count()
+                                >= 12
+                            || elapsed_ms >= 4800)
+                } else if self.active_view == GuiView::Dest(Destination::DiskSpace) {
+                    self.frame_count >= 6 && (elapsed_ms >= 1200 || !self.disk_scanning)
                 } else {
                     self.frame_count >= 5
                 };
@@ -9356,54 +9589,6 @@ pub fn run_internet_benchmark(duration: Duration, cancel: &AtomicBool) -> (f64, 
     (down_mbps, up_mbps, note)
 }
 
-fn hig_green(ui: &egui::Ui) -> Color32 {
-    if ui.visuals().dark_mode {
-        Color32::from_rgb(48, 209, 88)
-    } else {
-        Color32::from_rgb(28, 138, 56)
-    }
-}
-
-fn hig_blue(ui: &egui::Ui) -> Color32 {
-    if ui.visuals().dark_mode {
-        Color32::from_rgb(10, 132, 255)
-    } else {
-        Color32::from_rgb(0, 102, 214)
-    }
-}
-
-fn hig_amber(ui: &egui::Ui) -> Color32 {
-    if ui.visuals().dark_mode {
-        Color32::from_rgb(255, 195, 50)
-    } else {
-        Color32::from_rgb(186, 114, 0)
-    }
-}
-
-fn hig_red(ui: &egui::Ui) -> Color32 {
-    if ui.visuals().dark_mode {
-        Color32::from_rgb(255, 69, 58)
-    } else {
-        Color32::from_rgb(204, 42, 34)
-    }
-}
-
-fn hig_purple(ui: &egui::Ui) -> Color32 {
-    if ui.visuals().dark_mode {
-        Color32::from_rgb(191, 90, 242)
-    } else {
-        Color32::from_rgb(137, 68, 171)
-    }
-}
-
-fn hig_gray(ui: &egui::Ui) -> Color32 {
-    if ui.visuals().dark_mode {
-        Color32::from_rgb(142, 142, 147)
-    } else {
-        Color32::from_rgb(108, 108, 114)
-    }
-}
-
 fn measured_opt(m: &Metric<f64>) -> Option<f64> {
     match m.reading {
         MetricReading::Measured { value, .. } if value.is_finite() => Some(value),
@@ -9583,17 +9768,17 @@ fn draw_health_ring_mini(ui: &mut egui::Ui, score: f64, level: HealthLevel) {
     }
 
     painter.text(
-        center - Vec2::new(0.0, 5.0),
+        center - Vec2::new(0.0, 6.0),
         egui::Align2::CENTER_CENTER,
         format!("{:.0}", score.clamp(0.0, 100.0)),
         FontId::proportional(19.0),
         ring_col,
     );
     painter.text(
-        center + Vec2::new(0.0, 13.0),
+        center + Vec2::new(0.0, 12.0),
         egui::Align2::CENTER_CENTER,
         "Health",
-        FontId::proportional(10.0),
+        FontId::proportional(11.5),
         ui.visuals().weak_text_color(),
     );
 }

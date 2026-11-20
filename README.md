@@ -47,6 +47,9 @@ Nexus System Monitor is an 8-crate native Rust (`wgpu` + `egui` + `winit` + `rat
 *Background Services & Launch Daemons: Live service inventory (`launchd` / `systemd` / Windows SCM) with runtime state filters and dry-run lifecycle controls*
 ![Services on macOS](docs/screenshots/services-macos.png)
 
+*Kernel Extensions & System Drivers: SIP & DriverKit unload policy guidance card, interactive CLI copy box, and live `kmutil` + `systemextensionsctl` inventory*
+![Drivers on macOS](docs/screenshots/drivers-macos.png)
+
 *Hardware Benchmark Studio: 4-suite hardware benchmark (SplitMix64 CPU, offscreen Metal/wgpu Compute + Fragment GPU, uncached F_NOCACHE Disk I/O, and HTTPS transfer) anchored to a 100-point reference baseline*
 ![Benchmarks on macOS](docs/screenshots/benchmarks-macos.png)
 

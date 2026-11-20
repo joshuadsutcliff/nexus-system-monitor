@@ -180,14 +180,14 @@ pub fn hig_card<R>(
 pub fn hig_card_header(ui: &mut egui::Ui, title: &str, subtitle: &str, _accent: Color32) {
     ui.label(
         RichText::new(title)
-            .font(FontId::proportional(15.0))
+            .font(FontId::proportional(15.5))
             .strong()
             .color(ui.visuals().strong_text_color()),
     );
     if !subtitle.is_empty() {
         ui.label(
             RichText::new(subtitle)
-                .font(FontId::proportional(12.0))
+                .font(FontId::proportional(13.0))
                 .color(ui.visuals().weak_text_color()),
         );
     }
@@ -198,14 +198,14 @@ pub fn hig_card_header(ui: &mut egui::Ui, title: &str, subtitle: &str, _accent: 
 pub fn hig_view_header(ui: &mut egui::Ui, title: &str, subtitle: &str, _accent: Color32) {
     ui.label(
         RichText::new(title)
-            .font(FontId::proportional(20.0))
+            .font(FontId::proportional(21.0))
             .strong()
             .color(ui.visuals().strong_text_color()),
     );
     if !subtitle.is_empty() {
         ui.label(
             RichText::new(subtitle)
-                .font(FontId::proportional(12.5))
+                .font(FontId::proportional(13.0))
                 .color(ui.visuals().weak_text_color()),
         );
     }
@@ -214,8 +214,9 @@ pub fn hig_view_header(ui: &mut egui::Ui, title: &str, subtitle: &str, _accent: 
 
 /// Apple HIG rounded semantic status pill badge.
 pub fn hig_status_pill(ui: &mut egui::Ui, text: &str, color: Color32) {
-    let fill = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 36);
-    let border = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 110);
+    let fill_alpha = if ui.visuals().dark_mode { 44 } else { 30 };
+    let fill = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), fill_alpha);
+    let border = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 135);
     egui::Frame::new()
         .fill(fill)
         .stroke(Stroke::new(1.0, border))
@@ -224,50 +225,66 @@ pub fn hig_status_pill(ui: &mut egui::Ui, text: &str, color: Color32) {
         .show(ui, |ui| {
             ui.label(
                 RichText::new(text)
-                    .font(FontId::proportional(11.5))
+                    .font(FontId::proportional(12.0))
                     .strong()
                     .color(color),
             );
         });
 }
 
-fn hig_green(ui: &egui::Ui) -> Color32 {
+pub fn hig_green(ui: &egui::Ui) -> Color32 {
     if ui.visuals().dark_mode {
         Color32::from_rgb(48, 209, 88)
     } else {
-        Color32::from_rgb(28, 138, 56)
+        Color32::from_rgb(21, 128, 61)
     }
 }
 
-fn hig_blue(ui: &egui::Ui) -> Color32 {
+pub fn hig_blue(ui: &egui::Ui) -> Color32 {
     if ui.visuals().dark_mode {
-        Color32::from_rgb(10, 132, 255)
+        Color32::from_rgb(56, 166, 255)
     } else {
-        Color32::from_rgb(0, 102, 214)
+        Color32::from_rgb(0, 92, 197)
     }
 }
 
-fn hig_amber(ui: &egui::Ui) -> Color32 {
+pub fn hig_amber(ui: &egui::Ui) -> Color32 {
     if ui.visuals().dark_mode {
-        Color32::from_rgb(255, 195, 50)
+        Color32::from_rgb(255, 204, 56)
     } else {
-        Color32::from_rgb(186, 114, 0)
+        Color32::from_rgb(161, 98, 7)
     }
 }
 
-fn hig_red(ui: &egui::Ui) -> Color32 {
+pub fn hig_red(ui: &egui::Ui) -> Color32 {
     if ui.visuals().dark_mode {
-        Color32::from_rgb(255, 69, 58)
+        Color32::from_rgb(255, 85, 74)
     } else {
-        Color32::from_rgb(204, 42, 34)
+        Color32::from_rgb(185, 28, 28)
     }
 }
 
-fn hig_gray(ui: &egui::Ui) -> Color32 {
+pub fn hig_purple(ui: &egui::Ui) -> Color32 {
     if ui.visuals().dark_mode {
-        Color32::from_rgb(142, 142, 147)
+        Color32::from_rgb(203, 114, 255)
     } else {
-        Color32::from_rgb(108, 108, 114)
+        Color32::from_rgb(126, 34, 206)
+    }
+}
+
+pub fn hig_gray(ui: &egui::Ui) -> Color32 {
+    if ui.visuals().dark_mode {
+        Color32::from_rgb(186, 198, 214)
+    } else {
+        Color32::from_rgb(71, 85, 105)
+    }
+}
+
+pub fn hig_secondary_text(ui: &egui::Ui) -> Color32 {
+    if ui.visuals().dark_mode {
+        Color32::from_rgb(194, 206, 222)
+    } else {
+        Color32::from_rgb(51, 65, 85)
     }
 }
 
@@ -288,19 +305,20 @@ fn draw_hig_kpi_strip(ui: &mut egui::Ui, items: &[HigKpiItem]) {
                 ui.set_min_width(ui.available_width());
                 ui.label(
                     RichText::new(&item.label)
-                        .font(FontId::proportional(11.5))
+                        .font(FontId::proportional(12.5))
+                        .strong()
                         .color(ui.visuals().weak_text_color()),
                 );
                 ui.label(
                     RichText::new(&item.value)
-                        .font(FontId::proportional(20.0))
+                        .font(FontId::proportional(21.0))
                         .strong()
                         .color(item.color),
                 );
                 if !item.detail.is_empty() {
                     ui.label(
                         RichText::new(&item.detail)
-                            .font(FontId::proportional(11.0))
+                            .font(FontId::proportional(12.0))
                             .color(ui.visuals().weak_text_color()),
                     );
                 }
@@ -384,73 +402,224 @@ pub fn reveal_app_in_finder() {
     }
 }
 
-/// Renders a guided Apple HIG permission & scope notice card with 1-click System Settings action buttons
-/// and concise step-by-step instructions.
+/// Renders an inset monospace terminal command snippet with a 1-click `"Copy"` button and 2-second `"Copied!"` feedback.
+pub fn draw_hig_command_box(ui: &mut egui::Ui, command: &str, id_salt: &str) {
+    let copy_id = ui.make_persistent_id(("nexus_hig_cmd_copy", id_salt, command));
+    let now = ui.input(|i| i.time);
+    let copied_recently = ui
+        .ctx()
+        .data(|d| d.get_temp::<f64>(copy_id))
+        .is_some_and(|t| (now - t) >= 0.0 && (now - t) < 2.0);
+    if copied_recently {
+        ui.ctx().request_repaint_after(Duration::from_millis(250));
+    }
+
+    let dark = ui.visuals().dark_mode;
+    let box_bg = if dark {
+        Color32::from_rgb(9, 13, 20)
+    } else {
+        Color32::from_rgb(238, 242, 248)
+    };
+    let box_border = if dark {
+        Color32::from_rgba_unmultiplied(88, 166, 255, 96)
+    } else {
+        Color32::from_rgba_unmultiplied(0, 102, 214, 96)
+    };
+    let cmd_color = if dark {
+        Color32::from_rgb(147, 197, 253)
+    } else {
+        Color32::from_rgb(15, 23, 42)
+    };
+
+    egui::Frame::new()
+        .fill(box_bg)
+        .stroke(Stroke::new(1.0, box_border))
+        .corner_radius(CornerRadius::same(7))
+        .inner_margin(egui::Margin::symmetric(10, 6))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new("$")
+                        .font(FontId::monospace(12.5))
+                        .strong()
+                        .color(hig_blue(ui)),
+                );
+                ui.label(
+                    RichText::new(command)
+                        .font(FontId::monospace(12.5))
+                        .strong()
+                        .color(cmd_color),
+                );
+                ui.add_space(6.0);
+                let (btn_txt, btn_col) = if copied_recently {
+                    ("Copied!", hig_green(ui))
+                } else {
+                    ("Copy", ui.visuals().strong_text_color())
+                };
+                let btn = egui::Button::new(
+                    RichText::new(btn_txt)
+                        .font(FontId::proportional(12.0))
+                        .strong()
+                        .color(btn_col),
+                )
+                .min_size(Vec2::new(64.0, 22.0));
+                if ui
+                    .add(btn)
+                    .on_hover_text(format!("Copy {command} to clipboard"))
+                    .clicked()
+                {
+                    ui.ctx().copy_text(command.to_string());
+                    ui.ctx().data_mut(|d| d.insert_temp(copy_id, now));
+                }
+            });
+        });
+}
+
+fn draw_numbered_step_row(ui: &mut egui::Ui, step_num: usize, step_text: &str) {
+    ui.horizontal_top(|ui| {
+        ui.label(
+            RichText::new(format!("{step_num}."))
+                .font(FontId::proportional(13.0))
+                .strong()
+                .color(hig_blue(ui)),
+        );
+        let mut job = egui::text::LayoutJob::default();
+        let strong_fmt = egui::TextFormat {
+            font_id: FontId::proportional(13.0),
+            color: ui.visuals().strong_text_color(),
+            ..Default::default()
+        };
+        let body_fmt = egui::TextFormat {
+            font_id: FontId::proportional(13.0),
+            color: ui.visuals().text_color(),
+            ..Default::default()
+        };
+        if let Some((first_word, rest)) = step_text.split_once(' ') {
+            job.append(first_word, 0.0, strong_fmt);
+            job.append(&format!(" {rest}"), 0.0, body_fmt);
+        } else {
+            job.append(step_text, 0.0, body_fmt);
+        }
+        ui.add(egui::Label::new(job).wrap());
+    });
+}
+
+pub struct HigGuidanceCard<'a> {
+    pub badge_text: &'a str,
+    pub badge_color: Color32,
+    pub headline: &'a str,
+    pub summary: &'a str,
+    pub steps: &'a [&'a str],
+    pub command_snippet: Option<&'a str>,
+    pub primary_button: Option<(&'a str, &'a str)>,
+    pub show_reveal_app_button: bool,
+    pub extra_action_button: Option<&'a str>,
+}
+
+impl<'a> HigGuidanceCard<'a> {
+    pub fn draw(&self, ui: &mut egui::Ui) -> bool {
+        let mut extra_clicked = false;
+        hig_card(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.horizontal_wrapped(|ui| {
+                hig_status_pill(ui, self.badge_text, self.badge_color);
+                ui.label(
+                    RichText::new(self.headline)
+                        .font(FontId::proportional(15.0))
+                        .strong()
+                        .color(ui.visuals().strong_text_color()),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if let Some(extra_lbl) = self.extra_action_button
+                        && ui
+                            .button(
+                                RichText::new(extra_lbl)
+                                    .font(FontId::proportional(12.5))
+                                    .strong(),
+                            )
+                            .clicked()
+                    {
+                        extra_clicked = true;
+                    }
+                    if self.show_reveal_app_button
+                        && ui
+                            .button(
+                                RichText::new("Reveal App in Finder")
+                                    .font(FontId::proportional(12.5))
+                                    .strong(),
+                            )
+                            .on_hover_text(
+                                "Show Nexus System Monitor.app in Finder so you can drag it into System Settings",
+                            )
+                            .clicked()
+                    {
+                        reveal_app_in_finder();
+                    }
+                    if let Some((btn_label, pane_url)) = self.primary_button
+                        && ui
+                            .button(
+                                RichText::new(btn_label)
+                                    .font(FontId::proportional(12.5))
+                                    .strong(),
+                            )
+                            .on_hover_text(format!("Open macOS System Settings ({pane_url})"))
+                            .clicked()
+                    {
+                        open_macos_privacy_pane(pane_url);
+                    }
+                });
+            });
+            ui.add_space(6.0);
+            ui.label(
+                RichText::new(self.summary)
+                    .font(FontId::proportional(13.0))
+                    .color(ui.visuals().text_color()),
+            );
+            if !self.steps.is_empty() {
+                ui.add_space(6.0);
+                for (idx, step) in self.steps.iter().enumerate() {
+                    if idx > 0 {
+                        ui.add_space(2.0);
+                    }
+                    draw_numbered_step_row(ui, idx + 1, step);
+                }
+            }
+            if let Some(cmd) = self.command_snippet {
+                ui.add_space(6.0);
+                draw_hig_command_box(ui, cmd, self.headline);
+            }
+        });
+        extra_clicked
+    }
+}
+
+/// Renders a guided Apple HIG permission & scope notice card with 1-click System Settings action buttons,
+/// numbered step instructions, and an optional interactive copyable terminal command box.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_permission_guidance_card(
     ui: &mut egui::Ui,
     badge_text: &str,
     badge_color: Color32,
     headline: &str,
-    why_needed: &str,
-    how_to_steps: &str,
+    summary: &str,
+    steps: &[&str],
+    command_snippet: Option<&str>,
     primary_button: Option<(&str, &str)>,
     show_reveal_app_button: bool,
     extra_action_button: Option<&str>,
 ) -> bool {
-    let mut extra_clicked = false;
-    hig_card(ui, |ui| {
-        ui.set_min_width(ui.available_width());
-        ui.horizontal_wrapped(|ui| {
-            hig_status_pill(ui, badge_text, badge_color);
-            ui.label(
-                RichText::new(headline)
-                    .font(FontId::proportional(13.5))
-                    .strong()
-                    .color(ui.visuals().strong_text_color()),
-            );
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if let Some(extra_lbl) = extra_action_button
-                    && ui.button(extra_lbl).clicked()
-                {
-                    extra_clicked = true;
-                }
-                if show_reveal_app_button
-                    && ui
-                        .button("Reveal App in Finder")
-                        .on_hover_text(
-                            "Show Nexus System Monitor.app in Finder so you can drag it into System Settings",
-                        )
-                        .clicked()
-                {
-                    reveal_app_in_finder();
-                }
-                if let Some((btn_label, pane_url)) = primary_button
-                    && ui
-                        .button(RichText::new(btn_label).strong())
-                        .on_hover_text(format!("Open macOS System Settings ({pane_url})"))
-                        .clicked()
-                {
-                    open_macos_privacy_pane(pane_url);
-                }
-            });
-        });
-        ui.add_space(4.0);
-        ui.label(
-            RichText::new(why_needed)
-                .font(FontId::proportional(12.0))
-                .color(ui.visuals().text_color()),
-        );
-        if !how_to_steps.is_empty() {
-            ui.add_space(2.0);
-            ui.label(
-                RichText::new(how_to_steps)
-                    .font(FontId::proportional(11.5))
-                    .color(ui.visuals().weak_text_color()),
-            );
-        }
-    });
-    extra_clicked
+    HigGuidanceCard {
+        badge_text,
+        badge_color,
+        headline,
+        summary,
+        steps,
+        command_snippet,
+        primary_button,
+        show_reveal_app_button,
+        extra_action_button,
+    }
+    .draw(ui)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1249,12 +1418,13 @@ impl PlatformDataCache {
                 .collect();
             let size_slot = Arc::clone(&self.apps_size_slot);
             std::thread::spawn(move || {
-                let mut batch = Vec::new();
                 for p in paths {
                     let sz = measure_path_size_bytes(Path::new(&p));
-                    batch.push((p, sz));
+                    size_slot
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .push((p, sz));
                 }
-                *size_slot.lock().unwrap_or_else(|e| e.into_inner()) = batch;
             });
         }
         let sizes: Vec<(String, u64)> = {
@@ -1477,7 +1647,7 @@ pub fn draw_services_view(
             );
             if ui
                 .small_button("Open Login Items & Extensions")
-                .on_hover_text("Open macOS System Settings -> General -> Login Items & Extensions")
+                .on_hover_text("Open macOS System Settings › General › Login Items & Extensions")
                 .clicked()
             {
                 open_macos_privacy_pane(
@@ -1487,7 +1657,7 @@ pub fn draw_services_view(
         });
         ui.add_space(6.0);
 
-        egui::ScrollArea::vertical()
+        egui::ScrollArea::both()
             .id_salt("services_scroll")
             .max_height((ui.available_height() - 12.0).max(200.0))
             .show(ui, |ui| {
@@ -1667,7 +1837,7 @@ pub fn draw_startup_view(
             if ui
                 .button("Open Login Items Settings")
                 .on_hover_text(
-                    "Open macOS System Settings -> General -> Login Items & Extensions to manage system-wide background items",
+                    "Open macOS System Settings › General › Login Items & Extensions to manage system-wide background items",
                 )
                 .clicked()
             {
@@ -1762,7 +1932,7 @@ pub fn draw_startup_view(
 
     if let Some((item, en)) = toggle_req {
         let res = set_startup_item_enabled(&item, en, true);
-        *status_out = format!("Startup toggle ({} -> {en}): {res:?}", item.name);
+        *status_out = format!("Startup toggle ({} to {en}): {res:?}", item.name);
     }
 }
 
@@ -1854,11 +2024,14 @@ pub fn draw_connections_view(ui: &mut egui::Ui, cache: &mut PlatformDataCache, a
             );
         });
         ui.add_space(4.0);
-        ui.label(
-            RichText::new("Scope note: Standard user privileges attribute PIDs and process names for your own session's sockets via lsof, while system-wide TCP/UDP states come from netstat. Launch with `sudo nexus-monitor` to resolve root-daemon socket PIDs.")
-                .font(FontId::proportional(11.5))
-                .color(ui.visuals().weak_text_color()),
-        );
+        ui.horizontal_wrapped(|ui| {
+            ui.label(
+                RichText::new("Standard privileges attribute PIDs for your user session's sockets. To resolve root-daemon socket PIDs, run:")
+                    .font(FontId::proportional(13.0))
+                    .color(ui.visuals().weak_text_color()),
+            );
+            draw_hig_command_box(ui, "sudo nexus-monitor", "connections_sudo");
+        });
         ui.add_space(6.0);
 
         let filtered: Vec<&NetworkConnectionEntry> = cache
@@ -1875,7 +2048,7 @@ pub fn draw_connections_view(ui: &mut egui::Ui, cache: &mut PlatformDataCache, a
 
         match cache.connection_projection {
             ConnectionProjection::AllSockets => {
-                egui::ScrollArea::vertical()
+                egui::ScrollArea::both()
                     .id_salt("connections_all_scroll")
                     .max_height((ui.available_height() - 12.0).max(200.0))
                     .show(ui, |ui| {
@@ -2147,11 +2320,15 @@ pub fn draw_wireless_radar_view(
     if wifi_redacted {
         let _ = draw_permission_guidance_card(
             ui,
-            "Wi-Fi Privacy Redaction (CoreWLAN)",
+            "Location Services",
             hig_amber(ui),
-            "macOS Location Services required to reveal Wi-Fi SSID names",
-            "On modern macOS, Apple redacts Wi-Fi network names (<redacted>) in system_profiler and CoreWLAN unless Location Services is enabled for the calling app, while still reporting authoritative channel, band (2.4 / 5 / 6 GHz), RSSI, and noise dBm.",
-            "How to unlock SSID names: 1. Click 'Open Location Services Settings'  ->  2. Enable Location Services  ->  3. Toggle Nexus System Monitor (or your host Terminal) ON and click 'Rescan Wi-Fi + LAN'.",
+            "Enable Location Services to show Wi-Fi network names",
+            "macOS hides Wi-Fi SSID names (<redacted>) until Location Services is enabled for Nexus.",
+            &[
+                "Click Open Location Services Settings.",
+                "Toggle Nexus System Monitor ON, then click Rescan Wi-Fi + LAN.",
+            ],
+            None,
             Some((
                 "Open Location Services Settings",
                 "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices",
@@ -2182,7 +2359,7 @@ pub fn draw_wireless_radar_view(
                 }
                 egui::ScrollArea::both()
                     .id_salt("wifi_scroll")
-                    .max_height(360.0)
+                    .max_height((ui.available_height() - 12.0).max(160.0))
                     .show(ui, |ui| {
                         egui::Grid::new("wifi_net_grid")
                             .num_columns(7)
@@ -2200,7 +2377,7 @@ pub fn draw_wireless_radar_view(
                                 for n in &rep.networks {
                                     ui.horizontal(|ui| {
                                         ui.add_sized(
-                                            [100.0, 16.0],
+                                            [110.0, 20.0],
                                             egui::Label::new(n.ssid.as_str()).truncate(),
                                         );
                                         if n.is_connected {
@@ -2230,7 +2407,7 @@ pub fn draw_wireless_radar_view(
                                     ui.label(n.rssi_dbm.format_with_unit(0, "dBm"));
                                     ui.label(n.noise_dbm.format_with_unit(0, "dBm"));
                                     ui.add_sized(
-                                        [95.0, 16.0],
+                                        [105.0, 20.0],
                                         egui::Label::new(n.security.as_str()).truncate(),
                                     );
                                     ui.end_row();
@@ -2261,7 +2438,7 @@ pub fn draw_wireless_radar_view(
                 }
                 egui::ScrollArea::both()
                     .id_salt("lan_scroll")
-                    .max_height(360.0)
+                    .max_height((ui.available_height() - 12.0).max(160.0))
                     .show(ui, |ui| {
                         egui::Grid::new("lan_hosts_grid")
                             .num_columns(5)
@@ -2363,10 +2540,10 @@ fn draw_health_ring_gauge(
         ring_col,
     );
     painter.text(
-        center + Vec2::new(0.0, 14.0),
+        center + Vec2::new(0.0, 13.0),
         egui::Align2::CENTER_CENTER,
         level.as_str(),
-        FontId::proportional(11.0),
+        FontId::proportional(12.0),
         ui.visuals().text_color(),
     );
     let trend_col = match trend {
@@ -2375,10 +2552,10 @@ fn draw_health_ring_gauge(
         TrendDirection::Degrading => Color32::from_rgb(255, 69, 58),
     };
     painter.text(
-        center + Vec2::new(0.0, 28.0),
+        center + Vec2::new(0.0, 27.0),
         egui::Align2::CENTER_CENTER,
         format!("Trend: {}", trend.as_str()),
-        FontId::proportional(10.0),
+        FontId::proportional(11.5),
         trend_col,
     );
 }
@@ -2473,7 +2650,7 @@ fn draw_health_trend_sparkline(
             rect.min + Vec2::new(6.0, 4.0),
             egui::Align2::LEFT_TOP,
             format!("SQLite Buckets: {n} (Green=Health, Yellow=CPU%, Blue=Mem% | Ref: 70/90)"),
-            FontId::proportional(10.0),
+            FontId::proportional(11.5),
             label_col,
         );
         if let Some(hover) = resp.hover_pos()
@@ -2509,7 +2686,7 @@ fn draw_health_trend_sparkline(
             rect.min + Vec2::new(6.0, 4.0),
             egui::Align2::LEFT_TOP,
             format!("Live Session Health Trajectory ({n} samples | Ref: 70/90)"),
-            FontId::proportional(10.0),
+            FontId::proportional(11.5),
             label_col,
         );
     } else {
@@ -2517,7 +2694,7 @@ fn draw_health_trend_sparkline(
             rect.center(),
             egui::Align2::CENTER_CENTER,
             "Collecting telemetry trend samples...",
-            FontId::proportional(11.0),
+            FontId::proportional(12.0),
             label_col,
         );
     }
@@ -3314,7 +3491,7 @@ pub fn draw_installed_apps_view(
         if ui
             .button("Open Full Disk Access")
             .on_hover_text(
-                "Grant Full Disk Access in System Settings -> Privacy & Security so Nexus can inspect protected ~/Library/Containers sizes",
+                "Grant Full Disk Access in System Settings › Privacy & Security so Nexus can inspect protected ~/Library/Containers sizes",
             )
             .clicked()
         {
@@ -3325,7 +3502,7 @@ pub fn draw_installed_apps_view(
         if ui
             .button("Open App Management")
             .on_hover_text(
-                "Grant App Management in System Settings -> Privacy & Security so Nexus can move protected app bundles to Trash",
+                "Grant App Management in System Settings › Privacy & Security so Nexus can move protected app bundles to Trash",
             )
             .clicked()
         {
@@ -3611,13 +3788,13 @@ pub fn draw_installed_apps_view(
 
                 egui::ScrollArea::vertical()
                     .id_salt("app_related_scroll")
-                    .max_height(240.0)
+                    .max_height((ui.available_height() - 56.0).max(120.0))
                     .show(ui, |ui| {
                         if cache.selected_app_related.is_empty() {
                             ui.label("No matching ~/Library support, cache, or container items found.");
                             ui.label(
                                 RichText::new("Tip: If this app uses a sandboxed container under ~/Library/Containers, click 'Open Full Disk Access' above and add Nexus System Monitor so macOS allows reading container sizes.")
-                                    .font(FontId::proportional(11.0))
+                                    .font(FontId::proportional(12.0))
                                     .color(ui.visuals().weak_text_color()),
                             );
                         }
@@ -3749,9 +3926,13 @@ pub fn draw_drivers_view(ui: &mut egui::Ui, cache: &mut PlatformDataCache, accen
         ui,
         "SIP & DriverKit Policy",
         hig_blue(ui),
-        "About Kernel & DriverKit Extension Unload Eligibility",
-        "macOS prevents unloading Apple system kexts protected by System Integrity Protection (SIP), app-managed DriverKit extensions (.dext), and kexts with active dependency links.",
-        "How to manage DriverKit & Third-Party Extensions: 1. Click 'Open Login Items & Extensions' (or 'Open Privacy & Security') to toggle user-space DriverKit extensions  ->  2. For eligible third-party kexts with 0 dependencies, run `sudo kextunload -b <BundleID>` in Terminal.",
+        "Most macOS drivers cannot be unloaded while running",
+        "Apple locks built-in kernel extensions with System Integrity Protection (SIP) and manages DriverKit extensions through System Settings.",
+        &[
+            "Click Open Login Items & Extensions to toggle user-space DriverKit extensions.",
+            "To unload an eligible third-party kext with 0 active dependencies, run:",
+        ],
+        Some("sudo kextunload -b <BundleID>"),
         Some((
             "Open Login Items & Extensions",
             "x-apple.systempreferences:com.apple.LoginItems-Settings.extension",
@@ -3793,7 +3974,7 @@ pub fn draw_drivers_view(ui: &mut egui::Ui, cache: &mut PlatformDataCache, accen
         });
         ui.add_space(6.0);
 
-        egui::ScrollArea::vertical()
+        egui::ScrollArea::both()
             .id_salt("drivers_scroll")
             .max_height((ui.available_height() - 12.0).max(200.0))
             .show(ui, |ui| {
@@ -3848,7 +4029,8 @@ pub fn draw_drivers_view(ui: &mut egui::Ui, cache: &mut PlatformDataCache, accen
                             };
                             hig_status_pill(ui, state_label, state_col);
 
-                            ui.label(d.name.as_str());
+                            ui.add_sized([220.0, 20.0], egui::Label::new(d.name.as_str()).truncate())
+                                .on_hover_text(d.name.as_str());
                             ui.label(d.version.as_str());
                             ui.label(if d.dependencies.is_empty() {
                                 "—".to_string()
@@ -3863,7 +4045,7 @@ pub fn draw_drivers_view(ui: &mut egui::Ui, cache: &mut PlatformDataCache, accen
                                     .unwrap_or(d.address.as_str())
                                     .to_string()
                             };
-                            ui.add_sized([180.0, 18.0], egui::Label::new(&loc_str).truncate())
+                            ui.add_sized([180.0, 20.0], egui::Label::new(&loc_str).truncate())
                                 .on_hover_text(loc_str);
                             if ui
                                 .small_button("Inspect Unload")
@@ -4691,12 +4873,12 @@ pub fn draw_disk_space_extra_tabs(
                         Stroke::new(0.8, map_bg),
                         StrokeKind::Inside,
                     );
-                    if r.width() > 68.0 && r.height() > 18.0 {
+                    if r.width() > 74.0 && r.height() > 21.0 {
                         painter.text(
                             r.min + Vec2::new(4.0, 3.0),
                             egui::Align2::LEFT_TOP,
                             tr.name.as_str(),
-                            FontId::proportional(10.0),
+                            FontId::proportional(11.5),
                             Color32::WHITE,
                         );
                     }
@@ -4814,7 +4996,7 @@ pub fn draw_disk_space_extra_tabs(
                     ui.separator();
                     ui.label(
                         RichText::new(format!(
-                            "Diff #{} -> #{}: deltaBytes={:+} bytes, deltaFiles={:+}, Added={}, Removed={}, Grown={}",
+                            "Diff #{} to #{}: deltaBytes={:+} bytes, deltaFiles={:+}, Added={}, Removed={}, Grown={}",
                             diff.baseline_id,
                             diff.target_id,
                             diff.total_delta_bytes,
@@ -5018,7 +5200,7 @@ pub fn draw_multi_series_history_canvas(
     if !title.is_empty() {
         ui.label(
             RichText::new(title)
-                .font(FontId::proportional(13.5))
+                .font(FontId::proportional(14.5))
                 .strong()
                 .color(ui.visuals().strong_text_color()),
         );
@@ -5063,7 +5245,7 @@ pub fn draw_multi_series_history_canvas(
                             ui.painter().circle_filled(dot_r.center(), 3.6, col);
                             ui.label(
                                 RichText::new(text)
-                                    .font(FontId::proportional(11.5))
+                                    .font(FontId::proportional(12.0))
                                     .color(ui.visuals().text_color()),
                             );
                         });
@@ -5162,22 +5344,22 @@ pub fn draw_multi_series_history_canvas(
 
     if height >= 72.0 {
         let axis_col = if dark {
-            Color32::from_rgba_unmultiplied(200, 210, 224, 140)
+            Color32::from_rgba_unmultiplied(214, 224, 238, 195)
         } else {
-            Color32::from_rgba_unmultiplied(71, 85, 105, 175)
+            Color32::from_rgba_unmultiplied(51, 65, 85, 210)
         };
         painter.text(
             rect.min + Vec2::new(6.0, 4.0),
             egui::Align2::LEFT_TOP,
             format!("{y_ceiling:.0}{unit}"),
-            FontId::proportional(9.5),
+            FontId::proportional(11.5),
             axis_col,
         );
         painter.text(
             Pos2::new(rect.min.x + 6.0, rect.max.y - 4.0),
             egui::Align2::LEFT_BOTTOM,
             format!("{y_floor:.0}{unit}"),
-            FontId::proportional(9.5),
+            FontId::proportional(11.5),
             axis_col,
         );
     }

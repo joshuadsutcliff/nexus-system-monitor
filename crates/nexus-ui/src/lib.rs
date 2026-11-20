@@ -20,6 +20,10 @@ pub use assets::{
     resolve_bundle_resources_dir,
 };
 pub use desktop::run_headless_gpu_benchmark;
+pub use desktop_views::{
+    HigGuidanceCard, draw_hig_command_box, hig_amber, hig_blue, hig_gray, hig_green, hig_purple,
+    hig_red, hig_secondary_text,
+};
 pub use faces::{
     BezierSegment, ColumnDisplayStyle, CompressedHistoryGraph, DashboardTile, FaceKind,
     FaceProperties, PageEditSession, PageEngine, ProcessorClusterGridState, SensorDescriptor,
@@ -647,6 +651,57 @@ mod tests {
         assert_eq!(section_views.len(), GuiView::ALL_SIDEBAR.len());
         for expected in GuiView::ALL_SIDEBAR {
             assert!(section_views.contains(&expected));
+        }
+    }
+
+    #[test]
+    fn hig_contrast_palette_and_guidance_card_render_in_dark_and_light() {
+        use egui::Color32;
+
+        for is_dark in [true, false] {
+            let ctx = egui::Context::default();
+            ctx.set_visuals(if is_dark {
+                egui::Visuals::dark()
+            } else {
+                egui::Visuals::light()
+            });
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                if is_dark {
+                    assert_eq!(hig_green(ui), Color32::from_rgb(48, 209, 88));
+                    assert_eq!(hig_blue(ui), Color32::from_rgb(56, 166, 255));
+                    assert_eq!(hig_amber(ui), Color32::from_rgb(255, 204, 56));
+                    assert_eq!(hig_red(ui), Color32::from_rgb(255, 85, 74));
+                    assert_eq!(hig_purple(ui), Color32::from_rgb(203, 114, 255));
+                    assert_eq!(hig_gray(ui), Color32::from_rgb(186, 198, 214));
+                    assert_eq!(hig_secondary_text(ui), Color32::from_rgb(194, 206, 222));
+                } else {
+                    assert_eq!(hig_green(ui), Color32::from_rgb(21, 128, 61));
+                    assert_eq!(hig_blue(ui), Color32::from_rgb(0, 92, 197));
+                    assert_eq!(hig_amber(ui), Color32::from_rgb(161, 98, 7));
+                    assert_eq!(hig_red(ui), Color32::from_rgb(185, 28, 28));
+                    assert_eq!(hig_purple(ui), Color32::from_rgb(126, 34, 206));
+                    assert_eq!(hig_gray(ui), Color32::from_rgb(71, 85, 105));
+                    assert_eq!(hig_secondary_text(ui), Color32::from_rgb(51, 65, 85));
+                }
+
+                let clicked = HigGuidanceCard {
+                    badge_text: "Test Badge",
+                    badge_color: hig_blue(ui),
+                    headline: "Test Guidance Card",
+                    summary: "Summary text for contrast and layout test.",
+                    steps: &["Click Test Button.", "Return here."],
+                    command_snippet: Some("sudo nexus-monitor"),
+                    primary_button: Some((
+                        "Open Settings",
+                        "x-apple.systempreferences:com.apple.preference.security",
+                    )),
+                    show_reveal_app_button: true,
+                    extra_action_button: Some("Rescan Now"),
+                }
+                .draw(ui);
+                assert!(!clicked);
+            });
+            out.textures_delta.clear();
         }
     }
 }
