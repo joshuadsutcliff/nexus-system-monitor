@@ -101,6 +101,21 @@ struct TrayMenuState {
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 struct TrayMenuState;
 
+/// Pins the DX12 shader compiler to Fxc (built into Windows).
+///
+/// Crash fix: wgpu's default `Dx12Compiler::Auto` loads `dxcompiler.dll` by bare name, so the
+/// Windows DLL search order (PATH) can pick up a foreign copy, for example Obsidian's
+/// 1.8.2505.0 build, which faulted at startup with exception 0xc000001d (event 1000).
+/// Nexus ships no DXC, so Fxc means no foreign DLL can ever be loaded.
+#[cfg(target_os = "windows")]
+fn pin_dx12_fxc(create_new: &mut egui_wgpu::WgpuSetupCreateNew) {
+    create_new
+        .instance_descriptor
+        .backend_options
+        .dx12
+        .shader_compiler = wgpu::Dx12Compiler::Fxc;
+}
+
 /// Creates a memory-conscious `egui_wgpu::WgpuConfiguration`.
 /// On Windows, selects `Backends::DX12` only so `wgpu` does not load both DX12 and Vulkan/GL
 /// driver ICDs into the process working set at startup, and hints `MemoryHints::MemoryUsage`.
@@ -111,6 +126,8 @@ fn default_wgpu_configuration() -> egui_wgpu::WgpuConfiguration {
         {
             create_new.instance_descriptor.backends = wgpu::Backends::DX12;
         }
+        #[cfg(target_os = "windows")]
+        pin_dx12_fxc(create_new);
         create_new.power_preference = wgpu::PowerPreference::LowPower;
         let base_device_desc = Arc::clone(&create_new.device_descriptor);
         create_new.device_descriptor = Arc::new(move |adapter| {
@@ -516,6 +533,10 @@ impl LaunchHarnessOptions {
 struct GuiApp {
     window: Option<Arc<Window>>,
     window_visible: bool,
+    /// True while the OS reports the main window fully covered (winit `Occluded`).
+    window_occluded: bool,
+    /// Start time of the last main-window frame; floors the redraw interval.
+    last_frame_start: Instant,
     egui_ctx: egui::Context,
     egui_state: Option<egui_winit::State>,
     painter: Painter,
@@ -1014,6 +1035,8 @@ impl GuiApp {
         let mut app_obj = Self {
             window: None,
             window_visible: true,
+            window_occluded: false,
+            last_frame_start: Instant::now(),
             egui_ctx,
             egui_state: None,
             painter,
@@ -8296,7 +8319,7 @@ impl ApplicationHandler<UserEvent> for GuiApp {
             return;
         }
         let attrs = Window::default_attributes()
-            .with_title("Nexus System Monitor (v0.8.2)")
+            .with_title("Nexus System Monitor (v0.8.3)")
             .with_inner_size(LogicalSize::new(1280.0, 820.0))
             .with_window_icon(load_winit_window_icon());
         let window = Arc::new(
@@ -8315,6 +8338,8 @@ impl ApplicationHandler<UserEvent> for GuiApp {
         {
             let mut fallback_cfg = egui_wgpu::WgpuConfiguration::default();
             if let egui_wgpu::WgpuSetup::CreateNew(ref mut create_new) = fallback_cfg.wgpu_setup {
+                #[cfg(target_os = "windows")]
+                pin_dx12_fxc(create_new);
                 create_new.native_adapter_selector = Some(Arc::new(|adapters, surface| {
                     adapters
                         .iter()
@@ -8521,6 +8546,12 @@ impl ApplicationHandler<UserEvent> for GuiApp {
         }
 
         match event {
+            WindowEvent::Occluded(occluded) => {
+                self.window_occluded = occluded;
+                if !occluded && self.window_visible {
+                    window.request_redraw();
+                }
+            }
             WindowEvent::CloseRequested => {
                 if self.tray.is_some() && self.auto_exit_ms.is_none() {
                     self.save_preferences();
@@ -8625,6 +8656,17 @@ impl ApplicationHandler<UserEvent> for GuiApp {
                     return;
                 };
                 let egui_ctx = self.egui_ctx.clone();
+                self.last_frame_start = Instant::now();
+                let scroll_interval = crate::desktop_views::scroll_repaint_interval(
+                    self.gaming_mode.visual_throttle().visual_frame_rate,
+                    window.has_focus(),
+                );
+                egui_ctx.data_mut(|d| {
+                    d.insert_temp(
+                        egui::Id::unique(crate::desktop_views::SCROLL_REPAINT_INTERVAL_ID),
+                        scroll_interval,
+                    );
+                });
                 let mut full_output = egui_ctx.run_ui(raw_input.take(), |ui| {
                     self.draw_ui(ui);
                 });
@@ -8694,6 +8736,7 @@ impl ApplicationHandler<UserEvent> for GuiApp {
                 let is_minimized = window.is_minimized().unwrap_or(false);
                 if !self.window_visible
                     || is_minimized
+                    || self.window_occluded
                     || self.gaming_mode.visual_throttle().visual_frame_rate == 0
                 {
                     if let Some(pop_win) = &self.popout_window
@@ -8745,16 +8788,22 @@ impl ApplicationHandler<UserEvent> for GuiApp {
                         event_loop.set_control_flow(ControlFlow::WaitUntil(
                             Instant::now() + Duration::from_millis(pace_ms),
                         ));
-                    } else if root_repaint_delay == Duration::ZERO {
-                        event_loop.set_control_flow(ControlFlow::WaitUntil(
-                            Instant::now() + Duration::from_millis(16),
-                        ));
                     } else {
+                        // Never start a frame sooner than MIN_FRAME_INTERVAL after the previous
+                        // one, so a non-blocking present (Mailbox/Immediate, RDP) cannot spin.
+                        // Graph scrolling asks for request_repaint_after(1/target fps), which is
+                        // measured from this frame's start so the achieved rate meets the target.
+                        const MIN_FRAME_INTERVAL: Duration = Duration::from_millis(4);
                         let refresh_wait =
                             Duration::from_millis(self.preferred_interval_ms.max(250));
-                        let wait_dur = root_repaint_delay.min(refresh_wait);
-                        event_loop
-                            .set_control_flow(ControlFlow::WaitUntil(Instant::now() + wait_dur));
+                        let wait_dur = root_repaint_delay.min(refresh_wait).max(MIN_FRAME_INTERVAL);
+                        let deadline = self.last_frame_start + wait_dur;
+                        if deadline <= Instant::now() {
+                            window.request_redraw();
+                            event_loop.set_control_flow(ControlFlow::Wait);
+                        } else {
+                            event_loop.set_control_flow(ControlFlow::WaitUntil(deadline));
+                        }
                     }
                 }
             }

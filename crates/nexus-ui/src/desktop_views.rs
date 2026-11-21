@@ -1,6 +1,6 @@
 use crate::faces::{
-    ColumnDisplayStyle, CompressedHistoryGraph, TableColumnConfig, VfdSegmentedMeterState,
-    default_app_columns, default_process_columns,
+    AgeToXMapper, ColumnDisplayStyle, CompressedHistoryGraph, TableColumnConfig,
+    VfdSegmentedMeterState, default_app_columns, default_process_columns,
 };
 use crate::prefs::default_telemetry_db_path;
 use crate::theme::{
@@ -5638,6 +5638,129 @@ pub fn draw_single_vfd_bar(
     });
 }
 
+/// egui temp-data key holding the scroll repaint interval chosen by the event loop.
+pub(crate) const SCROLL_REPAINT_INTERVAL_ID: &str = "nexus_scroll_repaint_interval";
+/// Segments narrower than this many pixels are drawn straight instead of as Bezier curves.
+const BEZIER_MIN_SEGMENT_PX: f32 = 4.0;
+/// Graphs shorter than this skip the bloom halo (it is not visible at that size).
+const BLOOM_MIN_GRAPH_HEIGHT: f32 = 40.0;
+
+thread_local! {
+    /// Reused per-frame buffer for raw (pre-decimation) curve points.
+    static SCRATCH_POINTS: std::cell::RefCell<Vec<Pos2>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Repaint interval for smooth graph scrolling. `visual_frame_rate` is the gaming-mode
+/// throttle setting (0 = no animation; callers idle in that case). Values are clamped to
+/// 15..=144 fps; an unfocused window scrolls at half rate.
+pub fn scroll_repaint_interval(visual_frame_rate: u32, focused: bool) -> Duration {
+    let fps = if visual_frame_rate == 0 {
+        60
+    } else {
+        visual_frame_rate
+    }
+    .clamp(15, 144);
+    let fps = if focused { fps } else { (fps / 2).max(15) };
+    Duration::from_secs_f64(1.0 / f64::from(fps))
+}
+
+/// Bezier substeps for a segment `width_px` wide: about one per 4 px, between 2 and 8.
+fn bezier_steps_for_width(width_px: f32) -> usize {
+    ((width_px / BEZIER_MIN_SEGMENT_PX).ceil() as usize).clamp(2, 8)
+}
+
+/// Min/max decimation per 1-px column: for each run of points that fall into the same
+/// pixel column, keeps only the lowest and highest point (in x order), so peaks survive.
+/// The first and last input points are always kept. Output size <= 2 * columns + 2.
+/// Input must be sorted by x (non-decreasing).
+fn decimate_min_max_per_column(input: &[Pos2], out: &mut Vec<Pos2>) {
+    out.clear();
+    if input.len() <= 2 {
+        out.extend_from_slice(input);
+        return;
+    }
+    let last_idx = input.len() - 1;
+    out.push(input[0]);
+    let mut i = 1;
+    while i < last_idx {
+        let col = input[i].x.floor();
+        let (mut lo, mut hi) = (i, i);
+        let mut j = i + 1;
+        while j < last_idx && input[j].x.floor() == col {
+            if input[j].y < input[lo].y {
+                lo = j;
+            }
+            if input[j].y > input[hi].y {
+                hi = j;
+            }
+            j += 1;
+        }
+        let (a, b) = if lo <= hi { (lo, hi) } else { (hi, lo) };
+        out.push(input[a]);
+        if b != a {
+            out.push(input[b]);
+        }
+        i = j;
+    }
+    out.push(input[last_idx]);
+}
+
+/// Per-graph scroll clock state: maps the egui frame clock onto the sample clock domain.
+#[derive(Clone, Copy)]
+struct ScrollClock {
+    last_newest: f64,
+    offset: f64,
+    target_offset: f64,
+    last_frame: f64,
+    last_now: f64,
+}
+
+/// Returns the "now" timestamp (in sample-clock seconds) for this frame and whether the
+/// graph is still scrolling. The offset between the frame clock and the sample clock is
+/// re-anchored when a sample lands and slewed smoothly, so arrivals cause no jump; `now`
+/// never moves backwards. Extrapolation stops `2 x interval` (min 3 s) past the newest
+/// sample so a paused feed freezes instead of scrolling away.
+fn scroll_clock_now(key: usize, newest_t: f64, frame_time: f64, interval: f64) -> (f64, bool) {
+    thread_local! {
+        static CLOCKS: std::cell::RefCell<std::collections::HashMap<usize, ScrollClock>> =
+            std::cell::RefCell::new(std::collections::HashMap::new());
+    }
+    if !newest_t.is_finite() || newest_t <= 0.0 {
+        return (newest_t, false);
+    }
+    CLOCKS.with(|c| {
+        let mut map = c.borrow_mut();
+        if map.len() > 256 {
+            map.clear();
+        }
+        let fresh = newest_t - frame_time;
+        let st = map.entry(key).or_insert(ScrollClock {
+            last_newest: newest_t,
+            offset: fresh,
+            target_offset: fresh,
+            last_frame: frame_time,
+            last_now: newest_t,
+        });
+        if newest_t != st.last_newest {
+            st.target_offset = fresh;
+            if (fresh - st.offset).abs() > interval.max(1.0) * 1.5 || newest_t < st.last_newest {
+                // Discontinuity (first sample after a gap, reset, clock change): snap.
+                st.offset = fresh;
+                st.last_now = newest_t;
+            }
+            st.last_newest = newest_t;
+        }
+        let dt = (frame_time - st.last_frame).clamp(0.0, 0.25);
+        st.last_frame = frame_time;
+        st.offset += (st.target_offset - st.offset) * (1.0 - (-dt / 0.35).exp());
+        let cap = newest_t + (interval * 2.0).max(3.0);
+        let now = (frame_time + st.offset).max(st.last_now).min(cap);
+        st.last_now = now;
+        (now, now < cap)
+    })
+}
+
 /// Renders one or more `CompressedHistoryGraph` series using actual cubic Bezier control points,
 /// gradient `egui::epaint::Mesh` area fills, optional phosphor bloom stroke, optional top legend,
 /// 4-band non-linear time compression, and combined multi-series hover scrub tooltip.
@@ -5771,7 +5894,23 @@ pub fn draw_multi_series_history_canvas(
         .iter()
         .filter_map(|(_, _, g)| g.samples.first().map(|s| s.sampled_at_sec))
         .fold(newest_t, f64::min);
-    let window_sec = (newest_t - oldest_t).max(1.0);
+    // Smooth time-based scrolling: x comes from age relative to the frame clock, not to
+    // the newest sample, so the curve slides every frame instead of stepping per sample.
+    let frame_time = ui.input(|i| i.time);
+    let key = series
+        .first()
+        .map_or(0, |(_, _, g)| std::ptr::from_ref(*g) as usize);
+    let sample_interval = series
+        .first()
+        .and_then(|(_, _, g)| {
+            let n = g.samples.len();
+            (n >= 2).then(|| g.samples[n - 1].sampled_at_sec - g.samples[n - 2].sampled_at_sec)
+        })
+        .filter(|d| d.is_finite() && *d > 0.0)
+        .unwrap_or(1.0);
+    let (now_t, scrolling) = scroll_clock_now(key, newest_t, frame_time, sample_interval);
+    let window_sec = (now_t - oldest_t).max(1.0);
+    let age_mapper = AgeToXMapper::new(window_sec, 15.0);
 
     let (y_floor, y_ceiling) = if !range_auto_y && range_to > range_from {
         (range_from, range_to)
@@ -5827,8 +5966,8 @@ pub fn draw_multi_series_history_canvas(
     }
 
     let map_pt = |t_sec: f64, val: f64| -> Pos2 {
-        let age = (newest_t - t_sec).max(0.0);
-        let nx = CompressedHistoryGraph::map_age_to_normalized_x(age, window_sec, 15.0) as f32;
+        let age = (now_t - t_sec).max(0.0);
+        let nx = age_mapper.map(age) as f32;
         let ny = ((val - y_floor) / y_span).clamp(0.0, 1.0) as f32;
         Pos2::new(
             rect.min.x + nx * rect.width(),
@@ -5896,17 +6035,20 @@ pub fn draw_multi_series_history_canvas(
 
         let mut latest_drawn_pt: Option<Pos2> = None;
         for segs in subpaths {
-            let mut points: Vec<Pos2> = Vec::with_capacity(segs.len() * 8 + 1);
+            let mut raw = SCRATCH_POINTS.with(|c| std::mem::take(&mut *c.borrow_mut()));
+            raw.clear();
+            let points = &mut raw;
             for (idx, seg) in segs.iter().enumerate() {
-                if seg.is_straight || !smooth_curves {
-                    let p0 = map_pt(seg.p0[0], seg.p0[1]);
-                    let p1 = map_pt(seg.p1[0], seg.p1[1]);
+                let p0 = map_pt(seg.p0[0], seg.p0[1]);
+                let p1 = map_pt(seg.p1[0], seg.p1[1]);
+                let seg_w = (p1.x - p0.x).abs();
+                if seg.is_straight || !smooth_curves || seg_w <= BEZIER_MIN_SEGMENT_PX {
                     if idx == 0 {
                         points.push(p0);
                     }
                     points.push(p1);
                 } else {
-                    let steps = 8usize;
+                    let steps = bezier_steps_for_width(seg_w);
                     let start_k = usize::from(idx != 0);
                     for k in start_k..=steps {
                         let u = (k as f64) / (steps as f64);
@@ -5927,6 +6069,10 @@ pub fn draw_multi_series_history_canvas(
                     }
                 }
             }
+            let mut points: Vec<Pos2> =
+                Vec::with_capacity(raw.len().min((rect.width().max(1.0) as usize) * 2 + 4));
+            decimate_min_max_per_column(&raw, &mut points);
+            SCRATCH_POINTS.with(|c| *c.borrow_mut() = raw);
             if points.len() >= 2 {
                 latest_drawn_pt = points.last().copied();
                 if fill_opacity > 0 {
@@ -5943,20 +6089,51 @@ pub fn draw_multi_series_history_canvas(
                     painter.add(egui::Shape::mesh(mesh));
                 }
 
-                if visual_bloom {
+                if visual_bloom && rect.height() >= BLOOM_MIN_GRAPH_HEIGHT {
+                    // A wide soft halo hides sub-pixel detail: draw it from every other
+                    // point (endpoints kept), halving its tessellation cost.
                     let bloom_w = 3.4 + (bloom_level.clamp(1, 11) as f32) * 0.25;
                     let bloom_c = Color32::from_rgba_unmultiplied(col.r(), col.g(), col.b(), 46);
-                    painter.add(egui::Shape::line(
-                        points.clone(),
-                        Stroke::new(bloom_w, bloom_c),
-                    ));
+                    let mut half: Vec<Pos2> = points.iter().step_by(2).copied().collect();
+                    if points.len().is_multiple_of(2)
+                        && let Some(last) = points.last()
+                    {
+                        half.push(*last);
+                    }
+                    painter.add(egui::Shape::line(half, Stroke::new(bloom_w, bloom_c)));
                 }
                 painter.add(egui::Shape::line(points, stroke));
             }
         }
         if let Some(last_pt) = latest_drawn_pt {
+            // Extend the last value to "now" (right edge) so the newest segment never leaves
+            // a gap while the curve slides between samples.
+            if last_pt.x < rect.max.x - 0.5 {
+                let edge = Pos2::new(rect.max.x, last_pt.y);
+                if fill_opacity > 0 {
+                    let mut mesh = egui::Mesh::default();
+                    mesh.colored_vertex(last_pt, top_fill);
+                    mesh.colored_vertex(Pos2::new(last_pt.x, rect.max.y), bot_fill);
+                    mesh.colored_vertex(edge, top_fill);
+                    mesh.colored_vertex(Pos2::new(edge.x, rect.max.y), bot_fill);
+                    mesh.add_triangle(0, 1, 2);
+                    mesh.add_triangle(1, 3, 2);
+                    painter.add(egui::Shape::mesh(mesh));
+                }
+                painter.line_segment([last_pt, edge], stroke);
+            }
             draw_live_dot(last_pt, col);
         }
+    }
+
+    // Continuous repaint only while this graph is on screen and the clock is advancing.
+    // Hidden tabs never call this drawer; minimized/occluded windows are idled by the loop.
+    if scrolling && ui.is_rect_visible(rect) {
+        let interval = ui
+            .ctx()
+            .data(|d| d.get_temp::<Duration>(egui::Id::unique(SCROLL_REPAINT_INTERVAL_ID)))
+            .unwrap_or_else(|| scroll_repaint_interval(60, true));
+        ui.ctx().request_repaint_after(interval);
     }
 
     // Combined multi-series hover scrub crosshair + dots + tooltip
@@ -5973,7 +6150,7 @@ pub fn draw_multi_series_history_canvas(
                 if let Some(v) = s.value {
                     let p = map_pt(s.sampled_at_sec, v);
                     let dx = (p.x - hover.x).abs();
-                    let age = (newest_t - s.sampled_at_sec).max(0.0);
+                    let age = (now_t - s.sampled_at_sec).max(0.0);
                     if best.is_none_or(|(bd, ..)| dx < bd) {
                         best = Some((dx, p, v, age));
                     }
@@ -6080,5 +6257,56 @@ pub fn metric_mib(m: &Metric<f64>) -> f64 {
     match m.reading {
         MetricReading::Measured { value, .. } => value / (1024.0 * 1024.0),
         _ => 0.0,
+    }
+}
+
+#[cfg(test)]
+mod scroll_perf_tests {
+    use super::*;
+
+    #[test]
+    fn decimation_bounds_count_and_keeps_peaks() {
+        // 2,000 points squeezed into 100 px columns, with one spike and one dip.
+        let mut pts: Vec<Pos2> = (0..2000)
+            .map(|i| Pos2::new(i as f32 * 0.05, 50.0 + ((i % 7) as f32)))
+            .collect();
+        pts[777].y = 2.0;
+        pts[1333].y = 97.0;
+        let mut out = Vec::new();
+        decimate_min_max_per_column(&pts, &mut out);
+        assert!(out.len() <= 2 * 100 + 2, "len {}", out.len());
+        assert!(out.contains(&pts[777]));
+        assert!(out.contains(&pts[1333]));
+        assert_eq!(out.first(), pts.first());
+        assert_eq!(out.last(), pts.last());
+        assert!(out.windows(2).all(|w| w[0].x <= w[1].x));
+    }
+
+    #[test]
+    fn decimation_passes_sparse_input_through() {
+        let pts: Vec<Pos2> = (0..10)
+            .map(|i| Pos2::new(i as f32 * 5.0, i as f32))
+            .collect();
+        let mut out = Vec::new();
+        decimate_min_max_per_column(&pts, &mut out);
+        assert_eq!(out, pts);
+    }
+
+    #[test]
+    fn repaint_interval_clamps_and_halves_when_unfocused() {
+        let ms = |d: Duration| d.as_secs_f64() * 1000.0;
+        assert!((ms(scroll_repaint_interval(60, true)) - 16.667).abs() < 0.01);
+        assert!((ms(scroll_repaint_interval(60, false)) - 33.333).abs() < 0.01);
+        assert!((ms(scroll_repaint_interval(1000, true)) - 1000.0 / 144.0).abs() < 0.01);
+        assert!((ms(scroll_repaint_interval(5, true)) - 1000.0 / 15.0).abs() < 0.01);
+        assert!((ms(scroll_repaint_interval(20, false)) - 1000.0 / 15.0).abs() < 0.01);
+        assert!((ms(scroll_repaint_interval(0, true)) - 16.667).abs() < 0.01);
+    }
+
+    #[test]
+    fn bezier_steps_scale_with_width() {
+        assert_eq!(bezier_steps_for_width(5.0), 2);
+        assert_eq!(bezier_steps_for_width(16.0), 4);
+        assert_eq!(bezier_steps_for_width(400.0), 8);
     }
 }

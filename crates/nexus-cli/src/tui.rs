@@ -351,7 +351,7 @@ pub fn draw_tui_frame(f: &mut Frame<'_>, state: &mut TuiState) {
             Block::default()
                 .borders(Borders::ALL)
                 .title(format!(
-                    " Nexus System Monitor v0.8.2 | Mode: {} | GamingMode: {} | Gen: {} ",
+                    " Nexus System Monitor v0.8.3 | Mode: {} | GamingMode: {} | Gen: {} ",
                     state.app.theme.display_mode.title(),
                     if state.gaming_mode.active {
                         "ON"

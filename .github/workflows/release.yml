@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (e.g. 0.8.2)'
+        description: 'Release version (e.g. 0.8.3)'
         required: false
-        default: '0.8.2'
+        default: '0.8.3'
 
 permissions:
   contents: write
@@ -82,7 +82,7 @@ jobs:
           if [[ "${GITHUB_REF_NAME}" == v* ]]; then
             echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           else
-            echo "VERSION=${{ github.event.inputs.version || '0.8.2' }}" >> "$GITHUB_OUTPUT"
+            echo "VERSION=${{ github.event.inputs.version || '0.8.3' }}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Install Rust toolchain (x64 + ARM64)
@@ -235,7 +235,7 @@ jobs:
           if [[ "${GITHUB_REF_NAME}" == v* ]]; then
             echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           else
-            echo "VERSION=${{ github.event.inputs.version || '0.8.2' }}" >> "$GITHUB_OUTPUT"
+            echo "VERSION=${{ github.event.inputs.version || '0.8.3' }}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Install Rust toolchain (arm64 + x86_64)
@@ -337,7 +337,7 @@ jobs:
           if [[ "${GITHUB_REF_NAME}" == v* ]]; then
             echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           else
-            echo "VERSION=${{ github.event.inputs.version || '0.8.2' }}" >> "$GITHUB_OUTPUT"
+            echo "VERSION=${{ github.event.inputs.version || '0.8.3' }}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Install Linux system dependencies
@@ -416,7 +416,7 @@ jobs:
           if [[ "${GITHUB_REF_NAME}" == v* ]]; then
             echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           else
-            echo "VERSION=${{ github.event.inputs.version || '0.8.2' }}" >> "$GITHUB_OUTPUT"
+            echo "VERSION=${{ github.event.inputs.version || '0.8.3' }}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Install Linux system dependencies
@@ -507,7 +507,7 @@ jobs:
         run: |
           TAG_NAME="${GITHUB_REF_NAME}"
           if [[ "${TAG_NAME}" != v* ]]; then
-            TAG_NAME="v${{ github.event.inputs.version || '0.8.2' }}"
+            TAG_NAME="v${{ github.event.inputs.version || '0.8.3' }}"
           fi
           if [[ -f "CHANGELOG.md" ]] && awk "/^## \\[${TAG_NAME}\\]/{flag=1; next} /^## \\[v/{flag=0} flag" CHANGELOG.md | grep -q '[^[:space:]]'; then
             awk "/^## \\[${TAG_NAME}\\]/{flag=1; next} /^## \\[v/{flag=0} flag" CHANGELOG.md > /tmp/release-notes.md

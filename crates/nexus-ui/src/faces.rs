@@ -1752,8 +1752,23 @@ impl CompressedHistoryGraph {
         });
     }
 
-    /// Solves $1 + r + r^2 + r^3 = M$ via 64-step binary search.
+    /// Solves $1 + r + r^2 + r^3 = M$. Result is cached per multiplier (bit pattern) per thread,
+    /// so the 64-step bisection runs once instead of on every mapped point.
     pub fn history_band_ratio(multiplier: f64) -> f64 {
+        thread_local! {
+            static RATIO_CACHE: std::cell::Cell<(u64, f64)> = const { std::cell::Cell::new((u64::MAX, 0.0)) };
+        }
+        let bits = multiplier.to_bits();
+        let (cached_bits, cached) = RATIO_CACHE.with(|c| c.get());
+        if cached_bits == bits {
+            return cached;
+        }
+        let r = Self::history_band_ratio_uncached(multiplier);
+        RATIO_CACHE.with(|c| c.set((bits, r)));
+        r
+    }
+
+    fn history_band_ratio_uncached(multiplier: f64) -> f64 {
         if !multiplier.is_finite() || multiplier <= 1.0 {
             return 0.0;
         }
@@ -1780,8 +1795,13 @@ impl CompressedHistoryGraph {
         {
             return normalized_distance;
         }
-        let r = Self::history_band_ratio(multiplier);
-        if r <= 0.0 {
+        Self::compressed_age_with_ratio(normalized_distance, Self::history_band_ratio(multiplier))
+    }
+
+    /// Same as `compressed_age_at_distance`, with the band ratio `r` already solved.
+    #[inline]
+    fn compressed_age_with_ratio(normalized_distance: f64, r: f64) -> f64 {
+        if !normalized_distance.is_finite() || normalized_distance <= 0.0 || r <= 0.0 {
             return normalized_distance;
         }
         let r2 = r * r;
@@ -1807,25 +1827,46 @@ impl CompressedHistoryGraph {
         base_age + blend * 0.25
     }
 
-    /// Maps an age in seconds (with newest sample at `x = 1.0`) onto `[0.0, 1.0]` using `compressed_age_at_distance`
-    /// binary inversion so recent 25% of graph width holds highest-resolution recent samples!
+    /// Maps an age in seconds (with newest sample at `x = 1.0`) onto `[0.0, 1.0]`.
+    /// Uses a per-thread cached inverse lookup table (see `AgeToXMapper`) instead of a
+    /// per-point bisection. Matches `map_age_to_normalized_x_reference` within 1e-4.
     pub fn map_age_to_normalized_x(age_sec: f64, max_window_sec: f64, multiplier: f64) -> f64 {
+        AgeToXMapper::new(max_window_sec, multiplier).map(age_sec)
+    }
+
+    /// Reference implementation: 24-step bisection on the forward compression curve.
+    /// Kept as the ground truth for tests; too slow for per-frame per-point use.
+    pub fn map_age_to_normalized_x_reference(
+        age_sec: f64,
+        max_window_sec: f64,
+        multiplier: f64,
+    ) -> f64 {
         if !age_sec.is_finite() || age_sec <= 0.0 || max_window_sec <= 0.0 {
             return 1.0;
         }
-        let max_age_ratio = Self::compressed_age_at_distance(1.0, multiplier).max(1e-5);
+        let r = Self::valid_ratio(multiplier);
+        let max_age_ratio = Self::compressed_age_with_ratio(1.0, r).max(1e-5);
         let target_ratio = (age_sec / max_window_sec) * max_age_ratio;
         let mut lo = 0.0_f64;
         let mut hi = 1.0_f64;
         for _ in 0..24 {
             let mid = (lo + hi) * 0.5;
-            if Self::compressed_age_at_distance(mid, multiplier) < target_ratio {
+            if Self::compressed_age_with_ratio(mid, r) < target_ratio {
                 lo = mid;
             } else {
                 hi = mid;
             }
         }
         (1.0 - (lo + hi) * 0.5).clamp(0.0, 1.0)
+    }
+
+    /// Band ratio for a multiplier, or 0.0 (identity forward map) when invalid.
+    fn valid_ratio(multiplier: f64) -> f64 {
+        if multiplier.is_finite() && multiplier > 1.0 {
+            Self::history_band_ratio(multiplier)
+        } else {
+            0.0
+        }
     }
 
     /// Builds disconnected Catmull-Rom / cubic Bezier subpaths broken cleanly at unavailable samples or gaps.
@@ -1968,4 +2009,272 @@ pub fn build_vector_tunnel_segments(
         }
     }
     segments
+}
+
+/// Number of entries in the inverse compression lookup table.
+const AGE_LUT_LEN: usize = 4096;
+
+/// Precomputed inverse of the compressed-age curve for one multiplier.
+/// `inv[i]` is the normalized distance `d` where `f(d) / f(1) == i / (LEN - 1)`.
+/// Built once per multiplier per thread, then shared by `Rc`.
+#[derive(Clone)]
+pub struct AgeToXMapper {
+    inv_window: f64,
+    r: f64,
+    f_max: f64,
+    lut: Option<std::rc::Rc<AgeLut>>,
+}
+
+/// Inverse table plus a per-segment flag marking segments where linear interpolation
+/// is not accurate enough (flat parts of the forward curve); those get refined.
+pub struct AgeLut {
+    inv: Vec<f64>,
+    refine: Vec<bool>,
+}
+
+impl AgeToXMapper {
+    /// Creates a mapper for one graph window. Cheap: the table is cached per thread.
+    pub fn new(max_window_sec: f64, multiplier: f64) -> Self {
+        let inv_window = if max_window_sec > 0.0 && max_window_sec.is_finite() {
+            1.0 / max_window_sec
+        } else {
+            0.0
+        };
+        let r = CompressedHistoryGraph::valid_ratio(multiplier);
+        let lut = (r > 0.0).then(|| Self::cached_lut(multiplier.to_bits(), r));
+        let f_max = CompressedHistoryGraph::compressed_age_with_ratio(1.0, r).max(1e-5);
+        Self {
+            inv_window,
+            r,
+            f_max,
+            lut,
+        }
+    }
+
+    fn cached_lut(bits: u64, r: f64) -> std::rc::Rc<AgeLut> {
+        thread_local! {
+            static LUT_CACHE: std::cell::RefCell<Option<(u64, std::rc::Rc<AgeLut>)>> =
+                const { std::cell::RefCell::new(None) };
+        }
+        LUT_CACHE.with(|c| {
+            if let Some((b, lut)) = c.borrow().as_ref()
+                && *b == bits
+            {
+                return std::rc::Rc::clone(lut);
+            }
+            let lut = Self::build_lut(r);
+            *c.borrow_mut() = Some((bits, std::rc::Rc::clone(&lut)));
+            lut
+        })
+    }
+
+    /// Solves `f(d) = target` for `d` in `[lo, hi]` by bisection.
+    fn solve(r: f64, target: f64, mut lo: f64, mut hi: f64, steps: u32) -> f64 {
+        for _ in 0..steps {
+            let mid = (lo + hi) * 0.5;
+            if CompressedHistoryGraph::compressed_age_with_ratio(mid, r) < target {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        (lo + hi) * 0.5
+    }
+
+    fn build_lut(r: f64) -> std::rc::Rc<AgeLut> {
+        let f_max = CompressedHistoryGraph::compressed_age_with_ratio(1.0, r).max(1e-5);
+        let step = f_max / ((AGE_LUT_LEN - 1) as f64);
+        let inv: Vec<f64> = (0..AGE_LUT_LEN)
+            .map(|i| Self::solve(r, step * i as f64, 0.0, 1.0, 48))
+            .collect();
+        let refine = (0..AGE_LUT_LEN - 1)
+            .map(|i| {
+                let exact = Self::solve(r, step * (i as f64 + 0.5), inv[i], inv[i + 1], 48);
+                let linear = (inv[i] + inv[i + 1]) * 0.5;
+                (exact - linear).abs() > 2e-5
+            })
+            .collect();
+        std::rc::Rc::new(AgeLut { inv, refine })
+    }
+
+    /// Maps an age in seconds to normalized x (newest = 1.0, oldest = 0.0).
+    #[inline]
+    pub fn map(&self, age_sec: f64) -> f64 {
+        if !age_sec.is_finite() || age_sec <= 0.0 || self.inv_window <= 0.0 {
+            return 1.0;
+        }
+        let t = age_sec * self.inv_window;
+        if t > 1.0 {
+            return 0.0;
+        }
+        let d = match &self.lut {
+            None => t,
+            Some(lut) => {
+                let pos = t * ((AGE_LUT_LEN - 1) as f64);
+                let i = (pos as usize).min(AGE_LUT_LEN - 2);
+                let (lo, hi) = (lut.inv[i], lut.inv[i + 1]);
+                if lut.refine[i] {
+                    Self::solve(self.r, t * self.f_max, lo, hi, 24)
+                } else {
+                    lo + (hi - lo) * (pos - i as f64)
+                }
+            }
+        };
+        (1.0 - d).clamp(0.0, 1.0)
+    }
+}
+
+#[cfg(test)]
+mod compressed_history_perf_tests {
+    use super::CompressedHistoryGraph as G;
+
+    fn old_ratio(m: f64) -> f64 {
+        if !m.is_finite() || m <= 1.0 {
+            return 0.0;
+        }
+        let (mut lo, mut hi) = (0.0_f64, m.max(1.0));
+        for _ in 0..64 {
+            let mid = (lo + hi) * 0.5;
+            if m <= 1.0 + mid + mid * mid + mid * mid * mid {
+                hi = mid;
+            } else {
+                lo = mid;
+            }
+        }
+        (lo + hi) * 0.5
+    }
+
+    fn old_age(d: f64, m: f64) -> f64 {
+        if !d.is_finite() || d <= 0.0 || !m.is_finite() || m <= 1.0 {
+            return d;
+        }
+        let r = old_ratio(m);
+        if r <= 0.0 {
+            return d;
+        }
+        let (r2, r3) = (r * r, r * r * r);
+        let (bs, base, s0, s1) = if d <= 0.25 {
+            (0.0, 0.0, 1.0, 1.0)
+        } else if d <= 0.5 {
+            (0.25, 0.25, 1.0, r)
+        } else if d <= 0.75 {
+            (0.5, 0.25 + 0.25 * r, r, r2)
+        } else if d <= 1.0 {
+            (0.75, 0.25 + 0.25 * r + 0.25 * r2, r2, r3)
+        } else {
+            return 0.25 * (1.0 + r + r2 + r3) + r3 * (d - 1.0);
+        };
+        let u = ((d - bs) * 4.0).clamp(0.0, 1.0);
+        let (u2, u3) = (u * u, u * u * u);
+        let u4 = u3 * u;
+        let mid_s = (s0 + s1) * 0.5;
+        let blend = (-0.5 * u4 + u3) * (s1 - s0) + u * s0 + (-2.0 * u3 + 3.0 * u2) * (s1 - mid_s);
+        base + blend * 0.25
+    }
+
+    fn old_map(age: f64, win: f64, m: f64) -> f64 {
+        if !age.is_finite() || age <= 0.0 || win <= 0.0 {
+            return 1.0;
+        }
+        let target = (age / win) * old_age(1.0, m).max(1e-5);
+        let (mut lo, mut hi) = (0.0_f64, 1.0_f64);
+        for _ in 0..24 {
+            let mid = (lo + hi) * 0.5;
+            if old_age(mid, m) < target {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        (1.0 - (lo + hi) * 0.5).clamp(0.0, 1.0)
+    }
+
+    const MULTS: [f64; 8] = [15.0, 0.0, 1.0, 1.5, 4.0, 100.0, -3.0, f64::NAN];
+
+    #[test]
+    fn new_mapping_matches_old_reference() {
+        let win = 300.0;
+        for &m in &MULTS {
+            for i in 0..=4000 {
+                let age = -10.0 + i as f64 * (win * 1.5 + 10.0) / 4000.0;
+                let (a, b) = (
+                    G::map_age_to_normalized_x(age, win, m),
+                    old_map(age, win, m),
+                );
+                assert!((a - b).abs() <= 1e-4, "m={m} age={age} new={a} old={b}");
+                let c = G::map_age_to_normalized_x_reference(age, win, m);
+                assert!((c - b).abs() <= 1e-12, "reference drift m={m} age={age}");
+            }
+            for i in 0..=4000 {
+                let d = -0.1 + i as f64 * 1.4 / 4000.0;
+                let (a, b) = (G::compressed_age_at_distance(d, m), old_age(d, m));
+                assert!(
+                    (a - b).abs() <= 1e-9 || (a.is_nan() && b.is_nan()),
+                    "m={m} d={d}"
+                );
+            }
+            let (a, b) = (G::history_band_ratio(m), old_ratio(m));
+            assert!(a == b, "ratio m={m}");
+        }
+        assert_eq!(G::map_age_to_normalized_x(0.0, win, 15.0), 1.0);
+        assert_eq!(G::map_age_to_normalized_x(5.0, 0.0, 15.0), 1.0);
+    }
+
+    #[test]
+    fn lut_mapping_dense_grid_within_1e4() {
+        let mut worst = 0.0_f64;
+        for &win in &[1.0, 7.5, 60.0, 300.0, 3600.0] {
+            for &m in &[15.0, 1.5, 2.0, 4.0, 1000.0] {
+                let n = 200_000;
+                for i in 0..=n {
+                    let age = win * 1.05 * (i as f64) / (n as f64);
+                    let a = G::map_age_to_normalized_x(age, win, m);
+                    let b = old_map(age, win, m);
+                    worst = worst.max((a - b).abs());
+                }
+                for age in [
+                    1e-12,
+                    1e-6,
+                    win * 0.25,
+                    win * 0.5,
+                    win * 0.75,
+                    win,
+                    win * (1.0 - 1e-9),
+                ] {
+                    let (a, b) = (
+                        G::map_age_to_normalized_x(age, win, m),
+                        old_map(age, win, m),
+                    );
+                    worst = worst.max((a - b).abs());
+                }
+            }
+        }
+        for age in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -1.0] {
+            assert_eq!(
+                G::map_age_to_normalized_x(age, 300.0, 15.0),
+                old_map(age, 300.0, 15.0)
+            );
+        }
+        assert!(worst <= 1e-4, "worst LUT error {worst}");
+    }
+
+    #[test]
+    #[ignore]
+    fn bench_map_age_old_vs_new() {
+        let n = 200_000;
+        let t = std::time::Instant::now();
+        let mut acc = 0.0;
+        for i in 0..n {
+            acc += old_map(1.0 + (i % 300) as f64, 300.0, 15.0);
+        }
+        let old_ns = t.elapsed().as_nanos() as f64 / n as f64;
+        let t = std::time::Instant::now();
+        for i in 0..n {
+            acc += G::map_age_to_normalized_x(1.0 + (i % 300) as f64, 300.0, 15.0);
+        }
+        let new_ns = t.elapsed().as_nanos() as f64 / n as f64;
+        println!(
+            "map_age_to_normalized_x: old {old_ns:.1} ns/call, new {new_ns:.1} ns/call ({acc})"
+        );
+    }
 }

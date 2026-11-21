@@ -2163,7 +2163,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-automation"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "compact_str",
  "nexus-collectors-macos",
@@ -2175,7 +2175,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-cli"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "clap",
  "compact_str",
@@ -2194,7 +2194,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-collectors-linux"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "compact_str",
  "libc",
@@ -2207,7 +2207,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-collectors-macos"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "compact_str",
  "core-foundation-sys",
@@ -2227,7 +2227,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-collectors-windows"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "compact_str",
  "libloading 0.8.9",
@@ -2240,7 +2240,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-core"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "bitflags 2.13.2",
  "compact_str",
@@ -2255,7 +2255,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-disk"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "compact_str",
  "nexus-core",
@@ -2269,7 +2269,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-ui"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "compact_str",
  "cosmic-text",

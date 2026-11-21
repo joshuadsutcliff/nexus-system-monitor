@@ -2,6 +2,18 @@
 
 All notable changes to **Nexus System Monitor** are documented in this file.
 
+## [v0.8.3] - 2026-11-21
+
+### Highlights
+- **Much faster graphs:** The Summary/Dashboard and Performance graphs are much faster. Graph mapping went from about 6 µs to about 34 ns per point. Idle CPU on macOS dropped from about 97% to about 28% at about 58 fps.
+- **Smooth graph scrolling:** Graphs on every data tab now scroll smoothly in real time.
+- **Capped redraws:** Redraws are capped and run slower when the window is unfocused.
+
+### Fixed
+- **Windows startup crash:** Fixed a startup crash when another app's `dxcompiler.dll` is on PATH.
+
+**Full Changelog**: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.8.2...v0.8.3
+
 ## [v0.8.2] - 2026-11-20
 
 ### Highlights
