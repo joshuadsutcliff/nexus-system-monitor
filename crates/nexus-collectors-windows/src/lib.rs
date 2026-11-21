@@ -219,6 +219,20 @@ impl WindowsCollector {
         }
     }
 
+    /// Normalizes a per-process CPU time delta (`d_cpu_ns`) over elapsed wall time (`dt_ns`) and
+    /// logical processor count (`logical_cores`) into `[0.0, 100.0]` of total system CPU capacity.
+    pub fn compute_normalized_process_cpu_percent(
+        d_cpu_ns: u64,
+        dt_ns: u64,
+        logical_cores: u32,
+    ) -> f64 {
+        if dt_ns == 0 {
+            return 0.0;
+        }
+        let denom = (dt_ns as f64) * f64::from(logical_cores.max(1));
+        ((d_cpu_ns as f64) / denom * 100.0).clamp(0.0, 100.0)
+    }
+
     /// Converts a Win32 `GetExtendedTcpTable` (`MIB_TCPROW_OWNER_PID`) record (network byte order ports/IPs)
     /// into a unified `NetworkConnectionEntry`.
     pub fn from_mib_tcp_row(
@@ -864,6 +878,9 @@ mod win32 {
             lp_exe_name: *mut u16,
             lpdw_size: *mut u32,
         ) -> i32;
+        fn ProcessIdToSessionId(dw_process_id: u32, p_session_id: *mut u32) -> i32;
+        fn GetCurrentProcess() -> *mut c_void;
+        fn K32EmptyWorkingSet(h_process: *mut c_void) -> i32;
         fn GetLastError() -> u32;
         fn CloseHandle(h_object: *mut c_void) -> i32;
     }
@@ -893,6 +910,26 @@ mod win32 {
     #[inline]
     fn filetime_to_u64(ft: FILETIME) -> u64 {
         (u64::from(ft.dw_high_date_time) << 32) | u64::from(ft.dw_low_date_time)
+    }
+
+    #[inline]
+    fn make_win32_process_key(pid_u32: u32, filetime_100ns: u64) -> ProcessKey {
+        let mut session_id: u32 = 0;
+        // SAFETY: `session_id` is a valid stack `u32`. Session 0 = system/service daemons (uid 0);
+        // Session >= 1 = interactive desktop user applications (uid 1000).
+        let uid = if pid_u32 > 4
+            && unsafe { ProcessIdToSessionId(pid_u32, &raw mut session_id) } != 0
+            && session_id >= 1
+        {
+            Some(1000)
+        } else {
+            Some(0)
+        };
+        ProcessKey {
+            pid: pid_u32 as i32,
+            creation_token_us: filetime_100ns / 10,
+            uid,
+        }
     }
 
     fn utf16_z_to_compact(buf: &[u16]) -> CompactString {
@@ -1689,7 +1726,7 @@ mod win32 {
         {
             return None;
         }
-        let key = WindowsCollector::make_process_key(target_pid, filetime_to_u64(ct));
+        let key = make_win32_process_key(target_pid, filetime_to_u64(ct));
 
         let mut ppid = 0i32;
         let mut exe_name = CompactString::const_new("");
@@ -1778,12 +1815,25 @@ mod win32 {
                 state.pdh = PdhSession::try_open(need_pdh_gpu);
             }
 
+            // Trim one-time DirectX shader compiler working-set pages after initial window creation
+            if snap.generation == 3 {
+                // SAFETY: `GetCurrentProcess()` returns the pseudo-handle for the current process.
+                unsafe {
+                    let _ = K32EmptyWorkingSet(GetCurrentProcess());
+                }
+            }
+
             let poll_pdh_gpu = state.nvml.is_none();
-            let pdh_sample = state
-                .pdh
-                .as_mut()
-                .map(|p| p.sample(poll_pdh_gpu))
-                .unwrap_or_default();
+            let should_poll_pdh = poll_pdh_gpu || snap.generation <= 2 || snap.generation % 8 == 1;
+            let pdh_sample = if should_poll_pdh {
+                state
+                    .pdh
+                    .as_mut()
+                    .map(|p| p.sample(poll_pdh_gpu))
+                    .unwrap_or_default()
+            } else {
+                PdhTickSample::default()
+            };
 
             let mut cpu_ok = false;
             let mut mem_ok = false;
@@ -2665,7 +2715,7 @@ mod win32 {
                                     )
                                 } != 0;
                                 let creation_100ns = if times_ok { filetime_to_u64(ct) } else { 0 };
-                                let key = Self::make_process_key(pid_u32, creation_100ns);
+                                let key = make_win32_process_key(pid_u32, creation_100ns);
                                 let total_cpu_ns = if times_ok {
                                     filetime_to_u64(kt)
                                         .saturating_add(filetime_to_u64(ut))
@@ -2701,7 +2751,11 @@ mod win32 {
                                     if dt_ns > 0 && total_cpu_ns >= *prev_cpu_ns {
                                         let d_cpu = total_cpu_ns - *prev_cpu_ns;
                                         Metric::measured(
-                                            ((d_cpu as f64) / (dt_ns as f64) * 100.0).max(0.0),
+                                            Self::compute_normalized_process_cpu_percent(
+                                                d_cpu,
+                                                dt_ns,
+                                                logical_cores,
+                                            ),
                                             pprov,
                                         )
                                     } else {
@@ -2819,7 +2873,7 @@ mod win32 {
                                 } else {
                                     UnavailableReason::TransientError
                                 };
-                                let key = Self::make_process_key(pid_u32, 0);
+                                let key = make_win32_process_key(pid_u32, 0);
                                 let proc_snap = ProcessSnapshot {
                                     key,
                                     ppid,
@@ -3084,5 +3138,13 @@ SSID 1 : StudioWiFi
         let valid_c =
             WindowsCollector::acpi_kelvin_to_valid_celsius(335.15).expect("valid 62C thermal");
         assert!((valid_c - 62.0).abs() < 0.01);
+
+        // Per-process CPU % normalization by logical core count (1.137 cores on 16-thread CPU = 7.10625%)
+        let norm_cpu = WindowsCollector::compute_normalized_process_cpu_percent(
+            1_137_000_000,
+            1_000_000_000,
+            16,
+        );
+        assert!((norm_cpu - 7.10625).abs() < 1e-4);
     }
 }

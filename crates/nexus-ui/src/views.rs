@@ -197,6 +197,45 @@ pub enum ProcessGroupingMode {
     CoalitionAppGroup,
 }
 
+/// Sortable columns in the `Processes & Applications` table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub enum ProcessSortColumn {
+    Name,
+    Impact,
+    Cpu,
+    #[default]
+    Memory,
+    Group,
+    Pid,
+    Token,
+}
+
+impl ProcessSortColumn {
+    pub fn from_column_id(id: &str) -> Option<Self> {
+        match id {
+            "name" => Some(Self::Name),
+            "impact" => Some(Self::Impact),
+            "cpu" => Some(Self::Cpu),
+            "mem" => Some(Self::Memory),
+            "group" => Some(Self::Group),
+            "pid" => Some(Self::Pid),
+            "token" => Some(Self::Token),
+            _ => None,
+        }
+    }
+
+    pub const fn default_descending(self) -> bool {
+        match self {
+            Self::Cpu | Self::Memory | Self::Impact | Self::Pid | Self::Token => true,
+            Self::Name | Self::Group => false,
+        }
+    }
+}
+
+fn default_sort_descending() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProcessInspectorDossier {
     pub key: ProcessKey,
@@ -220,6 +259,20 @@ pub struct ProcessTableRowView {
     pub exited_wash: Option<ExitedRowWashStyle>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProcessTableCacheKey {
+    generation: u64,
+    sampled_at_ns: u64,
+    process_count: usize,
+    exited_count: usize,
+    sort_column: ProcessSortColumn,
+    sort_descending: bool,
+    grouping_mode: Option<ProcessGroupingMode>,
+    search_query: String,
+    show_exited: bool,
+    highlight_updates: bool,
+}
+
 /// Interactive state machine for `ProcessesView` (`0x1003706a0`), supporting flat, hierarchical (`ppid`),
 /// and coalition/app-bundle grouping, live search filtering, `ProcessInspectorView` (`0x100377f00`),
 /// automatic dead-PID pruning in `collapsed_process_ids`, `RankGlowLayerView`, and `ExitedRowWash`.
@@ -227,6 +280,10 @@ pub struct ProcessTableRowView {
 pub struct ProcessTableState {
     pub grouping_mode: Option<ProcessGroupingMode>,
     pub search_query: String,
+    #[serde(default)]
+    pub sort_column: ProcessSortColumn,
+    #[serde(default = "default_sort_descending")]
+    pub sort_descending: bool,
     pub selected_key: Option<ProcessKey>,
     pub inspector_open: bool,
     pub highlight_updates: bool,
@@ -234,6 +291,10 @@ pub struct ProcessTableState {
     pub collapsed_process_ids: HashSet<String>,
     pub rank_glows: HashMap<ProcessKey, RankGlowEntry>,
     pub prev_cpu_by_key: HashMap<ProcessKey, f64>,
+    #[serde(skip)]
+    cached_key: Option<ProcessTableCacheKey>,
+    #[serde(skip)]
+    cached_rows: Vec<ProcessTableRowView>,
 }
 
 impl ProcessTableState {
@@ -241,6 +302,8 @@ impl ProcessTableState {
         Self {
             grouping_mode: Some(ProcessGroupingMode::Flat),
             search_query: String::new(),
+            sort_column: ProcessSortColumn::Memory,
+            sort_descending: true,
             selected_key: None,
             inspector_open: false,
             highlight_updates: true,
@@ -248,7 +311,20 @@ impl ProcessTableState {
             collapsed_process_ids: HashSet::new(),
             rank_glows: HashMap::new(),
             prev_cpu_by_key: HashMap::new(),
+            cached_key: None,
+            cached_rows: Vec::new(),
         }
+    }
+
+    /// Toggles sort order when clicking an active column, or selects a new column with its natural sort direction.
+    pub fn toggle_sort(&mut self, column: ProcessSortColumn) {
+        if self.sort_column == column {
+            self.sort_descending = !self.sort_descending;
+        } else {
+            self.sort_column = column;
+            self.sort_descending = column.default_descending();
+        }
+        self.cached_key = None;
     }
 
     /// Prunes dead `ProcessKey` strings from `self.collapsed_process_ids`.
@@ -263,6 +339,22 @@ impl ProcessTableState {
 
     /// Updates the table from a `SystemSnapshot` and produces styled `ProcessTableRowView` rows.
     pub fn build_rows(&mut self, snap: &SystemSnapshot) -> Vec<ProcessTableRowView> {
+        let cache_key = ProcessTableCacheKey {
+            generation: snap.generation,
+            sampled_at_ns: snap.sampled_at_ns,
+            process_count: snap.processes.len(),
+            exited_count: snap.exited_processes.len(),
+            sort_column: self.sort_column,
+            sort_descending: self.sort_descending,
+            grouping_mode: self.grouping_mode,
+            search_query: self.search_query.clone(),
+            show_exited: self.show_exited,
+            highlight_updates: self.highlight_updates,
+        };
+        if self.cached_key.as_ref() == Some(&cache_key) {
+            return self.cached_rows.clone();
+        }
+
         self.prune_dead_collapsed_ids(&snap.processes);
 
         let total_mem = match snap.system.mem_total_bytes.reading {
@@ -282,17 +374,69 @@ impl ProcessTableState {
             .cloned()
             .collect();
 
-        // Sort descending by physical footprint (`processTableSortColumn` default `"memory"` at `0x1005491cc`)
+        let sort_col = self.sort_column;
+        let desc = self.sort_descending;
+        let metric_f64 = |m: &nexus_core::Metric<f64>| match m.reading {
+            MetricReading::Measured { value, .. } if value.is_finite() => value,
+            _ => -1.0,
+        };
+        let impact_score = |p: &ProcessSnapshot| -> (u8, f64) {
+            let cpu = metric_f64(&p.cpu_percent).max(0.0);
+            let mem_mib = (metric_f64(&p.phys_footprint_bytes).max(0.0)) / (1024.0 * 1024.0);
+            let tier = if cpu >= 35.0 {
+                3
+            } else if mem_mib >= 1536.0 {
+                2
+            } else if cpu >= 10.0 || mem_mib >= 512.0 {
+                1
+            } else {
+                0
+            };
+            (tier, cpu * 16.0 + mem_mib * 0.05)
+        };
+
         filtered.sort_by(|a, b| {
-            let ma = match a.phys_footprint_bytes.reading {
-                MetricReading::Measured { value, .. } => value,
-                _ => -1.0,
+            let ord = match sort_col {
+                ProcessSortColumn::Memory => metric_f64(&a.phys_footprint_bytes)
+                    .partial_cmp(&metric_f64(&b.phys_footprint_bytes))
+                    .unwrap_or(std::cmp::Ordering::Equal),
+                ProcessSortColumn::Cpu => metric_f64(&a.cpu_percent)
+                    .partial_cmp(&metric_f64(&b.cpu_percent))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| {
+                        metric_f64(&a.phys_footprint_bytes)
+                            .partial_cmp(&metric_f64(&b.phys_footprint_bytes))
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    }),
+                ProcessSortColumn::Impact => {
+                    let (ta, sa) = impact_score(a);
+                    let (tb, sb) = impact_score(b);
+                    ta.cmp(&tb)
+                        .then_with(|| sa.partial_cmp(&sb).unwrap_or(std::cmp::Ordering::Equal))
+                }
+                ProcessSortColumn::Name => a
+                    .name
+                    .as_str()
+                    .to_ascii_lowercase()
+                    .cmp(&b.name.as_str().to_ascii_lowercase())
+                    .then_with(|| a.name.cmp(&b.name)),
+                ProcessSortColumn::Group => {
+                    let ga = derive_coalition_group_name(&a.name);
+                    let gb = derive_coalition_group_name(&b.name);
+                    ga.as_str()
+                        .to_ascii_lowercase()
+                        .cmp(&gb.as_str().to_ascii_lowercase())
+                        .then_with(|| {
+                            metric_f64(&a.phys_footprint_bytes)
+                                .partial_cmp(&metric_f64(&b.phys_footprint_bytes))
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                        })
+                }
+                ProcessSortColumn::Pid => a.key.pid.cmp(&b.key.pid),
+                ProcessSortColumn::Token => a.key.creation_token_us.cmp(&b.key.creation_token_us),
             };
-            let mb = match b.phys_footprint_bytes.reading {
-                MetricReading::Measured { value, .. } => value,
-                _ => -1.0,
-            };
-            mb.partial_cmp(&ma).unwrap_or(std::cmp::Ordering::Equal)
+            let directed = if desc { ord.reverse() } else { ord };
+            directed.then_with(|| a.key.pid.cmp(&b.key.pid))
         });
 
         // Update top-10 RankGlow excitations (`0x10054525c`)
@@ -385,6 +529,8 @@ impl ProcessTableState {
             }
         }
 
+        self.cached_key = Some(cache_key);
+        self.cached_rows = rows.clone();
         rows
     }
 
@@ -410,10 +556,30 @@ impl ProcessTableState {
             name: p.name.clone(),
             group_key: derive_coalition_group_name(&p.name),
             cpu_formatted: p.cpu_percent.format_with_unit(1, "%"),
-            phys_footprint_formatted: p.phys_footprint_bytes.format_with_unit(0, "B"),
-            resident_formatted: p.resident_bytes.format_with_unit(0, "B"),
+            phys_footprint_formatted: format_process_bytes_metric(&p.phys_footprint_bytes),
+            resident_formatted: format_process_bytes_metric(&p.resident_bytes),
             status_label,
         })
+    }
+}
+
+fn format_process_bytes_metric(metric: &nexus_core::Metric<f64>) -> String {
+    match metric.reading {
+        MetricReading::Measured { value, .. } if value.is_finite() && value >= 0.0 => {
+            const KIB: f64 = 1024.0;
+            const MIB: f64 = 1024.0 * 1024.0;
+            const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
+            if value >= GIB {
+                format!("{:.2} GiB ({:.0} B)", value / GIB, value)
+            } else if value >= MIB {
+                format!("{:.1} MiB ({:.0} B)", value / MIB, value)
+            } else if value >= KIB {
+                format!("{:.1} KiB ({:.0} B)", value / KIB, value)
+            } else {
+                format!("{:.0} B", value)
+            }
+        }
+        _ => metric.format_with_unit(0, "B"),
     }
 }
 

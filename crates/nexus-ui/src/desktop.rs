@@ -101,6 +101,27 @@ struct TrayMenuState {
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 struct TrayMenuState;
 
+/// Creates a memory-conscious `egui_wgpu::WgpuConfiguration`.
+/// On Windows, selects `Backends::DX12` only so `wgpu` does not load both DX12 and Vulkan/GL
+/// driver ICDs into the process working set at startup, and hints `MemoryHints::MemoryUsage`.
+fn default_wgpu_configuration() -> egui_wgpu::WgpuConfiguration {
+    let mut cfg = egui_wgpu::WgpuConfiguration::default();
+    if let egui_wgpu::WgpuSetup::CreateNew(ref mut create_new) = cfg.wgpu_setup {
+        #[cfg(target_os = "windows")]
+        {
+            create_new.instance_descriptor.backends = wgpu::Backends::DX12;
+        }
+        create_new.power_preference = wgpu::PowerPreference::LowPower;
+        let base_device_desc = Arc::clone(&create_new.device_descriptor);
+        create_new.device_descriptor = Arc::new(move |adapter| {
+            let mut desc = (base_device_desc)(adapter);
+            desc.memory_hints = wgpu::MemoryHints::MemoryUsage;
+            desc
+        });
+    }
+    cfg
+}
+
 #[derive(Debug, Clone)]
 struct SharedAutomationConfig {
     rules: Vec<ProcessRule>,
@@ -734,14 +755,29 @@ impl GuiApp {
                 .ok();
             if let (Some(db), Some(rt)) = (store, rt) {
                 rt.block_on(async move {
+                    let mut last_write_ms: i64 = 0;
+                    let mut writes_since_prune: u32 = 0;
+                    let mut cached_cnt = db.row_count().unwrap_or(0);
                     while let Some(snap) = storage_rx.recv().await {
-                        let _ = db.insert_snapshot(&snap, now_unix_ms());
-                        let _ = db.prune_to_max_rows(20_000);
-                        if let Ok(cnt) = db.row_count() {
+                        let now_ms = now_unix_ms();
+                        if last_write_ms != 0 && now_ms.saturating_sub(last_write_ms) < 10_000 {
+                            continue;
+                        }
+                        last_write_ms = now_ms;
+                        if db.insert_snapshot(&snap, now_ms).is_ok() {
+                            cached_cnt = cached_cnt.saturating_add(1);
+                            writes_since_prune += 1;
+                            if writes_since_prune >= 60 {
+                                writes_since_prune = 0;
+                                let _ = db.prune_to_max_rows(20_000);
+                                if let Ok(cnt) = db.row_count() {
+                                    cached_cnt = cnt;
+                                }
+                            }
                             st_runtime
                                 .lock()
                                 .unwrap_or_else(|e| e.into_inner())
-                                .storage_rows_written = cnt;
+                                .storage_rows_written = cached_cnt;
                         }
                     }
                 });
@@ -826,11 +862,10 @@ impl GuiApp {
         let egui_ctx = egui::Context::default();
         configure_bundled_fonts(&egui_ctx);
         let popout_egui_ctx = egui::Context::default();
-        configure_bundled_fonts(&popout_egui_ctx);
 
         let painter = tokio_rt.block_on(Painter::new(
             egui_ctx.clone(),
-            egui_wgpu::WgpuConfiguration::default(),
+            default_wgpu_configuration(),
             false,
             egui_wgpu::RendererOptions::default(),
         ));
@@ -1839,7 +1874,7 @@ impl GuiApp {
             if let Some(srv) = &self.remote_server {
                 srv.broadcast_snapshot(&newest);
             }
-            if self.flight_recorder.len() >= 300 {
+            if self.flight_recorder.len() >= 64 {
                 self.flight_recorder.remove(0);
             }
             self.flight_recorder.push(Arc::clone(&newest));
@@ -6175,8 +6210,41 @@ impl GuiApp {
                         .striped(true)
                         .spacing([9.0, 5.0])
                         .show(ui, |ui| {
+                            let cur_sort_col = self.app.process_table.sort_column;
+                            let cur_sort_desc = self.app.process_table.sort_descending;
                             for col in &visible_cols {
-                                ui.label(RichText::new(col.label.as_str()).strong());
+                                if let Some(sc) =
+                                    crate::views::ProcessSortColumn::from_column_id(col.id.as_str())
+                                {
+                                    let is_active = cur_sort_col == sc;
+                                    let arrow = if is_active {
+                                        if cur_sort_desc { " ▼" } else { " ▲" }
+                                    } else {
+                                        ""
+                                    };
+                                    let hdr_txt = format!("{}{arrow}", col.label);
+                                    let hdr_color = if is_active {
+                                        accent
+                                    } else {
+                                        ui.visuals().strong_text_color()
+                                    };
+                                    if ui
+                                        .add(
+                                            egui::Button::new(
+                                                RichText::new(hdr_txt).strong().color(hdr_color),
+                                            )
+                                            .frame(false),
+                                        )
+                                        .on_hover_text(
+                                            "Click to sort column (toggles high-to-low / low-to-high)",
+                                        )
+                                        .clicked()
+                                    {
+                                        self.app.process_table.toggle_sort(sc);
+                                    }
+                                } else {
+                                    ui.label(RichText::new(col.label.as_str()).strong());
+                                }
                             }
                             ui.end_row();
 
@@ -8205,10 +8273,13 @@ impl GuiApp {
 }
 
 impl ApplicationHandler<UserEvent> for GuiApp {
-    fn new_events(&mut self, _event_loop: &ActiveEventLoop, cause: StartCause) {
+    fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
         if cause == StartCause::Init {
             self.init_tray_if_needed();
         } else if matches!(cause, StartCause::ResumeTimeReached { .. }) {
+            // Reset expired WaitUntil immediately so winit does not spin at 100% CPU
+            // re-emitting ResumeTimeReached before RedrawRequested is dispatched.
+            event_loop.set_control_flow(ControlFlow::Wait);
             if self.window_visible
                 && let Some(w) = &self.window
             {
@@ -8225,7 +8296,7 @@ impl ApplicationHandler<UserEvent> for GuiApp {
             return;
         }
         let attrs = Window::default_attributes()
-            .with_title("Nexus System Monitor (v0.8.1)")
+            .with_title("Nexus System Monitor (v0.8.2)")
             .with_inner_size(LogicalSize::new(1280.0, 820.0))
             .with_window_icon(load_winit_window_icon());
         let window = Arc::new(
@@ -8675,7 +8746,9 @@ impl ApplicationHandler<UserEvent> for GuiApp {
                             Instant::now() + Duration::from_millis(pace_ms),
                         ));
                     } else if root_repaint_delay == Duration::ZERO {
-                        window.request_redraw();
+                        event_loop.set_control_flow(ControlFlow::WaitUntil(
+                            Instant::now() + Duration::from_millis(16),
+                        ));
                     } else {
                         let refresh_wait =
                             Duration::from_millis(self.preferred_interval_ms.max(250));

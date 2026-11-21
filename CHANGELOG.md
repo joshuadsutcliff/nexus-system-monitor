@@ -2,6 +2,20 @@
 
 All notable changes to **Nexus System Monitor** are documented in this file.
 
+## [v0.8.2] - 2026-11-20
+
+### Highlights
+- **Sortable Processes and Installed Apps columns:** Column headers are now clickable. Click a header to sort by that column. Click again to reverse the order. The active column shows a ▼ or ▲ marker.
+- **Per-core process CPU%:** Process CPU% is now divided by the logical core count, so a fully busy process shows at most 100%.
+- **Lower Windows memory use:** The Windows build uses the wgpu DX12 backend with low-power and memory hints, trims its working set with `K32EmptyWorkingSet`, loads the popout font once, and keeps 64 flight recorder snapshots (was 300).
+- **User and system process classification:** Windows processes are classified as user or system through `ProcessIdToSessionId`. The Inspector shows sizes in MiB and GiB.
+
+### Fixed
+- **Disk write burn:** Removed an excess disk write loop.
+- **Duplicate popout font load:** Removed the second font load in the popout window.
+
+**Full Changelog**: https://github.com/joshuadsutcliff/nexus-system-monitor/compare/v0.8.1...v0.8.2
+
 ## [v0.8.1] - 2026-11-20
 
 ### Highlights

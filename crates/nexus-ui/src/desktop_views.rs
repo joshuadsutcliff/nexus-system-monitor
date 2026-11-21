@@ -1187,6 +1187,38 @@ pub fn draw_configure_columns_panel(
     dirty
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AppSortColumn {
+    #[default]
+    Name,
+    Version,
+    Size,
+    Cpu,
+    Memory,
+    BundleId,
+}
+
+impl AppSortColumn {
+    pub fn from_column_id(id: &str) -> Option<Self> {
+        match id {
+            "name" => Some(Self::Name),
+            "version" => Some(Self::Version),
+            "size" => Some(Self::Size),
+            "cpu" => Some(Self::Cpu),
+            "mem" => Some(Self::Memory),
+            "bundle_id" => Some(Self::BundleId),
+            _ => None,
+        }
+    }
+
+    pub const fn default_descending(self) -> bool {
+        match self {
+            Self::Size | Self::Cpu | Self::Memory => true,
+            Self::Name | Self::Version | Self::BundleId => false,
+        }
+    }
+}
+
 pub struct PlatformDataCache {
     pub services: Vec<ServiceEntry>,
     pub service_filter: String,
@@ -1228,6 +1260,8 @@ pub struct PlatformDataCache {
     pub process_columns_open: bool,
     pub app_columns: Vec<TableColumnConfig>,
     pub app_columns_open: bool,
+    pub apps_sort_column: AppSortColumn,
+    pub apps_sort_descending: bool,
     pub app_live_usage: HashMap<CompactString, AppLiveUsage>,
 }
 
@@ -1280,6 +1314,8 @@ impl PlatformDataCache {
             process_columns_open: false,
             app_columns: default_app_columns(),
             app_columns_open: false,
+            apps_sort_column: AppSortColumn::Name,
+            apps_sort_descending: false,
             app_live_usage: HashMap::new(),
         }
     }
@@ -3746,11 +3782,48 @@ pub fn draw_installed_apps_view(
                         .striped(true)
                         .spacing([10.0, 5.0])
                         .show(ui, |ui| {
+                            let cur_sort_col = cache.apps_sort_column;
+                            let cur_sort_desc = cache.apps_sort_descending;
                             for c in &visible_cols {
-                                ui.label(RichText::new(c.label.as_str()).strong());
+                                if let Some(sc) = AppSortColumn::from_column_id(c.id.as_str()) {
+                                    let is_active = cur_sort_col == sc;
+                                    let arrow = if is_active {
+                                        if cur_sort_desc { " ▼" } else { " ▲" }
+                                    } else {
+                                        ""
+                                    };
+                                    let hdr_txt = format!("{}{arrow}", c.label);
+                                    let hdr_color = if is_active {
+                                        accent
+                                    } else {
+                                        ui.visuals().strong_text_color()
+                                    };
+                                    if ui
+                                        .add(
+                                            egui::Button::new(
+                                                RichText::new(hdr_txt).strong().color(hdr_color),
+                                            )
+                                            .frame(false),
+                                        )
+                                        .on_hover_text(
+                                            "Click to sort column (toggles high-to-low / low-to-high)",
+                                        )
+                                        .clicked()
+                                    {
+                                        if cache.apps_sort_column == sc {
+                                            cache.apps_sort_descending =
+                                                !cache.apps_sort_descending;
+                                        } else {
+                                            cache.apps_sort_column = sc;
+                                            cache.apps_sort_descending = sc.default_descending();
+                                        }
+                                    }
+                                } else {
+                                    ui.label(RichText::new(c.label.as_str()).strong());
+                                }
                             }
                             ui.end_row();
-                            for (idx, app) in cache
+                            let mut sorted_apps: Vec<usize> = cache
                                 .installed_apps
                                 .iter()
                                 .enumerate()
@@ -3759,8 +3832,47 @@ pub fn draw_installed_apps_view(
                                         || a.name.to_ascii_lowercase().contains(&q)
                                         || a.bundle_id.to_ascii_lowercase().contains(&q)
                                 })
-                                .take(180)
-                            {
+                                .map(|(idx, _)| idx)
+                                .collect();
+                            let sort_col = cache.apps_sort_column;
+                            let sort_desc = cache.apps_sort_descending;
+                            sorted_apps.sort_by(|&ia, &ib| {
+                                let a = &cache.installed_apps[ia];
+                                let b = &cache.installed_apps[ib];
+                                let ua = cache.app_live_usage.get(&a.path);
+                                let ub = cache.app_live_usage.get(&b.path);
+                                let ord = match sort_col {
+                                    AppSortColumn::Name => a
+                                        .name
+                                        .as_str()
+                                        .to_ascii_lowercase()
+                                        .cmp(&b.name.as_str().to_ascii_lowercase()),
+                                    AppSortColumn::Version => a
+                                        .version
+                                        .as_str()
+                                        .to_ascii_lowercase()
+                                        .cmp(&b.version.as_str().to_ascii_lowercase()),
+                                    AppSortColumn::Size => {
+                                        a.size_bytes.unwrap_or(0).cmp(&b.size_bytes.unwrap_or(0))
+                                    }
+                                    AppSortColumn::Cpu => ua
+                                        .map_or(0.0, |u| u.cpu_percent)
+                                        .partial_cmp(&ub.map_or(0.0, |u| u.cpu_percent))
+                                        .unwrap_or(std::cmp::Ordering::Equal),
+                                    AppSortColumn::Memory => ua
+                                        .map_or(0, |u| u.memory_bytes)
+                                        .cmp(&ub.map_or(0, |u| u.memory_bytes)),
+                                    AppSortColumn::BundleId => a
+                                        .bundle_id
+                                        .as_str()
+                                        .to_ascii_lowercase()
+                                        .cmp(&b.bundle_id.as_str().to_ascii_lowercase()),
+                                };
+                                let directed = if sort_desc { ord.reverse() } else { ord };
+                                directed.then_with(|| ia.cmp(&ib))
+                            });
+                            for idx in sorted_apps.into_iter().take(180) {
+                                let app = &cache.installed_apps[idx];
                                 let selected = cache.selected_app_idx == Some(idx);
                                 let usage = cache.app_live_usage.get(&app.path);
                                 let is_running = usage

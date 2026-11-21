@@ -54,8 +54,8 @@ pub use theme::{
 };
 pub use views::{
     Destination, ExitedRowWashStyle, ProcessGroupingMode, ProcessInspectorDossier,
-    ProcessTableRowView, ProcessTableState, RankGlowEntry, compute_exited_row_wash, heat_ramp_rgba,
-    process_update_excitation,
+    ProcessSortColumn, ProcessTableRowView, ProcessTableState, RankGlowEntry,
+    compute_exited_row_wash, heat_ramp_rgba, process_update_excitation,
 };
 
 /// Root application shell coordinating `ThemeEngine`, `PageEngine`, `ProcessTableState`,
@@ -460,6 +460,56 @@ mod tests {
             .expect("dossier must resolve");
         assert_eq!(dossier.group_key.as_str(), "Obsidian");
         assert_eq!(dossier.status_label.as_str(), "Running");
+        assert!(
+            dossier.phys_footprint_formatted.contains("MiB"),
+            "expected human-readable MiB in dossier, got {}",
+            dossier.phys_footprint_formatted
+        );
+
+        // Verify bidirectional column sorting (high-to-low and low-to-high)
+        let second_key = ProcessKey {
+            pid: 2048,
+            creation_token_us: 2_000_000,
+            uid: Some(501),
+        };
+        snap.generation = 2;
+        snap.processes.push(ProcessSnapshot {
+            key: second_key,
+            ppid: 1,
+            name: CompactString::const_new("AlphaWorker"),
+            cpu_percent: Metric::measured(5.0, prov),
+            phys_footprint_bytes: Metric::measured(2048.0 * 1024.0 * 1024.0, prov),
+            resident_bytes: Metric::measured(2048.0 * 1024.0 * 1024.0, prov),
+            disk_read_bytes: Metric::measured(0.0, prov),
+            disk_write_bytes: Metric::measured(0.0, prov),
+            exited_at_ns: None,
+        });
+
+        // Default sort: Memory descending (2048 MiB AlphaWorker before 512 MiB Obsidian Helper)
+        let rows_mem_desc = app.process_table.build_rows(&snap);
+        assert_eq!(rows_mem_desc[0].snapshot.key, second_key);
+        assert_eq!(rows_mem_desc[1].snapshot.key, live_key);
+
+        // Toggle Memory sort -> ascending (low-to-high: 512 MiB Obsidian Helper first)
+        app.process_table.toggle_sort(ProcessSortColumn::Memory);
+        assert!(!app.process_table.sort_descending);
+        let rows_mem_asc = app.process_table.build_rows(&snap);
+        assert_eq!(rows_mem_asc[0].snapshot.key, live_key);
+        assert_eq!(rows_mem_asc[1].snapshot.key, second_key);
+
+        // Click CPU % -> defaults to descending (high-to-low: 65% Obsidian Helper before 5% AlphaWorker)
+        app.process_table.toggle_sort(ProcessSortColumn::Cpu);
+        assert!(app.process_table.sort_descending);
+        let rows_cpu_desc = app.process_table.build_rows(&snap);
+        assert_eq!(rows_cpu_desc[0].snapshot.key, live_key);
+        assert_eq!(rows_cpu_desc[1].snapshot.key, second_key);
+
+        // Click CPU % again -> ascending (low-to-high: 5% AlphaWorker first)
+        app.process_table.toggle_sort(ProcessSortColumn::Cpu);
+        assert!(!app.process_table.sort_descending);
+        let rows_cpu_asc = app.process_table.build_rows(&snap);
+        assert_eq!(rows_cpu_asc[0].snapshot.key, second_key);
+        assert_eq!(rows_cpu_asc[1].snapshot.key, live_key);
     }
 
     #[test]
